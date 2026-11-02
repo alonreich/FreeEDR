@@ -1,0 +1,73 @@
+{
+  "realtimePath": [],
+  "realtime": [
+    {
+      "id": "6b2c5d1e68b14f3b91b84be4b9f33846",
+      "added": "2026-11-01 21:38",
+      "rule": "*",
+      "raw": "C:\\Program Files\\Microsoft OneDrive\\26.195.1006.0007_1\\OneDrive.Sync.Service.exe",
+      "parent": "",
+      "image": "C:\\Program Files\\Microsoft OneDrive\\26.195.1006.0007_1\\OneDrive.Sync.Service.exe"
+    },
+    {
+      "id": "65706896a1db41bc86d60fa03f6924ee",
+      "added": "2026-11-01 21:43",
+      "rule": "*",
+      "raw": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+      "parent": "",
+      "image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+    },
+    {
+      "id": "69d563bd47214552b15d71d40410b159",
+      "added": "2026-11-01 22:50",
+      "rule": "*",
+      "raw": "C:\\Users\\user\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe",
+      "parent": "",
+      "image": "C:\\Users\\user\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe"
+    },
+    {
+      "id": "3929605dd00745ec9bda8c27883aa0fe",
+      "added": "2026-11-01 22:51",
+      "rule": "*",
+      "raw": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "parent": "",
+      "image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+    },
+    {
+      "id": "0801288f2759429d8be830a2df467d2e",
+      "added": "2026-11-01 23:02",
+      "rule": "*",
+      "raw": "C:\\WINDOWS\\system32\\sihost.exe",
+      "parent": "",
+      "image": "C:\\WINDOWS\\system32\\sihost.exe"
+    }
+  ],
+  "ioc": [],
+  "yara": [],
+  "sigma": [],
+  "wail2ban": [],
+  "cve": [],
+  "defender": [
+    {
+      "id": "108d4601a9594868a25a537f53809a31",
+      "added": "2026-11-01 22:51",
+      "path": "C:\\Windows\\explorer.exe",
+      "note": "",
+      "kind": "cfa"
+    },
+    {
+      "id": "689988779c574c06adee66f2a824164b",
+      "added": "2026-11-01 22:51",
+      "path": "C:\\ProjectB\\.dev-run\\app\\ProjectB.exe",
+      "note": "",
+      "kind": "cfa"
+    },
+    {
+      "id": "11354a0388fd43cabd0d569a9758ec69",
+      "added": "2026-11-01 22:51",
+      "path": "C:\\Windows\\System32\\dllhost.exe",
+      "note": "",
+      "kind": "cfa"
+    }
+  ]
+}

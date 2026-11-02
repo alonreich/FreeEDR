@@ -1,0 +1,37 @@
+{
+  "heartbeat": "2099-01-01T00:00:00",
+  "engineStarted": "2026-11-01T21:35:29",
+  "edr": {
+    "state": "on",
+    "pausedUntil": null,
+    "error": null
+  },
+  "wail2ban": {
+    "state": "on",
+    "pausedUntil": null,
+    "error": null,
+    "banned": [
+      {
+        "ip": "198.51.100.9",
+        "expires": "2026-11-01 14:00:00",
+        "strikes": 3
+      }
+    ],
+    "rdp140": true
+  },
+  "sysmon": {
+    "ok": true,
+    "message": "Running",
+    "service": "Running",
+    "driver": "Running"
+  },
+  "scan": {
+    "running": false,
+    "lastStart": "2026-11-01T21:15:49",
+    "lastEnd": "2026-11-01T21:16:50",
+    "ok": true,
+    "summary": "Sigma scan failed",
+    "nextDue": "2026-11-02T06:00:00"
+  },
+  "blocks": 1
+}

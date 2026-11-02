@@ -1,0 +1,47 @@
+{
+  "heartbeat": "2026-11-01T23:05:33",
+  "engineStarted": "2026-11-01T21:35:29",
+  "edr": {
+    "state": "on",
+    "pausedUntil": null,
+    "error": null,
+    "iocHashes": 1175,
+    "yaraRules": [
+      "custom_edr.yar",
+      "ransomware.yar"
+    ]
+  },
+  "wail2ban": {
+    "state": "on",
+    "pausedUntil": null,
+    "error": null,
+    "banned": [],
+    "rdp140": true
+  },
+  "sysmon": {
+    "ok": true,
+    "message": "Running",
+    "service": "Running",
+    "driver": "Running"
+  },
+  "defender": {
+    "realtime": true,
+    "tamper": true,
+    "signatureAgeDays": 0,
+    "asrBlockRules": 14,
+    "controlledFolders": "On"
+  },
+  "scan": {
+    "running": false,
+    "lastStart": "2026-11-01T21:15:49",
+    "lastEnd": "2026-11-01T21:16:50",
+    "ok": true,
+    "summary": "0 new Sigma alerts, 0 new vulnerabilities to patch",
+    "nextDue": "2026-11-02T06:00:00",
+    "times": [
+      "06:00",
+      "18:00"
+    ]
+  },
+  "blocks": 0
+}

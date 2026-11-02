@@ -1,0 +1,7 @@
+# Build output (build\env.cmd keeps temp files, NuGet caches and the .NET CLI home in .\obj)
+obj/
+bin/
+build.log
+TestResults/
+*.user
+.vs/

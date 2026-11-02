@@ -1,0 +1,17 @@
+<Project>
+  <!-- Shared by every project: .NET 10 LTS, C# 14, AOT-safe, warnings are errors (trim/AOT warnings included). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <LangVersion>14</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Deterministic>true</Deterministic>
+    <Company>FreeEDR Project</Company>
+    <Product>FreeEDR</Product>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+</Project>

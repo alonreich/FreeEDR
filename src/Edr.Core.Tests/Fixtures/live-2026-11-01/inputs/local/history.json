@@ -1,0 +1,247 @@
+{
+  "items": [
+    {
+      "id": "fdbc65c71bac4063911fef771a15e80a",
+      "sec": "apps",
+      "key": "GitHub.cli",
+      "time": "2026-11-01 21:14:28",
+      "version": "2.94.0",
+      "latest": "2.103.3",
+      "name": "GitHub CLI"
+    },
+    {
+      "id": "dce3f526e5984406b6a030332e6836e4",
+      "sec": "apps",
+      "key": "EpicGames.EpicGamesLauncher",
+      "time": "2026-11-01 21:14:45",
+      "version": "1.3.142.0",
+      "latest": "1.3.210.0",
+      "name": "Epic Games Launcher"
+    },
+    {
+      "id": "567822c1f09543b1aa160d5f57115633",
+      "sec": "cve",
+      "key": "PYSEC-2026-4320",
+      "time": "2026-11-01 21:17:50",
+      "cve": "PYSEC-2026-4320",
+      "package": "certifi",
+      "version": "2026.6.17",
+      "fixed": "2026.10.18",
+      "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+      "fixPackage": "pip",
+      "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json"
+    },
+    {
+      "id": "7cfedb1cc08d46579420acafa6e9f0d7",
+      "sec": "cve",
+      "key": "GHSA-j586-36cw-2gc2",
+      "time": "2026-11-01 21:18:04",
+      "cve": "CVE-2026-114613",
+      "package": "msgpack",
+      "version": "1.1.2",
+      "fixed": "1.2.3",
+      "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+      "fixPackage": "pip",
+      "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json"
+    },
+    {
+      "id": "4f6ad0969e474cd293cab40a3411a31d",
+      "sec": "cve",
+      "key": "PYSEC-2026-3625",
+      "time": "2026-11-01 21:18:11",
+      "cve": "CVE-2026-57585",
+      "package": "msgpack",
+      "version": "1.1.2",
+      "fixed": "1.2.1",
+      "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+      "fixPackage": "pip",
+      "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json"
+    },
+    {
+      "id": "090ac9b553f9419d8777488e61d3619c",
+      "sec": "cve",
+      "key": "PYSEC-2025-49",
+      "time": "2026-11-01 21:18:18",
+      "cve": "CVE-2025-47273",
+      "package": "setuptools",
+      "version": "70.3.0",
+      "fixed": "78.1.1",
+      "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+      "fixPackage": "pip",
+      "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json"
+    },
+    {
+      "id": "963dc47fbf4540fdb0bf0ec9dfa86c3a",
+      "sec": "cve",
+      "key": "PYSEC-2026-4177",
+      "time": "2026-11-01 21:18:24",
+      "cve": "CVE-2026-97689",
+      "package": "urllib3",
+      "version": "2.7.0",
+      "fixed": "2.8.0",
+      "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+      "fixPackage": "pip",
+      "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json"
+    },
+    {
+      "id": "b8714a5d579e490799693b6ddfb8f325",
+      "sec": "cve",
+      "key": "PYSEC-2026-4175",
+      "time": "2026-11-01 21:18:32",
+      "cve": "CVE-2026-97687",
+      "package": "urllib3",
+      "version": "2.7.0",
+      "fixed": "2.8.0",
+      "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+      "fixPackage": "pip",
+      "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json"
+    },
+    {
+      "id": "a429e79a7ed94e75ade51d78985a6b0f",
+      "sec": "cve",
+      "key": "PYSEC-2026-3447",
+      "time": "2026-11-01 21:18:39",
+      "cve": "CVE-2026-59890",
+      "package": "setuptools",
+      "version": "70.3.0",
+      "fixed": "83.0.0",
+      "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+      "fixPackage": "pip",
+      "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json"
+    },
+    {
+      "id": "3add5878c9ee4a0d81b7fc219a05eb2c",
+      "sec": "cve",
+      "key": "PYSEC-2026-4176",
+      "time": "2026-11-01 21:18:47",
+      "cve": "CVE-2026-97688",
+      "package": "urllib3",
+      "version": "2.7.0",
+      "fixed": "2.8.0",
+      "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+      "fixPackage": "pip",
+      "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json"
+    },
+    {
+      "id": "b66a44767eae451db3db8a34f9dfc4e2",
+      "sec": "cve",
+      "key": "GHSA-xmj3-9gf7-h52w",
+      "time": "2026-11-01 21:18:52",
+      "cve": "GHSA-xmj3-9gf7-h52w",
+      "package": "setuptools",
+      "version": "70.3.0",
+      "fixed": "84.1.0",
+      "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+      "fixPackage": "pip",
+      "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json"
+    },
+    {
+      "id": "1e96b9f76e2647f794b2d54e01373c1f",
+      "sec": "apps",
+      "key": "EpicGames.EpicOnlineServices",
+      "time": "2026-11-01 22:53:22",
+      "version": "3.0.1",
+      "latest": "4.3.1",
+      "name": "Epic Online Services"
+    },
+    {
+      "id": "413b7eee8c73400caf903d68d47f29a4",
+      "sec": "apps",
+      "key": "Git.Git",
+      "time": "2026-11-01 22:53:31",
+      "version": "2.51.0",
+      "latest": "2.56.0.4",
+      "name": "Git"
+    },
+    {
+      "id": "4123147dbc6048d0b20e98c60a7e3b21",
+      "sec": "apps",
+      "key": "OpenJS.NodeJS.LTS",
+      "time": "2026-11-01 22:54:50",
+      "version": "24.11.0",
+      "latest": "26.13.0",
+      "name": "Node.js"
+    },
+    {
+      "id": "b423cd48993d4b53ac6630d7d4906bef",
+      "sec": "apps",
+      "key": "Ditto.Ditto",
+      "time": "2026-11-01 22:55:16",
+      "version": "3.24.246.0",
+      "latest": "3.25.113.0",
+      "name": "Ditto 3.24.246.0"
+    },
+    {
+      "id": "8982ca2a8b774b3aad3a00e3e9e1a233",
+      "sec": "apps",
+      "key": "Microsoft.VSTOR",
+      "time": "2026-11-01 22:55:30",
+      "version": "10.0.50903",
+      "latest": "10.0.60917",
+      "name": "Microsoft Visual Studio 2010 Tools for Office Runtime (x64)"
+    },
+    {
+      "id": "a6106fab24c14adeab2b39faf2847d35",
+      "sec": "apps",
+      "key": "Microsoft.VCRedist.2015+.x64",
+      "time": "2026-11-01 22:56:07",
+      "version": "14.50.35719.0",
+      "latest": "14.51.36247.0",
+      "name": "Microsoft Visual C++ v14 Redistributable (x64) - 14.50.35719"
+    },
+    {
+      "id": "9b89a8593d5e449bb1fc0cad8396fd16",
+      "sec": "apps",
+      "key": "Python.Launcher",
+      "time": "2026-11-01 22:57:00",
+      "version": "< 3.14.7",
+      "latest": "3.14.7",
+      "name": "Python Launcher"
+    },
+    {
+      "id": "a60d4deaabe64e449d70793eed22fedc",
+      "sec": "apps",
+      "key": "Python.Python.3.13",
+      "time": "2026-11-01 22:57:07",
+      "version": "3.13.7",
+      "latest": "3.13.16",
+      "name": "Python 3.13.7 (64-bit)"
+    },
+    {
+      "id": "387830a9fc3e4ceebd031b8211c2aa95",
+      "sec": "apps",
+      "key": "Microsoft.VCRedist.2013.x86",
+      "time": "2026-11-01 23:00:13",
+      "version": "12.0.30501.0",
+      "latest": "12.0.40664.0",
+      "name": "Microsoft Visual C++ 2013 Redistributable (x86) - 12.0.30501"
+    },
+    {
+      "id": "576f22bcbc1d4ecdadea2499d68319c7",
+      "sec": "apps",
+      "key": "Microsoft.DotNet.Runtime.6",
+      "time": "2026-11-01 23:00:21",
+      "version": "6.0.16",
+      "latest": "6.0.36",
+      "name": "Microsoft .NET Runtime - 6.0.16 (x64)"
+    },
+    {
+      "id": "30f5b7cabe254f68b8970507d563f62b",
+      "sec": "apps",
+      "key": "Microsoft.WSL",
+      "time": "2026-11-01 23:00:28",
+      "version": "2.6.3.0",
+      "latest": "2.7.14",
+      "name": "Windows Subsystem for Linux"
+    },
+    {
+      "id": "f500ed15f922407ab7bba4b3642abbce",
+      "sec": "apps",
+      "key": "PostgreSQL.pgAdmin",
+      "time": "2026-11-01 23:02:52",
+      "version": "9.8",
+      "latest": "9.19",
+      "name": "pgAdmin 4 version 9.8"
+    }
+  ]
+}

@@ -1,0 +1,191 @@
+<!--
+  NOTE: do not use condition="end with any" - Sysmon 15.22 crashes on it (0xC0000409). Use "contains any".
+  EDR Sysmon configuration (template). Install-EDR.ps1 replaces C:\Users\user and writes config\sysmonconfig.xml.
+  Design: INCLUDE-ONLY rules, so Sysmon logs only suspicious activity (low CPU/disk, game-friendly).
+  Every rule "name" is shown in the EDR dashboard as the alert title and maps to a severity + explanation.
+  Built-in exclusions at the bottom: Epic Games / Fortnite / Easy Anti-Cheat / BattlEye, and C:\EDR itself
+  (admin-only folder). Personal exclusions are added from the dashboard (right-click), not here.
+-->
+<Sysmon schemaversion="4.90">
+  <HashAlgorithms>sha256</HashAlgorithms>
+  <CheckRevocation>False</CheckRevocation>
+  <EventFiltering>
+
+    <!-- ===================== Process creation (Event 1) ===================== -->
+    <RuleGroup name="ProcessCreateInclude" groupRelation="or">
+      <ProcessCreate onmatch="include">
+        <Rule name="Encoded PowerShell command" groupRelation="and">
+          <Image condition="contains any">\powershell.exe;\pwsh.exe;\powershell_ise.exe</Image>
+          <CommandLine condition="contains any"> -e ; -en ; -enc ; -enco; -encodedcommand ; -ec ; /e ; /enc ; /encodedcommand </CommandLine>
+        </Rule>
+        <Rule name="PowerShell download or in-memory execution" groupRelation="and">
+          <Image condition="contains any">\powershell.exe;\pwsh.exe;\powershell_ise.exe</Image>
+          <CommandLine condition="contains any">DownloadString;DownloadData;DownloadFile;Net.WebClient;Start-BitsTransfer;FromBase64String;Invoke-Expression;IEX(;IEX (;IEX $;| iex;|iex</CommandLine>
+        </Rule>
+        <Rule name="Shadow copy or recovery tampering" groupRelation="or">
+          <CommandLine condition="contains any">vssadmin delete shadows;vssadmin.exe delete shadows;shadowcopy delete;recoveryenabled no;wbadmin delete catalog;resize shadowstorage</CommandLine>
+        </Rule>
+        <Rule name="Credential dumping tool" groupRelation="or">
+          <CommandLine condition="contains any">sekurlsa::;lsadump::;privilege::debug;kerberos::ptt;Invoke-Mimikatz</CommandLine>
+        </Rule>
+        <Rule name="LSASS memory dump" groupRelation="and">
+          <CommandLine condition="contains">lsass</CommandLine>
+          <CommandLine condition="contains any">procdump;MiniDump;comsvcs; -ma ;createdump;sqldumper</CommandLine>
+        </Rule>
+        <Rule name="mshta script execution" groupRelation="or">
+          <Image condition="end with">\mshta.exe</Image>
+        </Rule>
+        <Rule name="certutil download or decode" groupRelation="and">
+          <Image condition="end with">\certutil.exe</Image>
+          <CommandLine condition="contains any">urlcache;-decode;-decodehex;verifyctl;http</CommandLine>
+        </Rule>
+        <Rule name="regsvr32/rundll32 script abuse" groupRelation="and">
+          <Image condition="contains any">\regsvr32.exe;\rundll32.exe</Image>
+          <CommandLine condition="contains any">scrobj;/i:http;javascript:;vbscript:;http://;https://</CommandLine>
+        </Rule>
+        <Rule name="bitsadmin download" groupRelation="and">
+          <Image condition="end with">\bitsadmin.exe</Image>
+          <CommandLine condition="contains any">/transfer;/addfile;/download</CommandLine>
+        </Rule>
+        <Rule name="Office app started a shell" groupRelation="and">
+          <ParentImage condition="contains any">\winword.exe;\excel.exe;\powerpnt.exe;\outlook.exe;\msaccess.exe;\onenote.exe</ParentImage>
+          <Image condition="contains any">\cmd.exe;\powershell.exe;\pwsh.exe;\wscript.exe;\cscript.exe;\mshta.exe;\rundll32.exe;\regsvr32.exe;\certutil.exe</Image>
+        </Rule>
+        <Rule name="Script run from Downloads or Temp" groupRelation="and">
+          <Image condition="contains any">\wscript.exe;\cscript.exe</Image>
+          <CommandLine condition="contains any">\Downloads\;\AppData\Local\Temp\;\Users\Public\;\Windows\Temp\</CommandLine>
+        </Rule>
+        <Rule name="New user or admin group change" groupRelation="or">
+          <CommandLine condition="contains any">user /add;localgroup administrators;Add-LocalGroupMember;New-LocalUser</CommandLine>
+        </Rule>
+        <Rule name="Defender tampering" groupRelation="or">
+          <CommandLine condition="contains any">DisableRealtimeMonitoring;Add-MpPreference -ExclusionPath;Add-MpPreference -ExclusionProcess;Set-MpPreference -Disable;DisableAntiSpyware;Uninstall-WindowsFeature -Name Windows-Defender</CommandLine>
+        </Rule>
+        <Rule name="Event log cleared" groupRelation="or">
+          <CommandLine condition="contains any">wevtutil cl ;wevtutil.exe cl ;Clear-EventLog;Remove-EventLog</CommandLine>
+        </Rule>
+        <Rule name="Scheduled task created from command line" groupRelation="and">
+          <Image condition="end with">\schtasks.exe</Image>
+          <CommandLine condition="contains">/create</CommandLine>
+        </Rule>
+        <Rule name="Executable launched from Downloads" groupRelation="or">
+          <Image condition="begin with">C:\Users\user\Downloads\</Image>
+        </Rule>
+      </ProcessCreate>
+    </RuleGroup>
+
+    <!-- ===================== Network (Event 3): only Windows tools malware abuses ===================== -->
+    <RuleGroup name="NetworkInclude" groupRelation="or">
+      <NetworkConnect onmatch="include">
+        <Image name="Windows script/LOLBin made a network connection" condition="contains any">\mshta.exe;\regsvr32.exe;\rundll32.exe;\certutil.exe;\bitsadmin.exe;\wscript.exe;\cscript.exe;\msbuild.exe;\installutil.exe;\regasm.exe;\regsvcs.exe;\cmstp.exe</Image>
+      </NetworkConnect>
+    </RuleGroup>
+
+    <!-- ===================== Driver load (Event 6) ===================== -->
+    <RuleGroup name="DriverInclude" groupRelation="or">
+      <DriverLoad onmatch="include">
+        <Signed name="Unsigned driver loaded" condition="is">false</Signed>
+      </DriverLoad>
+    </RuleGroup>
+
+    <!-- ===================== Remote thread (Event 8) ===================== -->
+    <RuleGroup name="RemoteThreadInclude" groupRelation="or">
+      <CreateRemoteThread onmatch="include">
+        <TargetImage name="Code injected into LSASS" condition="end with">\lsass.exe</TargetImage>
+      </CreateRemoteThread>
+    </RuleGroup>
+
+    <!-- ===================== Process access (Event 10): credential theft from LSASS ===================== -->
+    <RuleGroup name="ProcessAccessInclude" groupRelation="or">
+      <ProcessAccess onmatch="include">
+        <Rule name="LSASS memory read (credential theft)" groupRelation="and">
+          <TargetImage condition="end with">\lsass.exe</TargetImage>
+          <GrantedAccess condition="is any">0x1010;0x1410;0x1418;0x1438;0x143a;0x1fffff;0x1f1fff;0x1f3fff;0x40</GrantedAccess>
+        </Rule>
+      </ProcessAccess>
+    </RuleGroup>
+    <RuleGroup name="ProcessAccessExclude" groupRelation="or">
+      <ProcessAccess onmatch="exclude">
+        <SourceImage condition="begin with">C:\ProgramData\Microsoft\Windows Defender\Platform\</SourceImage>
+        <SourceImage condition="is any">C:\Windows\system32\wininit.exe;C:\Windows\system32\csrss.exe;C:\Windows\system32\services.exe;C:\Windows\system32\lsm.exe;C:\Windows\System32\svchost.exe;C:\Windows\Sysmon64.exe;C:\Windows\system32\wbem\wmiprvse.exe;C:\Windows\System32\MRT.exe</SourceImage>
+      </ProcessAccess>
+    </RuleGroup>
+
+    <!-- ===================== File creation (Event 11): persistence locations ===================== -->
+    <RuleGroup name="FileCreateInclude" groupRelation="or">
+      <FileCreate onmatch="include">
+        <TargetFilename name="File added to a Startup folder" condition="contains">\Start Menu\Programs\Startup\</TargetFilename>
+      </FileCreate>
+    </RuleGroup>
+
+    <!-- ===================== Registry (Events 12/13/14): persistence + tampering ===================== -->
+    <RuleGroup name="RegistryInclude" groupRelation="or">
+      <RegistryEvent onmatch="include">
+        <TargetObject name="Startup entry added or changed (Run key)" condition="contains any">\CurrentVersion\Run\;\CurrentVersion\RunOnce\;\CurrentVersion\Policies\Explorer\Run\</TargetObject>
+        <TargetObject name="Winlogon hijack" condition="contains any">\Winlogon\Shell;\Winlogon\Userinit;\Winlogon\Notify</TargetObject>
+        <TargetObject name="Debugger hijack (IFEO)" condition="end with">\Debugger</TargetObject>
+        <TargetObject name="Defender exclusion added" condition="contains">\Windows Defender\Exclusions\</TargetObject>
+      </RegistryEvent>
+    </RuleGroup>
+    <RuleGroup name="RegistryExclude" groupRelation="or">
+      <RegistryEvent onmatch="exclude">
+        <Image condition="is any">C:\Windows\system32\msiexec.exe;C:\Windows\SysWOW64\msiexec.exe;C:\Windows\servicing\TrustedInstaller.exe</Image>
+      </RegistryEvent>
+    </RuleGroup>
+
+    <!-- ===================== WMI persistence (Events 19/20/21): log all, they are rare ===================== -->
+    <RuleGroup name="WmiAll" groupRelation="or">
+      <WmiEvent onmatch="exclude" />
+    </RuleGroup>
+
+    <!-- ===================== Everything else: OFF ===================== -->
+    <RuleGroup name="Off" groupRelation="or">
+      <FileCreateTime onmatch="include" />
+      <ProcessTerminate onmatch="include" />
+      <ImageLoad onmatch="include" />
+      <RawAccessRead onmatch="include" />
+      <FileCreateStreamHash onmatch="include" />
+      <PipeEvent onmatch="include" />
+      <DnsQuery onmatch="include" />
+      <FileDelete onmatch="include" />
+      <ClipboardChange onmatch="include" />
+      <ProcessTampering onmatch="include" />
+      <FileDeleteDetected onmatch="include" />
+      <FileBlockExecutable onmatch="include" />
+      <FileBlockShredding onmatch="include" />
+      <FileExecutableDetected onmatch="include" />
+    </RuleGroup>
+
+    <!-- ===================== Built-in exclusions: games, anti-cheat, EDR itself ===================== -->
+    <RuleGroup name="BuiltInExclusions" groupRelation="or">
+      <ProcessCreate onmatch="exclude">
+        <Image condition="begin with">C:\Program Files\Epic Games\</Image>
+        <Image condition="begin with">C:\Program Files (x86)\Epic Games\</Image>
+        <Image condition="begin with">C:\Program Files (x86)\EasyAntiCheat_EOS\</Image>
+        <Image condition="begin with">C:\Program Files (x86)\EasyAntiCheat\</Image>
+        <Image condition="begin with">C:\Program Files (x86)\Common Files\BattlEye\</Image>
+        <Image condition="begin with">C:\Users\user\AppData\Local\EpicGamesLauncher\</Image>
+        <Image condition="begin with">C:\Users\user\AppData\Local\FortniteGame\</Image>
+        <Image condition="begin with">C:\ProgramData\Epic\</Image>
+        <Image condition="begin with">C:\EDR\</Image>
+      </ProcessCreate>
+      <ProcessAccess onmatch="exclude">
+        <SourceImage condition="begin with">C:\Program Files\Epic Games\</SourceImage>
+        <SourceImage condition="begin with">C:\Program Files (x86)\EasyAntiCheat_EOS\</SourceImage>
+        <SourceImage condition="begin with">C:\Program Files (x86)\EasyAntiCheat\</SourceImage>
+        <SourceImage condition="begin with">C:\Program Files (x86)\Common Files\BattlEye\</SourceImage>
+      </ProcessAccess>
+      <RegistryEvent onmatch="exclude">
+        <Image condition="begin with">C:\Program Files\Epic Games\</Image>
+        <Image condition="begin with">C:\Program Files (x86)\Epic Games\</Image>
+        <Image condition="begin with">C:\Program Files (x86)\EasyAntiCheat_EOS\</Image>
+        <Image condition="begin with">C:\EDR\</Image>
+      </RegistryEvent>
+      <FileCreate onmatch="exclude">
+        <Image condition="begin with">C:\Program Files\Epic Games\</Image>
+        <Image condition="begin with">C:\Program Files (x86)\Epic Games\</Image>
+      </FileCreate>
+    </RuleGroup>
+
+  </EventFiltering>
+</Sysmon>

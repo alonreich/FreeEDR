@@ -1,0 +1,12 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Edr.Tray.MainWindow"
+        Title="FreeEDR"
+        Width="1100" Height="720" MinWidth="720" MinHeight="480"
+        WindowStartupLocation="CenterScreen">
+  <!-- Phase 0 placeholder: the Overview and section tabs arrive in phase 2 -->
+  <StackPanel Margin="32" Spacing="8">
+    <TextBlock Text="FreeEDR dashboard" FontSize="24" FontWeight="SemiBold" />
+    <TextBlock Text="Skeleton build (phase 0). The dashboard content comes in phase 2." Opacity="0.7" />
+  </StackPanel>
+</Window>

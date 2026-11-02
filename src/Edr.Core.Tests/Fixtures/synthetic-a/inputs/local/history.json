@@ -1,0 +1,33 @@
+{
+  "items": [
+    {
+      "id": "h1",
+      "sec": "cve",
+      "key": "GHSA-5",
+      "time": "2026-11-01 22:00:00",
+      "cve": "CVE-2026-5",
+      "package": "upd",
+      "version": "5.0",
+      "fixed": "5.1"
+    },
+    {
+      "id": "h2",
+      "sec": "apps",
+      "key": "Foo.App",
+      "time": "2026-11-01 22:10:00",
+      "name": "Foo App",
+      "version": "1.0",
+      "latest": "2.0"
+    },
+    {
+      "id": "h3",
+      "sec": "cve",
+      "key": "GHSA-3",
+      "time": "2026-11-01 08:00:00",
+      "cve": "CVE-2026-3",
+      "package": "aaa",
+      "version": "3.0",
+      "fixed": "3.1"
+    }
+  ]
+}

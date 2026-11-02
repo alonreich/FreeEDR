@@ -1,0 +1,15 @@
+<Sysmon schemaversion="4.90"><EventFiltering>
+<RuleGroup name="ProcessCreateInclude" groupRelation="or"><ProcessCreate onmatch="include">
+<Rule name="Encoded PowerShell command" groupRelation="and"><Image condition="contains any">pwsh.exe</Image></Rule>
+<Rule name="PowerShell download or in-memory execution" groupRelation="and"><Image condition="contains any">pwsh.exe</Image></Rule>
+<Rule name="LSASS memory dump" groupRelation="and"><CommandLine condition="contains">lsass</CommandLine></Rule>
+<Rule name="New user or admin group change" groupRelation="or"><CommandLine condition="contains any">user /add</CommandLine></Rule>
+<Rule name="Executable launched from Downloads" groupRelation="or"><Image condition="begin with">C:\Users\x\Downloads\</Image></Rule>
+</ProcessCreate></RuleGroup>
+<RuleGroup name="RegistryInclude" groupRelation="or"><RegistryEvent onmatch="include">
+<TargetObject name="Startup entry added or changed (Run key)" condition="contains any">\CurrentVersion\Run\</TargetObject>
+</RegistryEvent></RuleGroup>
+<RuleGroup name="BuiltInExclusions" groupRelation="or"><ProcessCreate onmatch="exclude">
+<Image condition="begin with">C:\Program Files\Epic Games\</Image><Image condition="begin with">C:\EDR\</Image><Image condition="begin with">C:\EDR\</Image>
+</ProcessCreate></RuleGroup>
+</EventFiltering></Sysmon>

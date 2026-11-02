@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- No UI: paths, models, file readers, the model builder and action building. Tested without a window. -->
+  <PropertyGroup>
+    <RootNamespace>Edr.Core</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>   <!-- LibraryImport source-generated P/Invoke (Native\) -->
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,30 @@
+{
+  "items": [
+    {
+      "id": "b1",
+      "blade": "realtime",
+      "image": "C:\\Temp\\evil.exe",
+      "sha256": "",
+      "title": "LSASS memory dump",
+      "added": "2026-11-01 10:30:00",
+      "note": "Blocked by you.",
+      "hits": 2,
+      "enforce": true
+    },
+    {
+      "id": "b2",
+      "blade": "sigma",
+      "title": "Bad Rule",
+      "added": "2026-11-01 16:00:00",
+      "note": "Confirmed by you."
+    },
+    {
+      "id": "b3",
+      "blade": "wail2ban",
+      "ip": "203.0.113.99",
+      "added": "2026-11-01 12:40:00",
+      "note": "Blocked by you."
+    },
+    null
+  ]
+}

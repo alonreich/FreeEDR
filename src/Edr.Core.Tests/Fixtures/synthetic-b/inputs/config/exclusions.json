@@ -1,0 +1,72 @@
+{
+  "realtimePath": [],
+  "realtime": [
+    {
+      "id": "x1",
+      "added": "2026-11-01 09:00",
+      "rule": "Startup entry added or changed (Run key)",
+      "image": "C:\\Program Files\\Microsoft OneDrive\\*\\OneDrive*.exe",
+      "parent": "",
+      "raw": ""
+    },
+    {
+      "id": "x2",
+      "added": "2026-11-01 09:01",
+      "rule": "PowerShell download or in-memory execution",
+      "image": "",
+      "parent": "C:\\Users\\x\\AppData\\Local\\Claude-Data\\anthropicpbc.claude_abc\\claude-code\\*\\*\\claude.exe",
+      "ancestors": 3
+    },
+    {
+      "id": "x8",
+      "added": "2026-11-01 09:02",
+      "rule": "*",
+      "image": "",
+      "parent": "",
+      "signer": "Google LLC"
+    },
+    null
+  ],
+  "ioc": [
+    {
+      "id": "x3",
+      "added": "2026-11-01 09:03",
+      "sha256": "bbb222",
+      "image": "C:\\Tools\\ok.exe"
+    }
+  ],
+  "yara": [],
+  "sigma": [
+    {
+      "id": "x4",
+      "added": "2026-11-01 09:04",
+      "title": "*",
+      "parent": "C:\\p\\other.exe"
+    }
+  ],
+  "wail2ban": [
+    {
+      "id": "x5",
+      "added": "2026-11-01 09:05",
+      "cidr": "192.168.1.0/24",
+      "note": "home LAN"
+    }
+  ],
+  "cve": [
+    {
+      "id": "x6",
+      "added": "2026-11-01 09:06",
+      "cve": "CVE-2026-1",
+      "package": "foo"
+    }
+  ],
+  "defender": [
+    {
+      "id": "x7",
+      "added": "2026-11-01 09:07",
+      "kind": "cfa",
+      "path": "C:\\Windows\\explorer.exe",
+      "note": ""
+    }
+  ]
+}
