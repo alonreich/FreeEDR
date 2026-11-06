@@ -1,7 +1,7 @@
 namespace Edr.Core;
 
 /// <summary>
-/// Kernel object names shared with EDR-Tray.ps1 and Install-EDR.ps1 (EDR-Common.ps1 $TrayMutex etc.): one tray per session, "show the dashboard"
+/// Kernel object names shared by the tray and the installer: one tray per session, "show the dashboard"
 /// from a second launch, and the installer's exit signal. <c>--dev</c> appends a suffix so a development build can
 /// run next to the installed tray.
 /// </summary>

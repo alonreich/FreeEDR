@@ -4,8 +4,8 @@ using System.Text.Json.Nodes;
 namespace Edr.Core;
 
 /// <summary>
-/// Sorts every event, verdict and scan result into its section and list: a port of Update-Model,
-/// Find-Exclusion, Find-Block and Get-Overall in EDR-Tray.ps1. Keep the two in step (parity test).
+/// Sorts every event, verdict and scan result into its section and list: originally a port of the PowerShell
+/// tray (Update-Model, Find-Exclusion, Find-Block, Get-Overall); the golden tests keep it stable.
 /// </summary>
 public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
 {
@@ -56,7 +56,17 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
                 {
                     if (r.T("rule") && r.S("rule") != "*" && !Ps.Eq(r.S("rule"), rule)) continue;
                     if (r.T("image") && !Ps.Like(img, r.S("image"))) continue;
-                    if (r.T("detail") && !Ps.Like(e.S("detail"), r.S("detail"))) continue;
+                    if (r.T("detail"))
+                    {
+                        if (Ps.Eq(r.S("match"), "exact"))
+                        {
+                            if (!string.Equals(e.S("detail").Trim(), r.S("detail").Trim(), StringComparison.OrdinalIgnoreCase)) continue;
+                        }
+                        else
+                        {
+                            if (!Ps.Like(e.S("detail"), r.S("detail"))) continue;
+                        }
+                    }
                     if (r.T("parent") && !ParentMatches(r, [par, .. e.Strings("ancestors")])) continue;
                     if (r.T("signer") && !Ps.Eq(_signers.SignerOf(img), r.S("signer"))) continue;
                     if (!r.T("image") && !r.T("parent") && !r.T("signer") && !r.T("detail")) continue;
@@ -138,7 +148,7 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
                 if (x.T("parent"))
                     what.Add($"started by {x.S("parent")}{(x.I("ancestors") > 1 ? $" (up to {x.S("ancestors")} levels up)" : "")}{(x.T("parentSigner") ? $" signed by {x.S("parentSigner")}" : "")}");
                 if (x.T("signer")) what.Add(x.T("image") ? $"signed by {x.S("signer")}" : $"every program signed by {x.S("signer")}");
-                if (x.T("detail")) what.Add($"command line like {x.S("detail")}");
+                if (x.T("detail")) what.Add(Ps.Eq(x.S("match"), "exact") ? $"command line is {x.S("detail")}" : $"command line like {x.S("detail")}");
                 var r = x.S("rule") == "*" || !x.T("rule") ? "all rules" : $"rule \"{x.S("rule")}\"";
                 return string.Join(", ", what) + "  -  " + r;
             }
@@ -218,11 +228,12 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
 
     private static List<Rec> ByTime(IEnumerable<Rec> items) => items.OrderBy(e => e.S("time"), Ps.Order).ToList();
 
-    private Row EventRow(string sec, Rec rep, IReadOnlyList<Rec> members)
+    private Row EventRow(string sec, Rec rep, IReadOnlyList<Rec> members, int totalCount = 0)
     {
+        var count = totalCount > 0 ? totalCount : members.Count;
         var pinned = Ps.Match(rep.S("title"), Catalog.ConfirmPattern);
         var title = (pinned ? "Was this you?   " : "") + rep.S("title");
-        if (members.Count > 1) title += $"   (x{members.Count})";
+        if (count > 1) title += $"   (x{count})";
         var detail = Short(rep.S("detail"));
         string[] cols = sec switch
         {
@@ -257,7 +268,7 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         var blockEv = new Dictionary<string, List<Rec>>(StringComparer.OrdinalIgnoreCase);
         var exclEv = new Dictionary<string, List<Rec>>(StringComparer.OrdinalIgnoreCase);
         var avSeen = new HashSet<string>(StringComparer.Ordinal);
-        string? claude = null;
+        string? claude = _in.Claude;
 
         foreach (var ev in _in.Events)
         {
@@ -276,6 +287,7 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             {
                 var par = Ps.Eq(b, "sigma") ? SigmaProcess.Of(e).Parent : e.S("parent");
                 claude = new[] { par }.Concat(e.Strings("ancestors")).FirstOrDefault(p => Ps.Match(p, @"\\claude\.exe$"));
+                if (claude is not null) _in.Claude = claude;
             }
             if (Ps.Eq(b, "defender") && e.T("threat"))
                 avSeen.Add($"{e.S("threat")}|{Minute(e.T("eventTime") ? e.S("eventTime") : e.S("time"))}");
@@ -301,6 +313,27 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             det[Catalog.BladeSection[b]].Add(e);
         }
 
+        // Any unreviewed pinned events whose group is no longer in the ring buffer
+        foreach (var (pid, pe) in _in.EvictedPinned)
+        {
+            if (_in.Reviewed.Contains(pid)) continue;
+            var b = pe.S("blade");
+            if (!Catalog.BladeSection.TryGetValue(b, out var psec)) continue;
+            var pkey = Ps.Eq(b, "sigma")
+                ? $"sigma|{pe.S("title")}|{SigmaProcess.Of(pe).Image}|{SigmaProcess.Of(pe).Parent}"
+                : $"{b}|{pe.S("title")}|{pe.S("process")}|{pe.S("parent")}";
+            bool exists = det[psec].Any(e => {
+                var k = Ps.Eq(e.S("blade"), "sigma")
+                    ? $"sigma|{e.S("title")}|{SigmaProcess.Of(e).Image}|{SigmaProcess.Of(e).Parent}"
+                    : $"{e.S("blade")}|{e.S("title")}|{e.S("process")}|{e.S("parent")}";
+                return Ps.Eq(k, pkey);
+            });
+            if (!exists)
+            {
+                det[psec].Add(pe);
+            }
+        }
+
         // Detected: identical alerts collapsed into one row (x N)
         foreach (var sec in new[] { "malware", "edr", "sigma" })
         {
@@ -310,7 +343,11 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             foreach (var g in groups)
             {
                 var members = ByTime(g);
-                Add(m, sec, 0, EventRow(sec, members[^1], members));
+                var key = Ps.Eq(members[0].S("blade"), "sigma")
+                    ? $"sigma|{members[0].S("title")}|{SigmaProcess.Of(members[0]).Image}|{SigmaProcess.Of(members[0]).Parent}"
+                    : $"{members[0].S("blade")}|{members[0].S("title")}|{members[0].S("process")}|{members[0].S("parent")}";
+                var total = members.Count + _in.EvictedCounts.GetValueOrDefault(key, 0);
+                Add(m, sec, 0, EventRow(sec, members[^1], members, total));
             }
         }
 
@@ -339,7 +376,9 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         {
             var members = ByTime(g);
             var rep = members[^1];
-            var title = rep.S("title") + (members.Count > 1 ? $"   (x{members.Count})" : "");
+            var key = $"defBlocked|{rep.S("kind")}|{rep.S("path")}|{rep.S("process")}|{rep.S("threat")}";
+            var count = members.Count + _in.EvictedCounts.GetValueOrDefault(key, 0);
+            var title = rep.S("title") + (count > 1 ? $"   (x{count})" : "");
             var r = NewRow("defender", rep.S("time"), rep.S("severity"), rep.S("time"), title, Ps.Leaf(rep.S("process")), "Blocked by Microsoft Defender",
                            rep.T("path") ? rep.S("path") : rep.S("detail"));
             r.Ev = rep; r.Group = members; r.Key = rep.S("id");
@@ -421,6 +460,11 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             if (!lastBan.TryGetValue(k, out var cur)) { lastBan[k] = e; lastBanOrder.Add(k); }
             else if (Ps.Order.Compare(e.S("time"), cur.S("time")) > 0) lastBan[k] = e;
         }
+        foreach (var (k, ev) in _in.LastBans)
+        {
+            if (!lastBan.TryGetValue(k, out var cur)) { lastBan[k] = ev; lastBanOrder.Add(k); }
+            else if (Ps.Order.Compare(ev.S("time"), cur.S("time")) > 0) lastBan[k] = ev;
+        }
 
         foreach (var g in GroupBy(fails, e => e.S("ip")))
         {
@@ -431,7 +475,8 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             var members = ByTime(g.Where(e => Ps.Order.Compare(e.S("time"), since) > 0));
             if (members.Count == 0) continue;
             var rep = members[^1];
-            var r = NewRow("fail", rep.S("time"), "Low", rep.S("time"), ip, $"{members.Count} failed logon{(members.Count != 1 ? "s" : "")}", Ip.NetLabel(ip));
+            var failCount = members.Count + _in.EvictedCounts.GetValueOrDefault($"fail|{ip}", 0);
+            var r = NewRow("fail", rep.S("time"), "Low", rep.S("time"), ip, $"{failCount} failed logon{(failCount != 1 ? "s" : "")}", Ip.NetLabel(ip));
             r.Ev = rep; r.Group = members; r.Key = $"fail-{ip}";
             r.Muted = AllReviewed(members);
             Add(m, "wail2ban", 0, r);
@@ -442,7 +487,9 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             var members = ByTime(g);
             var rep = members[^1];
             if (perm.ContainsKey(rep.S("ip")) || FindExclusion(rep) is not null) continue;
-            Add(m, "wail2ban", 0, EventRow("wail2ban", rep, members));
+            var key = $"login|{rep.S("ip")}|{rep.S("user")}";
+            var total = members.Count + _in.EvictedCounts.GetValueOrDefault(key, 0);
+            Add(m, "wail2ban", 0, EventRow("wail2ban", rep, members, total));
         }
         foreach (var ip in bannedIp.Keys.Concat(perm.Keys).Distinct(StringComparer.OrdinalIgnoreCase))
         {
@@ -529,7 +576,8 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
     public static string FormatUntil(Rec st)
     {
         var u = st.S("pausedUntil");
-        if (Ps.Eq(u, Catalog.UntilResumed)) return "until you resume it";
+        if (Ps.Eq(u, Catalog.UntilResumed) || Ps.Eq(u, "until-resumed")) return "until you resume it";
+        if (string.IsNullOrEmpty(u)) return "";
         return "until " + (Ps.ToDate(u) is { } d ? d.ToString("HH:mm", CultureInfo.CurrentCulture) : u);
     }
 
@@ -537,7 +585,7 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
     public static Overall GetOverall(TrayModel? model, Rec? st, DateTime now)
     {
         if (!EngineAlive(st, now))
-            return new("down", "Protection is OFF - EDR engine is not running", "Right-click the tray shield > Advanced > Restart engine, or restart the PC.");
+            return new("down", "Protection is OFF - EDR engine is not running", "Open FreeEDR and click Restart engine, or restart the PC.");
         var edr = PauseState(st, "edr");
         var w2b = st!.Child("wail2ban");
         var problems = new List<string>();
@@ -545,12 +593,13 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         if (sysmon is null || !sysmon.T("ok")) problems.Add($"Sysmon sensor: {sysmon?.S("message")}");
         if (edr is not null && Ps.Eq(edr.S("state"), "error")) problems.Add($"EDR: {edr.S("error")}");
         if (w2b is not null && Ps.Eq(w2b.S("state"), "error")) problems.Add($"Wail2Ban: {w2b.S("error")}");
+        if (st.I("lagSeconds") >= 30) problems.Add($"Event processing lag: {st.I("lagSeconds")}s ({st.I("backlog")} queued)");
         if (problems.Count > 0) return new("down", "Protection has a problem", string.Join("  |  ", problems));
 
         var att = model?.Attention ?? 0;
         if (model is { Pinned: > 0 })
             return new("attention", $"Please confirm {model.Pinned} item{(model.Pinned != 1 ? "s" : "")}: was this you?",
-                       "Logins from the internet, cleared logs or account changes - shown on top of the Detected lists. Answer Yes (it was me) or No (it was not me).");
+                       "Logins from the internet, cleared logs or account changes. Answer Yes (it was me) or No (it was not me) on Home.");
         var cve = model?.Sec["cve"].Count ?? 0;
         var paused = new List<string>();
         if (edr is not null && Ps.Eq(edr.S("state"), "paused")) paused.Add($"EDR is paused {FormatUntil(edr)}");
@@ -562,7 +611,7 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         if (att > 0)
         {
             var parts = new[] { "malware", "edr", "sigma" }.Select(s => model!.Sec[s]).Where(s => s.Attention > 0).Select(s => $"{s.Info.Name}: {s.Attention}");
-            var sub = string.Join(",  ", parts) + ".  Open the tab, click an item, then Allow it or flag it.";
+            var sub = string.Join(",  ", parts) + ".  Open Activity, pick an item, then allow it, flag it or mark it reviewed.";
             if (paused.Count > 0) sub = string.Join("; ", paused) + ". " + sub;
             return new("attention", $"{att} item{(att != 1 ? "s" : "")} need{(att == 1 ? "s" : "")} your review", sub);
         }
@@ -570,7 +619,7 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         var scan = st.Child("scan");
         if (scan?["ok"] is JsonValue ok && ok.TryGetValue(out bool okb) && !okb) return new("attention", "Last scan had problems", scan.S("summary"));
         var subOk = $"Nothing needs your attention. Last update: {FormatWhen(scan?.S("lastEnd"), "ddd HH:mm")}. Next: {FormatWhen(scan?.S("nextDue"), "ddd HH:mm")}.";
-        if (cve > 0) subOk += $"  {cve} security update{(cve != 1 ? "s" : "")} waiting in the CVE tab.";
+        if (cve > 0) subOk += $"  {cve} security update{(cve != 1 ? "s" : "")} waiting in Updates.";
         return new("ok", "You're protected", subOk);
     }
 }

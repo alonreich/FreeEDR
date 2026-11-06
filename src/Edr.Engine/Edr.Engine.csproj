@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- FreeEDR-Engine.exe: the SYSTEM Windows service "FreeEDR" (detection, Wail2Ban, scans, health). NativeAOT, no runtime needed. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Edr.Engine</RootNamespace>
+    <AssemblyName>FreeEDR-Engine</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishAot>true</PublishAot>
+    <IlcOptimizationPreference>Speed</IlcOptimizationPreference>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Edr.Core\Edr.Core.csproj" />
+    <InternalsVisibleTo Include="Edr.Core.Tests" />
+  </ItemGroup>
+</Project>

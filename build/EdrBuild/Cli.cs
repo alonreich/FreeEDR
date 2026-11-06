@@ -53,6 +53,18 @@ internal static class Cli
         return File.Exists(perUser) ? perUser : null;
     }
 
+    /// <summary>signtool.exe: EDR_SIGNTOOL, PATH, then the newest Windows 10/11 SDK.</summary>
+    public static string? FindSigntool()
+    {
+        var configured = Environment.GetEnvironmentVariable("EDR_SIGNTOOL");
+        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured)) return configured;
+        if (FindOnPath("signtool.exe") is { } onPath) return onPath;
+        var kits = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Windows Kits", "10", "bin");
+        if (!Directory.Exists(kits)) return null;
+        return Directory.GetDirectories(kits, "10.*").OrderByDescending(d => d, StringComparer.Ordinal)
+                        .Select(d => Path.Combine(d, "x64", "signtool.exe")).FirstOrDefault(File.Exists);
+    }
+
     /// <summary>The NativeAOT linker finds the C++ tools through vswhere.exe, which the VS installer does not put on PATH.</summary>
     public static void EnsureVswhereOnPath()
     {

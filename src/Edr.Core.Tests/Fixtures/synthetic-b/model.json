@@ -1,776 +1,774 @@
 {
-    "now":  "2026-11-02T11:05:30",
-    "overall":  {
-                    "key":  "attention",
-                    "text":  "5 items need your review",
-                    "sub":  "EDR is paused until you resume it; Wail2Ban is paused until 23:45. Anti-Malware: 2,  EDR: 2,  Sigma: 1.  Open the tab, click an item, then Allow it or flag it."
-                },
-    "attention":  5,
-    "pinned":  0,
-    "claude":  "C:\\Users\\x\\AppData\\Local\\Claude-Data\\anthropicpbc.claude_abc\\claude-code\\2.1.309\\9078b9c1d466\\claude.exe",
-    "sections":  {
-                     "malware":  {
-                                     "count":  2,
-                                     "alert":  true,
-                                     "attention":  2,
-                                     "lists":  [
-                                                   [
-                                                       {
-                                                           "kind":  "event",
-                                                           "key":  "e09",
-                                                           "time":  "2026-11-01 10:11:00",
-                                                           "sev":  "Critical",
-                                                           "cols":  [
-                                                                        "● Critical",
-                                                                        "2026-11-01 10:11:00",
-                                                                        "YARA file scan",
-                                                                        "YARA match: Ransom_Note",
-                                                                        "r.exe",
-                                                                        ""
-                                                                    ],
-                                                           "muted":  false,
-                                                           "pinned":  false,
-                                                           "group":  1
-                                                       },
-                                                       {
-                                                           "kind":  "event",
-                                                           "key":  "e07",
-                                                           "time":  "2026-11-01 10:09:00",
-                                                           "sev":  "Critical",
-                                                           "cols":  [
-                                                                        "● Critical",
-                                                                        "2026-11-01 10:09:00",
-                                                                        "Malware hash (IOC)",
-                                                                        "Known malware: Mimi",
-                                                                        "m.exe",
-                                                                        ""
-                                                                    ],
-                                                           "muted":  false,
-                                                           "pinned":  false,
-                                                           "group":  1
-                                                       }
-                                                   ],
-                                                   [
-                                                       {
-                                                           "kind":  "defender",
-                                                           "key":  "e15",
-                                                           "time":  "2026-10-31 22:41:00",
-                                                           "sev":  "Medium",
-                                                           "cols":  [
-                                                                        "2026-10-31 22:41:00",
-                                                                        "Defender ASR blocked: Block credential stealing from LSASS   (x2)",
-                                                                        "dump.exe",
-                                                                        "Blocked by Microsoft Defender",
-                                                                        "C:\\Windows\\System32\\lsass.exe"
-                                                                    ],
-                                                           "muted":  false,
-                                                           "pinned":  false,
-                                                           "group":  2
-                                                       },
-                                                       {
-                                                           "kind":  "defender",
-                                                           "key":  "e12",
-                                                           "time":  "2026-10-31 20:05:03",
-                                                           "sev":  "High",
-                                                           "cols":  [
-                                                                        "2026-10-31 20:05:03",
-                                                                        "Defender detected malware: Trojan:PowerShell/Y",
-                                                                        "pwsh.exe",
-                                                                        "Blocked by Microsoft Defender",
-                                                                        "Threat: Trojan:PowerShell/Y ¦ Severity: High ¦ Proc: C:\\Program Files\\PowerShell\\7\\pwsh.exe"
-                                                                    ],
-                                                           "muted":  false,
-                                                           "pinned":  false,
-                                                           "group":  1
-                                                       },
-                                                       {
-                                                           "kind":  "defender",
-                                                           "key":  "e10",
-                                                           "time":  "2026-10-31 19:19:30",
-                                                           "sev":  "High",
-                                                           "cols":  [
-                                                                        "2026-10-31 19:19:30",
-                                                                        "Defender detected malware: HackTool:Win32/X",
-                                                                        "bash.exe",
-                                                                        "Blocked by Microsoft Defender",
-                                                                        "CmdLine:_bash -c ..."
-                                                                    ],
-                                                           "muted":  false,
-                                                           "pinned":  false,
-                                                           "group":  1
-                                                       }
-                                                   ],
-                                                   [
-                                                       {
-                                                           "kind":  "excl",
-                                                           "key":  "x7",
-                                                           "time":  "2026-11-01 09:07",
-                                                           "sev":  "",
-                                                           "cols":  [
-                                                                        "2026-11-01 09:07",
-                                                                        "C:\\Windows\\explorer.exe",
-                                                                        "Defender: Controlled folder access"
-                                                                    ],
-                                                           "muted":  false,
-                                                           "pinned":  false,
-                                                           "group":  1
-                                                       },
-                                                       {
-                                                           "kind":  "excl",
-                                                           "key":  "x3",
-                                                           "time":  "2026-11-01 09:03",
-                                                           "sev":  "",
-                                                           "cols":  [
-                                                                        "2026-11-01 09:03",
-                                                                        "C:\\Tools\\ok.exe  (SHA256 bbb222)",
-                                                                        "File fingerprint (not malware)"
-                                                                    ],
-                                                           "muted":  false,
-                                                           "pinned":  false,
-                                                           "group":  1
-                                                       }
-                                                   ]
-                                               ]
-                                 },
-                     "edr":  {
-                                 "count":  2,
-                                 "alert":  true,
-                                 "attention":  2,
-                                 "lists":  [
-                                               [
-                                                   {
-                                                       "kind":  "event",
-                                                       "key":  "e38",
-                                                       "time":  "2026-11-01 14:02:00",
-                                                       "sev":  "High",
-                                                       "cols":  [
-                                                                    "● High",
-                                                                    "2026-11-01 14:02:00",
-                                                                    "Encoded PowerShell command",
-                                                                    "pwsh.exe",
-                                                                    "other.exe",
-                                                                    "x"
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  1
-                                                   },
-                                                   {
-                                                       "kind":  "event",
-                                                       "key":  "e37",
-                                                       "time":  "2026-11-01 14:01:00",
-                                                       "sev":  "High",
-                                                       "cols":  [
-                                                                    "● High",
-                                                                    "2026-11-01 14:01:00",
-                                                                    "Was this you?   New user or admin group change",
-                                                                    "net.exe",
-                                                                    "cmd.exe",
-                                                                    "net user bob /add"
-                                                                ],
-                                                       "muted":  true,
-                                                       "pinned":  true,
-                                                       "group":  1
-                                                   },
-                                                   {
-                                                       "kind":  "event",
-                                                       "key":  "e36",
-                                                       "time":  "2026-11-01 14:00:00",
-                                                       "sev":  "Low",
-                                                       "cols":  [
-                                                                    "● Low",
-                                                                    "2026-11-01 14:00:00",
-                                                                    "Executable launched from Downloads",
-                                                                    "setup.exe",
-                                                                    "",
-                                                                    ""
-                                                                ],
-                                                       "muted":  true,
-                                                       "pinned":  false,
-                                                       "group":  1
-                                                   },
-                                                   {
-                                                       "kind":  "event",
-                                                       "key":  "e02",
-                                                       "time":  "2026-11-01 10:05:00",
-                                                       "sev":  "High",
-                                                       "cols":  [
-                                                                    "● High",
-                                                                    "2026-11-01 10:05:00",
-                                                                    "Encoded PowerShell command   (x2)",
-                                                                    "pwsh.exe",
-                                                                    "claude.exe",
-                                                                    "pwsh -enc BBBB"
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  2
-                                                   },
-                                                   {
-                                                       "kind":  "event",
-                                                       "key":  "e06",
-                                                       "time":  "2026-10-31 09:00:00",
-                                                       "sev":  "Medium",
-                                                       "cols":  [
-                                                                    "● Medium",
-                                                                    "2026-10-31 09:00:00",
-                                                                    "Suspicious Encoded/Download Execution",
-                                                                    "git.exe",
-                                                                    "",
-                                                                    "git -e"
-                                                                ],
-                                                       "muted":  true,
-                                                       "pinned":  false,
-                                                       "group":  1
-                                                   },
-                                                   {
-                                                       "kind":  "event",
-                                                       "key":  "e35",
-                                                       "time":  "2026-10-29 10:00:00",
-                                                       "sev":  "High",
-                                                       "cols":  [
-                                                                    "● High",
-                                                                    "2026-10-29 10:00:00",
-                                                                    "Encoded PowerShell command",
-                                                                    "x.exe",
-                                                                    "",
-                                                                    ""
-                                                                ],
-                                                       "muted":  true,
-                                                       "pinned":  false,
-                                                       "group":  1
-                                                   }
-                                               ],
-                                               [
-                                                   {
-                                                       "kind":  "block",
-                                                       "key":  "b1",
-                                                       "time":  "2026-11-01 10:30:00",
-                                                       "sev":  "",
-                                                       "cols":  [
-                                                                    "2026-11-01 10:30:00",
-                                                                    "evil.exe",
-                                                                    "LSASS memory dump",
-                                                                    "Blocked by you. Stopped 2 time(s) since.",
-                                                                    "C:\\Temp\\evil.exe"
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  2
-                                                   }
-                                               ],
-                                               [
-                                                   {
-                                                       "kind":  "excl",
-                                                       "key":  "x8",
-                                                       "time":  "2026-11-01 09:02",
-                                                       "sev":  "",
-                                                       "cols":  [
-                                                                    "2026-11-01 09:02",
-                                                                    "every program signed by Google LLC  -  all rules",
-                                                                    "Publisher (digital signature)"
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  1
-                                                   },
-                                                   {
-                                                       "kind":  "excl",
-                                                       "key":  "x2",
-                                                       "time":  "2026-11-01 09:01",
-                                                       "sev":  "",
-                                                       "cols":  [
-                                                                    "2026-11-01 09:01",
-                                                                    "started by C:\\Users\\x\\AppData\\Local\\Claude-Data\\anthropicpbc.claude_abc\\claude-code\\*\\*\\claude.exe (up to 3 levels up)  -  rule \"PowerShell download or in-memory execution\"",
-                                                                    "Everything it starts (any version)"
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  1
-                                                   },
-                                                   {
-                                                       "kind":  "excl",
-                                                       "key":  "x1",
-                                                       "time":  "2026-11-01 09:00",
-                                                       "sev":  "",
-                                                       "cols":  [
-                                                                    "2026-11-01 09:00",
-                                                                    "program C:\\Program Files\\Microsoft OneDrive\\*\\OneDrive*.exe  -  rule \"Startup entry added or changed (Run key)\"",
-                                                                    "Program, one rule"
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  1
-                                                   },
-                                                   {
-                                                       "kind":  "builtin",
-                                                       "key":  "builtin-C:\\EDR\\",
-                                                       "time":  "",
-                                                       "sev":  "",
-                                                       "cols":  [
-                                                                    "built-in",
-                                                                    "Any program under C:\\EDR\\",
-                                                                    "Games / anti-cheat / EDR (Sysmon config)"
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  0
-                                                   },
-                                                   {
-                                                       "kind":  "builtin",
-                                                       "key":  "builtin-C:\\Program Files\\Epic Games\\",
-                                                       "time":  "",
-                                                       "sev":  "",
-                                                       "cols":  [
-                                                                    "built-in",
-                                                                    "Any program under C:\\Program Files\\Epic Games\\",
-                                                                    "Games / anti-cheat / EDR (Sysmon config)"
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  0
-                                                   }
-                                               ]
-                                           ]
-                             },
-                     "sigma":  {
-                                   "count":  1,
-                                   "alert":  true,
-                                   "attention":  1,
-                                   "lists":  [
-                                                 [
-                                                     {
-                                                         "kind":  "event",
-                                                         "key":  "e18",
-                                                         "time":  "2026-11-01 15:14:41",
-                                                         "sev":  "High",
-                                                         "cols":  [
-                                                                      "● High",
-                                                                      "2026-11-01 15:14:41",
-                                                                      "Script Interpreter Execution From Suspicious Folder",
-                                                                      "cmd.exe",
-                                                                      "claude.exe",
-                                                                      "Cmdline: cmd /c x ¦ Proc: C:\\Windows\\System32\\cmd.exe ¦ User: x ¦ ParentCmdline: \"C:\\Users\\x\\AppData\\Local\\Claude-Data\\anthropicpbc.claude_abc\\claude-code\\2.1.309\\9078b9c1d466\\claude.exe\" --output-format stream-json"
-                                                                  ],
-                                                         "muted":  false,
-                                                         "pinned":  false,
-                                                         "group":  1
-                                                     },
-                                                     {
-                                                         "kind":  "event",
-                                                         "key":  "e16",
-                                                         "time":  "2026-10-31 20:05:03",
-                                                         "sev":  "High",
-                                                         "cols":  [
-                                                                      "● High",
-                                                                      "2026-10-31 20:05:03",
-                                                                      "Was this you?   Important Log File Cleared",
-                                                                      "",
-                                                                      "",
-                                                                      "Log: System ¦ User: x"
-                                                                  ],
-                                                         "muted":  true,
-                                                         "pinned":  true,
-                                                         "group":  1
-                                                     },
-                                                     {
-                                                         "kind":  "event",
-                                                         "key":  "e17",
-                                                         "time":  "2026-10-31 20:05:03",
-                                                         "sev":  "High",
-                                                         "cols":  [
-                                                                      "● High",
-                                                                      "2026-10-31 20:05:03",
-                                                                      "Proc Exec (Sysmon Alert)",
-                                                                      "b.exe",
-                                                                      "",
-                                                                      "Rule: X ¦ Proc: C:\\a\\b.exe"
-                                                                  ],
-                                                         "muted":  true,
-                                                         "pinned":  false,
-                                                         "group":  1
-                                                     }
-                                                 ],
-                                                 [
-                                                     {
-                                                         "kind":  "block",
-                                                         "key":  "b2",
-                                                         "time":  "2026-11-01 16:00:00",
-                                                         "sev":  "",
-                                                         "cols":  [
-                                                                      "2026-11-01 16:00:00",
-                                                                      "Bad Rule",
-                                                                      "1",
-                                                                      "Confirmed by you."
-                                                                  ],
-                                                         "muted":  false,
-                                                         "pinned":  false,
-                                                         "group":  1
-                                                     }
-                                                 ],
-                                                 [
-                                                     {
-                                                         "kind":  "excl",
-                                                         "key":  "x4",
-                                                         "time":  "2026-11-01 09:04",
-                                                         "sev":  "",
-                                                         "cols":  [
-                                                                      "2026-11-01 09:04",
-                                                                      "*"
-                                                                  ],
-                                                         "muted":  false,
-                                                         "pinned":  false,
-                                                         "group":  1
-                                                     }
-                                                 ]
-                                             ]
-                               },
-                     "cve":  {
-                                 "count":  4,
-                                 "alert":  true,
-                                 "attention":  0,
-                                 "lists":  [
-                                               [
-                                                   {
-                                                       "kind":  "cve",
-                                                       "key":  "cve-GHSA-2-C:/b",
-                                                       "time":  "2026-11-01 21:16:00",
-                                                       "sev":  "High",
-                                                       "cols":  [
-                                                                    "● High",
-                                                                    "CVE-2026-2",
-                                                                    "bar",
-                                                                    "2.0",
-                                                                    "2.1",
-                                                                    "Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug B..."
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  0
-                                                   },
-                                                   {
-                                                       "kind":  "cve",
-                                                       "key":  "cve-GHSA-4-C:/d",
-                                                       "time":  "2026-11-01 21:16:00",
-                                                       "sev":  "High",
-                                                       "cols":  [
-                                                                    "● High",
-                                                                    "CVE-2026-4",
-                                                                    "Zed",
-                                                                    "4.0",
-                                                                    "4.1",
-                                                                    "zed bug"
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  0
-                                                   },
-                                                   {
-                                                       "kind":  "cve",
-                                                       "key":  "cve-GHSA-3-C:/c",
-                                                       "time":  "2026-11-01 21:16:00",
-                                                       "sev":  "Medium",
-                                                       "cols":  [
-                                                                    "● Medium",
-                                                                    "CVE-2026-3",
-                                                                    "aaa",
-                                                                    "3.0",
-                                                                    "3.1",
-                                                                    "aaa bug"
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  0
-                                                   },
-                                                   {
-                                                       "kind":  "cve",
-                                                       "key":  "cve-GHSA-6-C:/f",
-                                                       "time":  "2026-11-01 21:16:00",
-                                                       "sev":  "Weird",
-                                                       "cols":  [
-                                                                    "● Weird",
-                                                                    "CVE-2026-6",
-                                                                    "odd",
-                                                                    "6.0",
-                                                                    "6.1",
-                                                                    "unknown severity"
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  0
-                                                   }
-                                               ],
-                                               [
-                                                   {
-                                                       "kind":  "hist",
-                                                       "key":  "h1",
-                                                       "time":  "2026-11-01 22:00:00",
-                                                       "sev":  "",
-                                                       "cols":  [
-                                                                    "2026-11-01 22:00:00",
-                                                                    "CVE-2026-5",
-                                                                    "upd",
-                                                                    "5.0",
-                                                                    "5.1"
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  0
-                                                   },
-                                                   {
-                                                       "kind":  "hist",
-                                                       "key":  "h3",
-                                                       "time":  "2026-11-01 08:00:00",
-                                                       "sev":  "",
-                                                       "cols":  [
-                                                                    "2026-11-01 08:00:00",
-                                                                    "CVE-2026-3",
-                                                                    "aaa",
-                                                                    "3.0",
-                                                                    "3.1"
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  0
-                                                   }
-                                               ],
-                                               [
-                                                   {
-                                                       "kind":  "excl",
-                                                       "key":  "x6",
-                                                       "time":  "2026-11-01 09:06",
-                                                       "sev":  "",
-                                                       "cols":  [
-                                                                    "2026-11-01 09:06",
-                                                                    "CVE-2026-1",
-                                                                    "foo"
-                                                                ],
-                                                       "muted":  false,
-                                                       "pinned":  false,
-                                                       "group":  0
-                                                   }
-                                               ]
-                                           ]
-                             },
-                     "apps":  {
-                                  "count":  0,
-                                  "alert":  false,
-                                  "attention":  0,
-                                  "lists":  [
-                                                [
-
-                                                ],
-                                                [
-                                                    {
-                                                        "kind":  "hist",
-                                                        "key":  "h2",
-                                                        "time":  "2026-11-01 22:10:00",
-                                                        "sev":  "",
-                                                        "cols":  [
-                                                                     "2026-11-01 22:10:00",
-                                                                     "Foo App",
-                                                                     "1.0",
-                                                                     "2.0"
-                                                                 ],
-                                                        "muted":  false,
-                                                        "pinned":  false,
-                                                        "group":  0
-                                                    }
-                                                ],
-                                                [
-                                                    {
-                                                        "kind":  "hidden",
-                                                        "key":  "hidden-Other.App",
-                                                        "time":  "",
-                                                        "sev":  "",
-                                                        "cols":  [
-                                                                     "Other.App"
-                                                                 ],
-                                                        "muted":  false,
-                                                        "pinned":  false,
-                                                        "group":  0
-                                                    },
-                                                    {
-                                                        "kind":  "hidden",
-                                                        "key":  "hidden-Some.App",
-                                                        "time":  "",
-                                                        "sev":  "",
-                                                        "cols":  [
-                                                                     "Some.App"
-                                                                 ],
-                                                        "muted":  false,
-                                                        "pinned":  false,
-                                                        "group":  0
-                                                    }
-                                                ]
-                                            ]
-                              },
-                     "wail2ban":  {
-                                      "count":  2,
-                                      "alert":  false,
-                                      "attention":  0,
-                                      "lists":  [
-                                                    [
-                                                        {
-                                                            "kind":  "event",
-                                                            "key":  "e29",
-                                                            "time":  "2026-11-01 12:30:00",
-                                                            "sev":  "High",
-                                                            "cols":  [
-                                                                         "2026-11-01 12:30:00",
-                                                                         "203.0.113.77",
-                                                                         "Was this you?   Successful login as PC1\\user from 203.0.113.77 (public internet)",
-                                                                         "Public internet"
-                                                                     ],
-                                                            "muted":  true,
-                                                            "pinned":  true,
-                                                            "group":  1
-                                                        },
-                                                        {
-                                                            "kind":  "fail",
-                                                            "key":  "fail-203.0.113.5",
-                                                            "time":  "2026-11-01 11:02:00",
-                                                            "sev":  "Low",
-                                                            "cols":  [
-                                                                         "2026-11-01 11:02:00",
-                                                                         "203.0.113.5",
-                                                                         "3 failed logons",
-                                                                         "Public internet"
-                                                                     ],
-                                                            "muted":  false,
-                                                            "pinned":  false,
-                                                            "group":  3
-                                                        },
-                                                        {
-                                                            "kind":  "fail",
-                                                            "key":  "fail-198.51.100.7",
-                                                            "time":  "2026-10-30 09:00:00",
-                                                            "sev":  "Low",
-                                                            "cols":  [
-                                                                         "2026-10-30 09:00:00",
-                                                                         "198.51.100.7",
-                                                                         "1 failed logon",
-                                                                         "Public internet"
-                                                                     ],
-                                                            "muted":  false,
-                                                            "pinned":  false,
-                                                            "group":  1
-                                                        }
-                                                    ],
-                                                    [
-                                                        {
-                                                            "kind":  "ban",
-                                                            "key":  "ban-203.0.113.99",
-                                                            "time":  "2026-11-01 12:40:00",
-                                                            "sev":  "",
-                                                            "cols":  [
-                                                                         "2026-11-01 12:40:00",
-                                                                         "203.0.113.99",
-                                                                         "Permanent",
-                                                                         "",
-                                                                         "Public internet",
-                                                                         "By you (permanent)"
-                                                                     ],
-                                                            "muted":  false,
-                                                            "pinned":  false,
-                                                            "group":  0
-                                                        },
-                                                        {
-                                                            "kind":  "ban",
-                                                            "key":  "ban-198.51.100.9",
-                                                            "time":  "2026-11-01 12:00:00",
-                                                            "sev":  "",
-                                                            "cols":  [
-                                                                         "2026-11-01 12:00:00",
-                                                                         "198.51.100.9",
-                                                                         "2026-11-01 14:00:00",
-                                                                         "3",
-                                                                         "Public internet",
-                                                                         "Automatic (failed logons)"
-                                                                     ],
-                                                            "muted":  false,
-                                                            "pinned":  false,
-                                                            "group":  0
-                                                        },
-                                                        {
-                                                            "kind":  "banhist",
-                                                            "key":  "hist-198.51.100.7",
-                                                            "time":  "2026-10-30 08:00:00",
-                                                            "sev":  "",
-                                                            "cols":  [
-                                                                         "2026-10-30 08:00:00",
-                                                                         "198.51.100.7",
-                                                                         "Expired (2026-10-30 08:25:00)",
-                                                                         "2",
-                                                                         "Public internet",
-                                                                         "Automatic - expired"
-                                                                     ],
-                                                            "muted":  true,
-                                                            "pinned":  false,
-                                                            "group":  0
-                                                        }
-                                                    ],
-                                                    [
-                                                        {
-                                                            "kind":  "excl",
-                                                            "key":  "x5",
-                                                            "time":  "2026-11-01 09:05",
-                                                            "sev":  "",
-                                                            "cols":  [
-                                                                         "2026-11-01 09:05",
-                                                                         "192.168.1.0/24",
-                                                                         "home LAN"
-                                                                     ],
-                                                            "muted":  false,
-                                                            "pinned":  false,
-                                                            "group":  0
-                                                        }
-                                                    ]
-                                                ]
-                                  }
-                 },
-    "messages":  [
-                     {
-                         "kind":  "sys",
-                         "key":  "e33",
-                         "time":  "2026-11-01 13:06:00",
-                         "sev":  "Info",
-                         "cols":  [
-                                      "2026-11-01 13:06:00",
-                                      "EDR tool update: Velociraptor 0.77.2 -\u003e 0.77.3",
-                                      ""
-                                  ],
-                         "muted":  false,
-                         "pinned":  false,
-                         "group":  0
-                     },
-                     {
-                         "kind":  "sys",
-                         "key":  "e32",
-                         "time":  "2026-11-01 13:05:00",
-                         "sev":  "Info",
-                         "cols":  [
-                                      "2026-11-01 13:05:00",
-                                      "Scan finished: 0 new Sigma alerts",
-                                      ""
-                                  ],
-                         "muted":  false,
-                         "pinned":  false,
-                         "group":  0
-                     },
-                     {
-                         "kind":  "sys",
-                         "key":  "e31",
-                         "time":  "2026-11-01 13:00:00",
-                         "sev":  "High",
-                         "cols":  [
-                                      "2026-11-01 13:00:00",
-                                      "Sysmon sensor is not working",
-                                      "Sysmon driver is StopPending - restart the PC. Real-time detection is blind."
-                                  ],
-                         "muted":  false,
-                         "pinned":  false,
-                         "group":  0
-                     }
-                 ]
+  "now": "2026-11-02T11:05:30",
+  "overall": {
+    "key": "attention",
+    "text": "5 items need your review",
+    "sub": "EDR is paused until you resume it; Wail2Ban is paused until 23:45. Anti-Malware: 2,  Real-time: 2,  Event logs: 1.  Open Activity, pick an item, then allow it, flag it or mark it reviewed."
+  },
+  "attention": 5,
+  "pinned": 0,
+  "claude": "C:\\Users\\x\\AppData\\Local\\Claude-Data\\anthropicpbc.claude_abc\\claude-code\\2.1.309\\9078b9c1d466\\claude.exe",
+  "sections": {
+    "malware": {
+      "count": 2,
+      "alert": true,
+      "attention": 2,
+      "lists": [
+        [
+          {
+            "kind": "event",
+            "key": "e09",
+            "time": "2026-11-01 10:11:00",
+            "sev": "Critical",
+            "cols": [
+              "● Critical",
+              "2026-11-01 10:11:00",
+              "YARA file scan",
+              "YARA match: Ransom_Note",
+              "r.exe",
+              ""
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "event",
+            "key": "e07",
+            "time": "2026-11-01 10:09:00",
+            "sev": "Critical",
+            "cols": [
+              "● Critical",
+              "2026-11-01 10:09:00",
+              "Malware hash (IOC)",
+              "Known malware: Mimi",
+              "m.exe",
+              ""
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          }
+        ],
+        [
+          {
+            "kind": "defender",
+            "key": "e15",
+            "time": "2026-10-31 22:41:00",
+            "sev": "Medium",
+            "cols": [
+              "2026-10-31 22:41:00",
+              "Defender ASR blocked: Block credential stealing from LSASS   (x2)",
+              "dump.exe",
+              "Blocked by Microsoft Defender",
+              "C:\\Windows\\System32\\lsass.exe"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 2
+          },
+          {
+            "kind": "defender",
+            "key": "e12",
+            "time": "2026-10-31 20:05:03",
+            "sev": "High",
+            "cols": [
+              "2026-10-31 20:05:03",
+              "Defender detected malware: Trojan:PowerShell/Y",
+              "pwsh.exe",
+              "Blocked by Microsoft Defender",
+              "Threat: Trojan:PowerShell/Y ¦ Severity: High ¦ Proc: C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "defender",
+            "key": "e10",
+            "time": "2026-10-31 19:19:30",
+            "sev": "High",
+            "cols": [
+              "2026-10-31 19:19:30",
+              "Defender detected malware: HackTool:Win32/X",
+              "bash.exe",
+              "Blocked by Microsoft Defender",
+              "CmdLine:_bash -c ..."
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          }
+        ],
+        [
+          {
+            "kind": "excl",
+            "key": "x7",
+            "time": "2026-11-01 09:07",
+            "sev": "",
+            "cols": [
+              "2026-11-01 09:07",
+              "C:\\Windows\\explorer.exe",
+              "Defender: Controlled folder access"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "excl",
+            "key": "x3",
+            "time": "2026-11-01 09:03",
+            "sev": "",
+            "cols": [
+              "2026-11-01 09:03",
+              "C:\\Tools\\ok.exe  (SHA256 bbb222)",
+              "File fingerprint (not malware)"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          }
+        ]
+      ]
+    },
+    "edr": {
+      "count": 2,
+      "alert": true,
+      "attention": 2,
+      "lists": [
+        [
+          {
+            "kind": "event",
+            "key": "e38",
+            "time": "2026-11-01 14:02:00",
+            "sev": "High",
+            "cols": [
+              "● High",
+              "2026-11-01 14:02:00",
+              "Encoded PowerShell command",
+              "pwsh.exe",
+              "other.exe",
+              "x"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "event",
+            "key": "e37",
+            "time": "2026-11-01 14:01:00",
+            "sev": "High",
+            "cols": [
+              "● High",
+              "2026-11-01 14:01:00",
+              "Was this you?   New user or admin group change",
+              "net.exe",
+              "cmd.exe",
+              "net user bob /add"
+            ],
+            "muted": true,
+            "pinned": true,
+            "group": 1
+          },
+          {
+            "kind": "event",
+            "key": "e36",
+            "time": "2026-11-01 14:00:00",
+            "sev": "Low",
+            "cols": [
+              "● Low",
+              "2026-11-01 14:00:00",
+              "Executable launched from Downloads",
+              "setup.exe",
+              "",
+              ""
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "event",
+            "key": "e02",
+            "time": "2026-11-01 10:05:00",
+            "sev": "High",
+            "cols": [
+              "● High",
+              "2026-11-01 10:05:00",
+              "Encoded PowerShell command   (x2)",
+              "pwsh.exe",
+              "claude.exe",
+              "pwsh -enc BBBB"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 2
+          },
+          {
+            "kind": "event",
+            "key": "e06",
+            "time": "2026-10-31 09:00:00",
+            "sev": "Medium",
+            "cols": [
+              "● Medium",
+              "2026-10-31 09:00:00",
+              "Suspicious Encoded/Download Execution",
+              "git.exe",
+              "",
+              "git -e"
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "event",
+            "key": "e35",
+            "time": "2026-10-29 10:00:00",
+            "sev": "High",
+            "cols": [
+              "● High",
+              "2026-10-29 10:00:00",
+              "Encoded PowerShell command",
+              "x.exe",
+              "",
+              ""
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 1
+          }
+        ],
+        [
+          {
+            "kind": "block",
+            "key": "b1",
+            "time": "2026-11-01 10:30:00",
+            "sev": "",
+            "cols": [
+              "2026-11-01 10:30:00",
+              "evil.exe",
+              "LSASS memory dump",
+              "Blocked by you. Stopped 2 time(s) since.",
+              "C:\\Temp\\evil.exe"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 2
+          }
+        ],
+        [
+          {
+            "kind": "excl",
+            "key": "x8",
+            "time": "2026-11-01 09:02",
+            "sev": "",
+            "cols": [
+              "2026-11-01 09:02",
+              "every program signed by Google LLC  -  all rules",
+              "Publisher (digital signature)"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "excl",
+            "key": "x2",
+            "time": "2026-11-01 09:01",
+            "sev": "",
+            "cols": [
+              "2026-11-01 09:01",
+              "started by C:\\Users\\x\\AppData\\Local\\Claude-Data\\anthropicpbc.claude_abc\\claude-code\\*\\*\\claude.exe (up to 3 levels up)  -  rule \"PowerShell download or in-memory execution\"",
+              "Everything it starts (any version)"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "excl",
+            "key": "x1",
+            "time": "2026-11-01 09:00",
+            "sev": "",
+            "cols": [
+              "2026-11-01 09:00",
+              "program C:\\Program Files\\Microsoft OneDrive\\*\\OneDrive*.exe  -  rule \"Startup entry added or changed (Run key)\"",
+              "Program, one rule"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "builtin",
+            "key": "builtin-C:\\Program Files\\Epic Games\\",
+            "time": "",
+            "sev": "",
+            "cols": [
+              "built-in",
+              "Any program under C:\\Program Files\\Epic Games\\",
+              "Games / anti-cheat / EDR (Sysmon config)"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          },
+          {
+            "kind": "builtin",
+            "key": "builtin-C:\\EDR\\",
+            "time": "",
+            "sev": "",
+            "cols": [
+              "built-in",
+              "Any program under C:\\EDR\\",
+              "Games / anti-cheat / EDR (Sysmon config)"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          }
+        ]
+      ]
+    },
+    "sigma": {
+      "count": 1,
+      "alert": true,
+      "attention": 1,
+      "lists": [
+        [
+          {
+            "kind": "event",
+            "key": "e18",
+            "time": "2026-11-01 15:14:41",
+            "sev": "High",
+            "cols": [
+              "● High",
+              "2026-11-01 15:14:41",
+              "Script Interpreter Execution From Suspicious Folder",
+              "cmd.exe",
+              "claude.exe",
+              "Cmdline: cmd /c x ¦ Proc: C:\\Windows\\System32\\cmd.exe ¦ User: x ¦ ParentCmdline: \"C:\\Users\\x\\AppData\\Local\\Claude-Data\\anthropicpbc.claude_abc\\claude-code\\2.1.309\\9078b9c1d466\\claude.exe\" --output-format stream-json"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "event",
+            "key": "e16",
+            "time": "2026-10-31 20:05:03",
+            "sev": "High",
+            "cols": [
+              "● High",
+              "2026-10-31 20:05:03",
+              "Was this you?   Important Log File Cleared",
+              "",
+              "",
+              "Log: System ¦ User: x"
+            ],
+            "muted": true,
+            "pinned": true,
+            "group": 1
+          },
+          {
+            "kind": "event",
+            "key": "e17",
+            "time": "2026-10-31 20:05:03",
+            "sev": "High",
+            "cols": [
+              "● High",
+              "2026-10-31 20:05:03",
+              "Proc Exec (Sysmon Alert)",
+              "b.exe",
+              "",
+              "Rule: X ¦ Proc: C:\\a\\b.exe"
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 1
+          }
+        ],
+        [
+          {
+            "kind": "block",
+            "key": "b2",
+            "time": "2026-11-01 16:00:00",
+            "sev": "",
+            "cols": [
+              "2026-11-01 16:00:00",
+              "Bad Rule",
+              "1",
+              "Confirmed by you."
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          }
+        ],
+        [
+          {
+            "kind": "excl",
+            "key": "x4",
+            "time": "2026-11-01 09:04",
+            "sev": "",
+            "cols": [
+              "2026-11-01 09:04",
+              "*"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          }
+        ]
+      ]
+    },
+    "cve": {
+      "count": 4,
+      "alert": true,
+      "attention": 0,
+      "lists": [
+        [
+          {
+            "kind": "cve",
+            "key": "cve-GHSA-2-C:/b",
+            "time": "2026-11-01 21:16:00",
+            "sev": "High",
+            "cols": [
+              "● High",
+              "CVE-2026-2",
+              "bar",
+              "2.0",
+              "2.1",
+              "Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug Bar has a bug B..."
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          },
+          {
+            "kind": "cve",
+            "key": "cve-GHSA-4-C:/d",
+            "time": "2026-11-01 21:16:00",
+            "sev": "High",
+            "cols": [
+              "● High",
+              "CVE-2026-4",
+              "Zed",
+              "4.0",
+              "4.1",
+              "zed bug"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          },
+          {
+            "kind": "cve",
+            "key": "cve-GHSA-3-C:/c",
+            "time": "2026-11-01 21:16:00",
+            "sev": "Medium",
+            "cols": [
+              "● Medium",
+              "CVE-2026-3",
+              "aaa",
+              "3.0",
+              "3.1",
+              "aaa bug"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          },
+          {
+            "kind": "cve",
+            "key": "cve-GHSA-6-C:/f",
+            "time": "2026-11-01 21:16:00",
+            "sev": "Weird",
+            "cols": [
+              "● Weird",
+              "CVE-2026-6",
+              "odd",
+              "6.0",
+              "6.1",
+              "unknown severity"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          }
+        ],
+        [
+          {
+            "kind": "hist",
+            "key": "h1",
+            "time": "2026-11-01 22:00:00",
+            "sev": "",
+            "cols": [
+              "2026-11-01 22:00:00",
+              "CVE-2026-5",
+              "upd",
+              "5.0",
+              "5.1"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          },
+          {
+            "kind": "hist",
+            "key": "h3",
+            "time": "2026-11-01 08:00:00",
+            "sev": "",
+            "cols": [
+              "2026-11-01 08:00:00",
+              "CVE-2026-3",
+              "aaa",
+              "3.0",
+              "3.1"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          }
+        ],
+        [
+          {
+            "kind": "excl",
+            "key": "x6",
+            "time": "2026-11-01 09:06",
+            "sev": "",
+            "cols": [
+              "2026-11-01 09:06",
+              "CVE-2026-1",
+              "foo"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          }
+        ]
+      ]
+    },
+    "apps": {
+      "count": 0,
+      "alert": false,
+      "attention": 0,
+      "lists": [
+        [],
+        [
+          {
+            "kind": "hist",
+            "key": "h2",
+            "time": "2026-11-01 22:10:00",
+            "sev": "",
+            "cols": [
+              "2026-11-01 22:10:00",
+              "Foo App",
+              "1.0",
+              "2.0"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          }
+        ],
+        [
+          {
+            "kind": "hidden",
+            "key": "hidden-Some.App",
+            "time": "",
+            "sev": "",
+            "cols": [
+              "Some.App"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          },
+          {
+            "kind": "hidden",
+            "key": "hidden-Other.App",
+            "time": "",
+            "sev": "",
+            "cols": [
+              "Other.App"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          }
+        ]
+      ]
+    },
+    "wail2ban": {
+      "count": 2,
+      "alert": false,
+      "attention": 0,
+      "lists": [
+        [
+          {
+            "kind": "event",
+            "key": "e29",
+            "time": "2026-11-01 12:30:00",
+            "sev": "High",
+            "cols": [
+              "2026-11-01 12:30:00",
+              "203.0.113.77",
+              "Was this you?   Successful login as PC1\\user from 203.0.113.77 (public internet)",
+              "Public internet"
+            ],
+            "muted": true,
+            "pinned": true,
+            "group": 1
+          },
+          {
+            "kind": "fail",
+            "key": "fail-203.0.113.5",
+            "time": "2026-11-01 11:02:00",
+            "sev": "Low",
+            "cols": [
+              "2026-11-01 11:02:00",
+              "203.0.113.5",
+              "3 failed logons",
+              "Public internet"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 3
+          },
+          {
+            "kind": "fail",
+            "key": "fail-198.51.100.7",
+            "time": "2026-10-30 09:00:00",
+            "sev": "Low",
+            "cols": [
+              "2026-10-30 09:00:00",
+              "198.51.100.7",
+              "1 failed logon",
+              "Public internet"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          }
+        ],
+        [
+          {
+            "kind": "ban",
+            "key": "ban-203.0.113.99",
+            "time": "2026-11-01 12:40:00",
+            "sev": "",
+            "cols": [
+              "2026-11-01 12:40:00",
+              "203.0.113.99",
+              "Permanent",
+              "",
+              "Public internet",
+              "By you (permanent)"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          },
+          {
+            "kind": "ban",
+            "key": "ban-198.51.100.9",
+            "time": "2026-11-01 12:00:00",
+            "sev": "",
+            "cols": [
+              "2026-11-01 12:00:00",
+              "198.51.100.9",
+              "2026-11-01 14:00:00",
+              "3",
+              "Public internet",
+              "Automatic (failed logons)"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          },
+          {
+            "kind": "banhist",
+            "key": "hist-198.51.100.7",
+            "time": "2026-10-30 08:00:00",
+            "sev": "",
+            "cols": [
+              "2026-10-30 08:00:00",
+              "198.51.100.7",
+              "Expired (2026-10-30 08:25:00)",
+              "2",
+              "Public internet",
+              "Automatic - expired"
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 0
+          }
+        ],
+        [
+          {
+            "kind": "excl",
+            "key": "x5",
+            "time": "2026-11-01 09:05",
+            "sev": "",
+            "cols": [
+              "2026-11-01 09:05",
+              "192.168.1.0/24",
+              "home LAN"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 0
+          }
+        ]
+      ]
+    }
+  },
+  "messages": [
+    {
+      "kind": "sys",
+      "key": "e33",
+      "time": "2026-11-01 13:06:00",
+      "sev": "Info",
+      "cols": [
+        "2026-11-01 13:06:00",
+        "EDR tool update: Velociraptor 0.77.2 -> 0.77.3",
+        ""
+      ],
+      "muted": false,
+      "pinned": false,
+      "group": 0
+    },
+    {
+      "kind": "sys",
+      "key": "e32",
+      "time": "2026-11-01 13:05:00",
+      "sev": "Info",
+      "cols": [
+        "2026-11-01 13:05:00",
+        "Scan finished: 0 new Sigma alerts",
+        ""
+      ],
+      "muted": false,
+      "pinned": false,
+      "group": 0
+    },
+    {
+      "kind": "sys",
+      "key": "e31",
+      "time": "2026-11-01 13:00:00",
+      "sev": "High",
+      "cols": [
+        "2026-11-01 13:00:00",
+        "Sysmon sensor is not working",
+        "Sysmon driver is StopPending - restart the PC. Real-time detection is blind."
+      ],
+      "muted": false,
+      "pinned": false,
+      "group": 0
+    }
+  ]
 }

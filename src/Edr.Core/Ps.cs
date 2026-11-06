@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 namespace Edr.Core;
 
 /// <summary>
-/// The PowerShell 5.1 semantics EDR-Tray.ps1 relies on, so the port decides exactly the same:
+/// PowerShell 5.1 semantics the allow lists were defined with (kept so existing allows match exactly the same):
 /// [string] casts, truthiness, case-insensitive -eq / -like / -match, and Sort-Object string order.
 /// </summary>
 public static class Ps
@@ -48,18 +48,6 @@ public static class Ps
 
     public static Regex Rx(string pattern) => RegexCache.GetOrAdd(pattern, p => new Regex(p, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant));
 
-    /// <summary>[WildcardPattern]::Escape: the inverse of <see cref="Like"/> for literal paths.</summary>
-    public static string WildcardEscape(string path)
-    {
-        var sb = new StringBuilder(path.Length);
-        foreach (var c in path)
-        {
-            if (c is '*' or '?' or '[' or ']' or '`') sb.Append('`');
-            sb.Append(c);
-        }
-        return sb.ToString();
-    }
-
     /// <summary>[datetime]$Text (invariant culture), or null.</summary>
     public static DateTime? ToDate(string? text) =>
         !string.IsNullOrWhiteSpace(text) && DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
@@ -75,9 +63,12 @@ public static class Ps
     public static string Leaf(string? path)
     {
         if (string.IsNullOrEmpty(path)) return "";
-        var p = path.TrimEnd('\\', '/');
-        var i = p.LastIndexOfAny(['\\', '/']);
-        return i < 0 ? p : p[(i + 1)..];
+        var p = path.Trim().Trim('"', '\'');
+        if (p.Contains('\n') || p.Contains('\r') || p.Contains("::")) return "";
+        var end = p.TrimEnd('\\', '/');
+        var i = end.LastIndexOfAny(['\\', '/']);
+        var leaf = i < 0 ? end : end[(i + 1)..];
+        return leaf.Contains('"') || leaf.Contains('\'') ? "" : leaf;
     }
 
     private static readonly ConcurrentDictionary<string, Regex> RegexCache = new();

@@ -1,0 +1,130 @@
+using System.Text.Json.Nodes;
+using Edr.Core;
+using Edr.Core.Native;
+using Microsoft.Win32;
+
+namespace Edr.Setup;
+
+/// <summary>
+/// Removes FreeEDR and puts back the Windows settings it changed (data\preinstall.json; Windows defaults when nothing
+/// is on record). Best effort: a failed step is a WARN and the next one still runs. Exit 0 = everything removed, 1 = WARNs.
+/// </summary>
+internal sealed class Uninstaller(EdrPaths paths, SetupOptions opt, SetupLog log)
+{
+    public int Run()
+    {
+        Directory.SetCurrentDirectory(EdrPaths.SystemRoot);   // the install folder is deleted: never hold it
+        var baseline = JsonFile.ReadObject(paths.BaselineFile);
+        var managed = JsonFile.ReadObject(paths.ManagedFile);
+        var known = baseline?.Truthy("known") == true;
+        log.Info(known ? $"FreeEDR uninstall (restoring the settings recorded {baseline!.Str("recorded")})" : "FreeEDR uninstall (no settings on record from before FreeEDR: removing what FreeEDR added, Windows defaults otherwise)");
+
+        log.Step("Stopping FreeEDR");
+        Services.Stop(EdrPaths.ServiceName, 30);
+        if (Services.Exists(EdrPaths.ServiceName)) { if (Services.Delete(EdrPaths.ServiceName)) log.Ok("Removed the service 'FreeEDR'"); else log.Warn("Could not remove the service 'FreeEDR'"); }
+        foreach (var t in new[] { "FreeEDR", "EDR", "FreeEDR tray start" }.Concat((managed?["tasks"] as JsonArray)?.Select(Ps.Str) ?? []).Distinct())
+        {
+            if (!Sys.TaskExists(t)) continue;
+            Sys.TaskEnd(t);
+            if (Sys.TaskDelete(t)) log.Ok($"Removed the scheduled task '{t}'"); else log.Warn($"Could not remove the scheduled task '{t}'");
+        }
+        Sys.StopFreeEdrProcesses(paths, includeTools: true);
+        log.Ok("Engine, scans, tools and trays stopped");
+
+        log.Step("Tray start and shortcuts");
+        try { using var run = Registry.LocalMachine.OpenSubKey(EdrPaths.RunKey, writable: true); run?.DeleteValue(EdrPaths.RunValue, false); }
+        catch (Exception e) when (e is UnauthorizedAccessException or IOException) { log.Warn($"Tray start: {e.Message}"); }
+        Sys.ForEachUserHive(h => { using var k = h.OpenSubKey(EdrPaths.RunKey, writable: true); k?.DeleteValue(EdrPaths.RunValue, false); k?.DeleteValue("EDR Tray", false); });
+        var lnks = new List<string> { Path.Combine(Sys.CommonPrograms, "FreeEDR.lnk"), Path.Combine(Sys.CommonDesktop, "FreeEDR.lnk") };
+        lnks.AddRange((managed?["shortcuts"] as JsonArray)?.Select(Ps.Str) ?? []);
+        foreach (var l in lnks.Where(l => l.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            JsonFile.TryDelete(l);
+            if (File.Exists(l)) log.Warn($"Could not delete {l}");
+        }
+        log.Ok("Tray start (all accounts) and Start menu / desktop shortcuts removed");
+
+        log.Step("Firewall");
+        try { log.Ok($"{Firewall.RemoveAllBans()} Wail2Ban block rules removed"); Firewall.RemoveRdpIpv6Blocks(); }
+        catch (Exception e) when (e is IOException or System.ComponentModel.Win32Exception) { log.Warn($"Wail2Ban firewall rules: {e.Message}"); }
+        if (known && baseline!["rdpShadowEnabled"] is JsonValue v && v.TryGetValue(out bool shadow) && shadow)
+        {
+            var r = PowerShellRunner.Run("Get-NetFirewallRule -Name 'RemoteDesktop-Shadow-In-TCP' | Enable-NetFirewallRule");
+            if (r.ExitCode == 0) log.Ok("Remote Desktop Shadow rule enabled again (it was on before FreeEDR)"); else log.Warn($"Remote Desktop Shadow rule: {r.Error.Trim()}");
+        }
+        else log.Ok("Remote Desktop Shadow rule left disabled (it was off before FreeEDR, or that is not on record)");
+
+        log.Step("Microsoft Defender");
+        var allows = (JsonFile.ReadObject(paths.ExclusionsFile)?["defender"] as JsonArray)?.OfType<JsonObject>().Where(e => e.Str("path").Length > 0).ToList() ?? [];
+        foreach (var n in Defender.Restore(baseline, managed, allows)) log.Note(n);
+
+        log.Step("Sysmon");
+        var sysmonExe = Path.Combine(EdrPaths.SystemRoot, "Sysmon64.exe");
+        if (!Services.Exists("Sysmon64")) log.Ok("Sysmon is not installed");
+        else if (baseline?.Truthy("sysmonPreexisting") == true)
+        {
+            var reg = baseline.Str("sysmonConfigBackup");
+            if (reg.Length > 0 && File.Exists(reg) && Sys.Run(Sys.Sys32("reg.exe"), "import", reg).Exit == 0)
+            {
+                Services.Stop("Sysmon64"); Services.Start("Sysmon64");
+                log.Ok("Sysmon kept (it was installed before FreeEDR); its earlier configuration is back");
+            }
+            else log.Warn("Sysmon kept (it was installed before FreeEDR), but its earlier configuration could not be restored - apply it again with Sysmon64 -c <your config>");
+        }
+        else
+        {
+            var (_, output) = Tools.RunCapture(sysmonExe, ["-u", "force"], timeoutSeconds: 180);
+            if (Services.Exists("Sysmon64")) log.Warn($"Sysmon could not be removed: {string.Join(" ", output.Trim().Split('\n').TakeLast(2))}");
+            else
+            {
+                log.Ok("Sysmon (service, driver and program) removed");
+                var evtx = Path.Combine(EdrPaths.System32, "winevt", "Logs", "Microsoft-Windows-Sysmon%4Operational.evtx");
+                if (File.Exists(evtx)) { JsonFile.TryDelete(evtx); if (File.Exists(evtx)) log.Warn($"The Sysmon event log file is still in use: delete {evtx} after a restart"); else log.Ok("Sysmon event log file removed"); }
+            }
+        }
+
+        log.Step("Event log source");
+        if (baseline?.Truthy("eventSourcePreexisting") == true) log.Ok("Event source \"wail2ban\" kept (it existed before FreeEDR)");
+        else if (Sys.EventSourceExists(EdrPaths.EventSource)) { Sys.DeleteEventSource(EdrPaths.EventSource); log.Ok("Event source \"wail2ban\" removed (entries already written stay in the Application log)"); }
+        else log.Ok("No event source to remove");
+
+        log.Step($"Files ({paths.Root})");
+        if (!opt.FromSetup) Registry.LocalMachine.DeleteSubKeyTree(EdrPaths.SetupUninstallKey, throwOnMissingSubKey: false);
+        foreach (var old in new[] { @"C:\EDR", @"C:\Wail2Ban", @"C:\LocalEDR" }.Where(Directory.Exists))
+            try { Directory.Delete(old, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        var self = Environment.ProcessPath ?? "";
+        if (Directory.Exists(paths.Root))
+        {
+            foreach (var entry in new DirectoryInfo(paths.Root).GetFileSystemInfos())
+            {
+                if (opt.FromSetup && entry.Name.StartsWith("unins", StringComparison.OrdinalIgnoreCase)) continue;   // Setup's uninstaller removes itself
+                try
+                {
+                    if (entry is DirectoryInfo d)
+                    {
+                        if (self.StartsWith(d.FullName + "\\", StringComparison.OrdinalIgnoreCase)) DeleteTreeExcept(d, self);
+                        else d.Delete(true);
+                    }
+                    else entry.Delete();
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            }
+            var left = Directory.GetFiles(paths.Root, "*", SearchOption.AllDirectories)
+                .Where(f => !Ps.Eq(f, self) && !(opt.FromSetup && Path.GetFileName(f).StartsWith("unins", StringComparison.OrdinalIgnoreCase))).ToList();
+            if (left.Count > 0) log.Warn($"{left.Count} files are still in use (first: {left[0]}) - delete {paths.Root} after a restart");
+            else log.Ok($"Deleted {paths.Root} (events, settings, allow/block lists, tools){(opt.FromSetup ? "; Setup removes the rest" : "")}");
+        }
+        log.Result("UNINSTALL RESULT", log.Warnings > 0 ? $"DONE WITH {log.Warnings} WARNING(S) - see above" : "SUCCESS", log.Warnings == 0);
+        return log.Warnings > 0 ? 1 : 0;
+    }
+
+    private static void DeleteTreeExcept(DirectoryInfo dir, string keep)
+    {
+        foreach (var f in dir.GetFiles()) if (!Ps.Eq(f.FullName, keep)) try { f.Delete(); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        foreach (var d in dir.GetDirectories())
+        {
+            if (keep.StartsWith(d.FullName + "\\", StringComparison.OrdinalIgnoreCase)) DeleteTreeExcept(d, keep);
+            else try { d.Delete(true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+    }
+}

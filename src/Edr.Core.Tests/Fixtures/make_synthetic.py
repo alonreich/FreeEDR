@@ -134,7 +134,7 @@ def status(paused, scan_ok=True):
     }
 
 
-def write(fixture, reviewed, st):
+def write(fixture, reviewed, st, event_list=None):
     base = os.path.join(HERE, fixture, "inputs")
     for d in ("data", "config", "local"):
         os.makedirs(os.path.join(base, d), exist_ok=True)
@@ -143,8 +143,9 @@ def write(fixture, reviewed, st):
         with open(os.path.join(base, rel), "w", encoding="utf-8") as f:
             json.dump(obj, f, indent=2)
 
+    evs = EVENTS if event_list is None else event_list
     with open(os.path.join(base, "data", "events.jsonl"), "w", encoding="utf-8", newline="\n") as f:
-        for e in EVENTS:
+        for e in evs:
             f.write(json.dumps(e) + "\n")
         f.write('{"broken json\n')   # skipped by both trays
         f.write('{"time":"2026-11-01 23:59:59","blade":"realtime","title":"incomplete last line"')   # no newline: not read yet
@@ -163,4 +164,23 @@ def write(fixture, reviewed, st):
 
 write("synthetic-a", ["e36", "  "], status(paused=False))
 write("synthetic-b", ["e16", "e29", "e37", "e36"], status(paused=True, scan_ok=False))
+
+# synthetic-c: more than 10,000 events to verify bounded buffer eviction and aggregate retention
+older_evs = []
+for i in range(20):
+    older_evs.append(ev(1000 + i, "2026-10-28 01:00:00", "realtime", "Encoded PowerShell command", "High", process=PWSH, parent=CLAUDE, rule="Encoded PowerShell command", detail="pwsh -enc OLD"))
+for i in range(10):
+    older_evs.append(ev(1100 + i, "2026-10-28 01:01:00", "wail2ban", "Failed logon from 203.0.113.5", "Low", ip="203.0.113.5", kind="fail", user="admin"))
+for i in range(10):
+    older_evs.append(ev(1200 + i, "2026-10-28 01:02:00", "wail2ban", "Blocked 198.51.100.99 for 1 hour", "Medium", ip="198.51.100.99", expires="2026-10-28 02:00:00", strike=1))
+for i in range(10):
+    older_evs.append(ev(1300 + i, "2026-10-28 01:03:00", "realtime", "New user or admin group change", "High", process=r"C:\Windows\System32\net.exe", parent=r"C:\Windows\System32\cmd.exe", rule="New user or admin group change", detail="net user alice /add"))
+
+import datetime
+
+base_dt = datetime.datetime(2026, 10, 20, 0, 0, 0)
+filler_evs = [ev(2000 + i, (base_dt + datetime.timedelta(seconds=10 * i)).strftime("%Y-%m-%d %H:%M:%S"), "system", f"Periodic scan heartbeat {i}", "Info", kind="scan") for i in range(9960)]
+events_c = older_evs + filler_evs + EVENTS
+
+write("synthetic-c", ["e36", "  "], status(paused=False), event_list=events_c)
 print("ok")

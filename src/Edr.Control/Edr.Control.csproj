@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- FreeEDR-Control.exe: the elevated helper the tray starts through UAC. Validates one request, then drops it into control\. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>Edr.Control</RootNamespace>
+    <AssemblyName>FreeEDR-Control</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishAot>true</PublishAot>
+    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Edr.Core\Edr.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,142 @@
+FreeEDR - PROJECT STRUCTURE AND AGENT ENTRY POINT
+==================================================
+Every AI agent session starts here. Read this file, then ONLY the docs the routing table (section 4) names for your
+task. Do not read every doc: each file under docs\ starts with a "Read for:" line, so you can stop early if it does not
+apply.
+
+WHAT FreeEDR IS
+  Free single-PC EDR + Wail2Ban for Windows 10/11 x64, built from free tools (Sysmon, YARA, Hayabusa/Sigma,
+  OSV-Scanner, Velociraptor, Microsoft Defender). DETECT-ONLY: it detects, explains and logs; it never stops, deletes or
+  quarantines anything. The only part that enforces is Wail2Ban (inbound firewall bans of addresses that keep failing to
+  sign in; can be switched to report-only). C# 14 / .NET 10, every program NativeAOT (no runtime to install):
+    - FreeEDR-Engine.exe     Windows service "FreeEDR" (LocalSystem): detection, Wail2Ban, scans, health
+    - FreeEDR-Tray.exe       Avalonia dashboard + tray icon, unelevated, one per signed-in account
+    - FreeEDR-Control.exe    elevated helper (UAC): validates one request from the tray, drops it into control\
+    - FreeEDR-Installer.exe  install / upgrade / repair / uninstall (run by FreeEDR-Setup.exe and Settings > Apps)
+  Installed to C:\Program Files\FreeEDR (admin-only).
+
+
+1. HARD RULES (every session)
+-----------------------------
+  - After EVERY code change: dev_build.cmd (through cmd.exe, full path; all gates pass), then UNELEVATED
+      powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\Run-Tests.ps1
+    Read tests\results\last-run.txt, look into EVERY FAIL and WARN, report the TEST RESULT line and every SKIP that
+    left your change untested. A FAIL means the change is not done.
+  - Never run compiled\FreeEDR-Setup.exe or FreeEDR-Installer.exe (install/uninstall) on the owner's PC without explicit
+    approval (they change Defender, firewall, Sysmon, the service, the registry).
+  - Edit only in this repository, never in C:\Program Files\FreeEDR.
+  - Keep docs true: a change to documented behaviour updates the routed doc in the same change. A new doc gets a
+    "Read for:" line and a row in section 4.
+  - Known FAILs/WARNs before you start: docs\history\STATUS.md (do not chase those).
+  Full loop, build gates, test suites and design rules: docs\agents\AGENT_WORKFLOW.md (ALWAYS read it when you edit files).
+
+
+2. CI/CD FLOW FOR AGENTS
+------------------------
+  project_structure.txt (this file)
+     -> routed docs for the task (section 4)
+     -> edit in the repo
+     -> dev_build.cmd                                   gates: data files/encodings -> C# tests -> NativeAOT publish of
+                                                        4 programs -> live tray self-test -> staging (+signing) -> Inno Setup
+     -> tests\Run-Tests.ps1 (unelevated)                01-Sanity 02-Unit 03-FalsePositive 04-PenTest 05-Live
+     -> review last-run.txt, fix or justify every FAIL/WARN
+     -> update routed docs + docs\history\STATUS.md
+     -> report (TEST RESULT line, SKIPs)
+     -> install only with the owner's approval, then re-run the tests (05-Live checks the installed copy)
+  Commits / pushes only when the owner asks.
+
+
+3. REPOSITORY MAP
+-----------------
+  Product (src\, solution src\EdrTray.sln; shared settings src\Directory.Build.props, versions src\Directory.Packages.props)
+    Edr.Core\            shared library: paths (EdrPaths), settings (EdrConfig), durable JSON (JsonFile), events
+                         (EventWriter), validation of allows and commands (PatternRules), trusted-app profiles (Profiles),
+                         allow decisions + own-process trust (Detection, OwnProcess), Defender settings (Defender), tools
+                         and downloads (Tools), dashboard model (ModelBuilder, EdrInputs, Catalog, Hints, Actions, Summary),
+                         Native\ (wevtapi event subscriptions, services, firewall, Authenticode, process snapshot)
+    Edr.Engine\          FreeEDR-Engine.exe: Engine (main loop, watchers, health, status), Realtime (Sysmon + IOC + YARA),
+                         Wail2Ban, DefenderEvents, Scanner (IOC feed, Hayabusa, OSV, tool versions), Commands, Stores
+    Edr.Control\         FreeEDR-Control.exe (requireAdministrator)
+    Edr.Setup\           FreeEDR-Installer.exe (requireAdministrator): Installer, Uninstaller
+    Edr.Tray\            FreeEDR-Tray.exe: App (tray icon, tick, notifications), MainWindow, Theme.axaml, Controller,
+                         Views\ (Home, ListPage for Activity/Network/Updates, Allowed, Settings, DetailView, Dialogs),
+                         Services\ (TrayState, Commands, Notifier, Preferences/Insights, WingetCheck)
+    Edr.Core.Tests\      xUnit v3: rules, detection, Sysmon corpus, golden dashboard models (Fixtures\), engine internals
+  Installed data
+    config\sysmonconfig.template.xml   Sysmon rules ({ROOT} placeholder)
+    rules\custom_edr.yar, rules\ransomware.yar   YARA rules (ASCII, no BOM)
+    README.md, docs\user\USER_GUIDE.md, docs\install\INSTALLATION.md, docs\install\UNINSTALL.md   installed docs
+
+  Build (development only)
+    build.cmd / dev_build.cmd     release / dev build of compiled\FreeEDR-Setup.exe (installs nothing); builds and runs
+                                  build\EdrBuild\EdrBuild.csproj
+    build\EdrBuild\               C# build pipeline (Gates.cs: data files, tests, NativeAOT publish, signing); writes build.log
+    build\installer\FreeEDR-Setup.iss   Inno Setup script (Settings > Apps entry, runs FreeEDR-Installer.exe)
+    build\env.cmd, nuget.config   keep temp files / NuGet caches in obj\
+    dev.cmd, build\DevRun.ps1     developer runner for the tray
+    compiled\FreeEDR-Setup.exe    the single-file installer
+    obj\, build.log               build output (safe to delete)
+    developer_tools\              developer utilities (scorch-earth uninstaller, code exporter, console font)
+    The legacy PowerShell scripts (EDR-*.ps1, Install-EDR.ps1, Uninstall-EDR.ps1) were deleted from the repository on
+    2026-11-06 (git history has them); the installer still removes them from an older install.
+
+  Tests
+    tests\Run-Tests.ps1           the mandatory test bundle (PowerShell runner; builds and runs the C# tests once);
+                                  tests\data\process-corpus.json = everyday/attack command lines; tests\results\ (git-ignored)
+
+  Agent files
+    project_structure.txt         this entry point
+    AGENTS.md, CLAUDE.md          short root stubs that point here (tools auto-load them from the root; tests check them)
+
+  Documentation (docs\)
+    docs\agents\AGENT_WORKFLOW.md          build -> test -> report loop, gates, suites, code signing, design rules
+    docs\architecture\ARCHITECTURE.md      processes, trust boundaries, permissions, kernel object names
+    docs\architecture\DATA_FILES.md        every file in C:\Program Files\FreeEDR, settings, engine<->tray file contract
+    docs\engine\DETECTION.md               blades, severities, real-time pipeline, scan, Defender, health, allow schema,
+                                           trusted-app profiles, Sysmon config, known detection gaps
+    docs\engine\COMMANDS_AND_IPC.md        control\ + inbox\, verbs, validation gate, pause/audit, verdicts
+    docs\engine\WAIL2BAN.md                failed logons, bans, escalation, report-only mode, internet logins, strikes file
+    docs\tray\TRAY_GUI.md                  FreeEDR-Tray.exe: pages, actions, notifications, insights, theme, dev modes
+    docs\tray\TRAY_REWRITE_PLAN.md         history of the C# migration (completed 2026-11-06)
+    docs\install\INSTALLATION.md           acceptance checklist, prerequisites, installer steps, ACLs, Defender, service
+    docs\install\UNINSTALL.md              what the uninstaller removes / restores
+    docs\user\USER_GUIDE.md                end-user guide: Home, Activity, Network, Updates, trusted apps, settings, limits
+    docs\reference\POWERSHELL_PITFALLS.md  NativeAOT / Avalonia / Windows pitfalls, and PowerShell 5.1 ones for the tests
+    docs\history\STATUS.md                 open items, last test result, security audit history
+    docs\history\DECISIONS.md              review findings (C1, E2, W7, Q11, A4, P1-P20, ...) and owner decisions
+
+
+4. ROUTING TABLE: task -> what to read
+--------------------------------------
+  Always when editing files: docs\agents\AGENT_WORKFLOW.md + docs\history\STATUS.md
+  Always when writing PowerShell (tests) or NativeAOT code: docs\reference\POWERSHELL_PITFALLS.md
+
+  Task                                                  Read                                      Optional
+  ----                                                  ----                                      --------
+  Real-time / Sysmon rule / IOC / YARA / Sigma / CVE    engine\DETECTION.md                       architecture\DATA_FILES.md
+  Trusted-app profiles or allow (exclusion) logic       engine\DETECTION.md (6, 7)                engine\COMMANDS_AND_IPC.md
+  Engine commands, FreeEDR-Control.exe, pause, verdicts engine\COMMANDS_AND_IPC.md                engine\DETECTION.md (6)
+  Wail2Ban / logon events / firewall bans               engine\WAIL2BAN.md                        -
+  Engine loop, performance, watchers, health            engine\DETECTION.md (3, 5)                architecture\ARCHITECTURE.md
+  Files, JSON persistence, settings, status.json        architecture\DATA_FILES.md                -
+  Permissions / trust boundaries / new component        architecture\ARCHITECTURE.md              install\INSTALLATION.md (4)
+  Tray / dashboard (src\Edr.Tray)                       tray\TRAY_GUI.md, user\USER_GUIDE.md      architecture\DATA_FILES.md (3)
+  Installer / Setup / Defender / service / ACL          install\INSTALLATION.md                   install\UNINSTALL.md
+  Uninstaller                                           install\UNINSTALL.md                      install\INSTALLATION.md
+  Build pipeline / tests / code signing                 agents\AGENT_WORKFLOW.md                  -
+  End-user docs / README                                user\USER_GUIDE.md                        -
+  "Why is it like this?" / a finding ID                 history\DECISIONS.md                      tray\TRAY_REWRITE_PLAN.md
+
+
+5. KEY INVARIANTS (short form; details in the routed docs)
+----------------------------------------------------------
+  - Detect-only: no FreeEDR code stops a process, deletes or quarantines a file. Wail2Ban bans are the one enforcement.
+  - The engine (SYSTEM) must never stop: every step inside Engine.Safely; the service restarts itself on failure.
+  - The tray is unelevated: reads the install folder, writes only user\<SID>\ and inbox\ (and its own notification
+    registration under HKCU). Every weakening change goes UAC -> FreeEDR-Control.exe -> control\ -> PatternRules
+    validation again in the engine. inbox\ accepts only resume / scan-now.
+  - Paths only from EdrPaths; everything FreeEDR keeps lives under the install folder.
+  - Installer changes outside the folder are recorded (preinstall.json / managed.json) and undone by the uninstaller;
+    never lower a Windows protection setting that was stronger before FreeEDR.
+  - NativeAOT everywhere: no reflection-based JSON or bindings (JsonNode, code-built views); trim/AOT warnings are errors.
+  - .yar = ASCII without BOM; .ps1 (tests) = UTF-8 with BOM, Windows PowerShell 5.1.

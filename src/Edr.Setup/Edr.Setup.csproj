@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- FreeEDR-Installer.exe: install / upgrade / repair / uninstall, run by FreeEDR-Setup.exe (Inno Setup) and Settings > Apps. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Edr.Setup</RootNamespace>
+    <AssemblyName>FreeEDR-Installer</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishAot>true</PublishAot>
+    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Edr.Core\Edr.Core.csproj" />
+  </ItemGroup>
+</Project>

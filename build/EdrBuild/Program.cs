@@ -4,8 +4,8 @@ namespace EdrBuild;
 
 /// <summary>
 /// EdrBuild - builds .\compiled\FreeEDR-Setup.exe, the single-file installer of FreeEDR.
-/// Pipeline: project files -> encodings -> PowerShell 5.1 parse -> C# tests (incl. tray parity) -> NativeAOT tray
-/// publish -> live self-test of both trays -> stage the project files -> Inno Setup -> exactly one file in .\compiled.
+/// Pipeline: data files -> encodings -> C# tests -> NativeAOT publish of the engine, control helper, installer and
+/// tray -> live self-test of the tray -> staging (+ optional code signing) -> Inno Setup -> exactly one file in .\compiled.
 /// Release (build.cmd) wipes .\compiled first; dev (dev_build.cmd, --dev) only replaces the installer and marks the
 /// version as a dev build. Nothing is installed and nothing leaves this PC.
 /// Exit codes: 0 = OK, 1 = BUILD FAILED.
@@ -21,7 +21,8 @@ internal static class Program
             Console.WriteLine("Usage: build.cmd | dev_build.cmd [--skip-live]");
             Console.WriteLine("  build.cmd      release build: .\\compiled is wiped first, then holds only FreeEDR-Setup.exe");
             Console.WriteLine("  dev_build.cmd  local dev build (--dev): .\\compiled is not wiped, the version says \"dev\"");
-            Console.WriteLine("  --skip-live    skip the self-test of both trays on this PC's live FreeEDR data");
+            Console.WriteLine("  --skip-live    skip the self-test of the tray on this PC's live FreeEDR data");
+            Console.WriteLine("  Code signing (optional): EDR_SIGN_THUMBPRINT, or EDR_SIGN_DLIB + EDR_SIGN_METADATA (Azure Trusted Signing)");
             return 0;
         }
         var dev = args.Contains("--dev", StringComparer.OrdinalIgnoreCase);
@@ -59,8 +60,8 @@ internal static class Program
         var version = $"{now:yyyy}.{now.Month}.{now.Day}.{now:HHmm}";
         var versionText = dev ? $"{version} (dev build)" : version;
         var obj = Path.Combine(root, "obj", "EdrBuild");
+        var publish = Path.Combine(obj, "publish");
         var staging = Path.Combine(obj, "Staging");
-        var trayOut = Path.Combine(obj, "tray");
         var compiled = Path.Combine(root, "compiled");
 
         log.Banner("###########################################################");
@@ -68,28 +69,42 @@ internal static class Program
         log.Banner("###########################################################");
 
         log.Banner("1. Checking the project files...");
-        var files = Gates.ProjectFiles(root, log);
-        if (files is null) return false;
-        if (!Gates.Encodings(root, files, log)) return false;
-        if (!Gates.PowerShellParse(root, files, obj, log)) return false;
+        if (!Gates.ProjectFiles(root, log)) return false;
+        if (!Gates.Encodings(root, log)) return false;
 
-        log.Banner("2. C# tray: tests and NativeAOT publish...");
+        log.Banner("2. C# tests...");
         if (!Gates.DotnetTests(root, log)) return false;
-        if (!Gates.TrayPublish(root, trayOut, log)) return false;
-        if (skipLive) log.Warn("[Self-test] skipped on request (--skip-live)");
-        else if (!Gates.LiveSelfTest(root, Path.Combine(trayOut, "FreeEDR-Tray.exe"), obj, log)) return false;
 
-        log.Banner("3. Staging...");
+        log.Banner("3. NativeAOT publish (engine, control helper, installer, tray)...");
+        if (!Gates.Publish(root, publish, version, log)) return false;
+        var trayExe = Path.Combine(publish, "Edr.Tray", "FreeEDR-Tray.exe");
+        if (skipLive) log.Warn("[Self-test] skipped on request (--skip-live)");
+        else if (!Gates.LiveSelfTest(trayExe, log)) return false;
+
+        log.Banner("4. Staging...");
         if (Directory.Exists(staging)) Directory.Delete(staging, true);
-        foreach (var f in files)
+        var n = 0;
+        foreach (var (project, sub, _) in Gates.Programs)
+        {
+            var to = Path.Combine(staging, "bin", sub);
+            Directory.CreateDirectory(to);
+            foreach (var f in Directory.GetFiles(Path.Combine(publish, project)).Where(f => !f.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)))
+            {
+                File.Copy(f, Path.Combine(to, Path.GetFileName(f)), true);
+                n++;
+            }
+        }
+        foreach (var f in Gates.DataFiles)
         {
             var to = Path.Combine(staging, f);
             Directory.CreateDirectory(Path.GetDirectoryName(to)!);
             File.Copy(Path.Combine(root, f), to);
+            n++;
         }
-        log.Success($"[Staging] {files.Count} files -> {staging}");
+        if (!Gates.Sign(Directory.GetFiles(Path.Combine(staging, "bin"), "*.exe", SearchOption.AllDirectories), log)) return false;
+        log.Success($"[Staging] {n} files -> {staging}");
 
-        log.Banner("4. Building the installer (Inno Setup)...");
+        log.Banner("5. Building the installer (Inno Setup)...");
         var iscc = Cli.FindIscc();
         if (iscc is null)
         {
@@ -108,8 +123,9 @@ internal static class Program
             Path.Combine(root, "build", "installer", "FreeEDR-Setup.iss"),
         ], log);
         if (rc != 0 || !File.Exists(output)) { log.Error($"Inno Setup failed (exit {rc}); the installer was not produced"); return false; }
+        if (!Gates.Sign([output], log)) return false;
 
-        log.Banner("5. Validating .\\compiled...");
+        log.Banner("6. Validating .\\compiled...");
         if (!ValidateCompiled(compiled, output, log)) return false;
         using (var fs = File.OpenRead(output))
             log.Success($"[Installer] {SetupName}  {new FileInfo(output).Length / 1024.0 / 1024.0:0.0} MB  SHA256 {Convert.ToHexString(SHA256.HashData(fs))}");
@@ -135,7 +151,7 @@ internal static class Program
     private static string FindRoot()
     {
         for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
-            if (File.Exists(Path.Combine(d.FullName, "Install-EDR.ps1")) && Directory.Exists(Path.Combine(d.FullName, "build", "EdrBuild")))
+            if (File.Exists(Path.Combine(d.FullName, "project_structure.txt")) && Directory.Exists(Path.Combine(d.FullName, "build", "EdrBuild")))
                 return d.FullName;
         return Environment.CurrentDirectory;
     }

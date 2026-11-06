@@ -1,6 +1,6 @@
 namespace Edr.Core;
 
-/// <summary>Program and parent of a Sigma hit (Get-SigmaProcess in EDR-Common.ps1, Get-SigmaInfo in the tray).</summary>
+/// <summary>Program and parent of a Sigma hit parsed from Hayabusa details.</summary>
 public sealed record SigmaProcess(string Image, string Parent)
 {
     private const char Sep = '\u00A6';   // Hayabusa's "¦" field separator
@@ -23,7 +23,7 @@ public sealed record SigmaProcess(string Image, string Parent)
         if (par.Length == 0 && f.TryGetValue("ParentCmdline", out var pc) && pc.Length > 0)
         {
             var q = Ps.Rx("^\"([^\"]+\\.exe)\"").Match(pc);
-            var u = Ps.Rx(@"^(.+?\.exe)(\s|$)").Match(pc);
+            var u = Ps.Rx(@"^([^\s""]+\.exe)(\s|$)").Match(pc);
             par = q.Success ? q.Groups[1].Value : u.Success ? u.Groups[1].Value : "";
         }
         return new SigmaProcess(img, par);
@@ -35,7 +35,8 @@ public sealed record SigmaProcess(string Image, string Parent)
         if (e.SigmaCache is { } c) return c;
         var sp = FromDetails(e.S("detail"));
         if (sp.Image.Length == 0 && Ps.Match(e.S("process"), @"\.exe$")) sp = sp with { Image = e.S("process") };
-        if (e.T("parent")) sp = sp with { Parent = e.S("parent") };
+        if (e.T("parent") && (Ps.Match(e.S("parent"), "^\"[^\"]+\\.exe\"$") || Ps.Match(e.S("parent"), @"^[^\s""]+\.exe$")))
+            sp = sp with { Parent = e.S("parent") };
         e.SigmaCache = sp;
         return sp;
     }

@@ -3,7 +3,7 @@ using System.Net.Sockets;
 
 namespace Edr.Core;
 
-/// <summary>IP helpers of EDR-Common.ps1 (Test-IpInCidr, Test-PrivateIp).</summary>
+/// <summary>IP helpers: normalisation, CIDR matching, private ranges.</summary>
 public static class Ip
 {
     private static readonly string[] PrivateRanges =
@@ -30,8 +30,30 @@ public static class Ip
 
     public static bool IsPrivate(string? ip) => PrivateRanges.Any(r => InCidr(ip, r));
 
+    /// <summary>ConvertTo-NormalIp: canonical text of an IPv4/IPv6 address ([::ffff:1.2.3.4] -> 1.2.3.4, zone dropped), or null.</summary>
+    public static string? Normalize(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var s = text.Trim().Trim('[', ']');
+        var m = Ps.Rx(@"^::ffff:(\d{1,3}(\.\d{1,3}){3})$").Match(s);
+        if (m.Success) s = m.Groups[1].Value;
+        s = s.Split('%')[0];
+        if (!(Ps.Rx(@"^\d{1,3}(\.\d{1,3}){3}$").IsMatch(s) || s.Contains(':'))) return null;
+        return IPAddress.TryParse(s, out var ip) ? ip.ToString() : null;
+    }
+
+    /// <summary>A valid allow-list entry: an address or address/prefix.</summary>
+    public static bool IsValidCidr(string? cidr)
+    {
+        if (string.IsNullOrWhiteSpace(cidr)) return false;
+        var parts = cidr.Split('/');
+        if (parts.Length > 2 || Normalize(parts[0]) is not { } baseIp) return false;
+        if (parts.Length == 1) return true;
+        if (!int.TryParse(parts[1], out var bits) || parts[1].Length > 3) return false;
+        var max = baseIp.Contains(':') ? 128 : 32;
+        return bits >= 0 && bits <= max;
+    }
+
     /// <summary>Get-NetLabel of the tray.</summary>
     public static string NetLabel(string? ip) => IsPrivate(ip) ? "Private / LAN" : "Public internet";
-
-    public static bool IsV6(string? ip) => IPAddress.TryParse(ip, out var a) && a.AddressFamily == AddressFamily.InterNetworkV6;
 }

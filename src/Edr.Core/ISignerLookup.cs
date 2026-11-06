@@ -1,6 +1,6 @@
 namespace Edr.Core;
 
-/// <summary>Publisher of a validly signed file (e.g. "Google LLC"), or null. Get-FileSigner in EDR-Common.ps1.</summary>
+/// <summary>Publisher of a validly signed file (e.g. "Google LLC"), or null.</summary>
 public interface ISignerLookup
 {
     string? SignerOf(string path);

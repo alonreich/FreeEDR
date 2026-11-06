@@ -1,6 +1,6 @@
 <!--
   NOTE: do not use condition="end with any" - Sysmon 15.22 crashes on it (0xC0000409). Use "contains any".
-  FreeEDR Sysmon configuration (template). Install-EDR.ps1 replaces {ROOT} (C:\Program Files\FreeEDR)
+  FreeEDR Sysmon configuration (template). FreeEDR-Installer.exe replaces {ROOT} (C:\Program Files\FreeEDR)
   and writes config\sysmonconfig.xml.
   Design: INCLUDE-ONLY rules, so Sysmon logs only suspicious activity (low CPU/disk, game-friendly).
   Every rule "name" is shown in the FreeEDR dashboard as the alert title and maps to a severity + explanation.
@@ -15,9 +15,11 @@
     <!-- ===================== Process creation (Event 1) ===================== -->
     <RuleGroup name="ProcessCreateInclude" groupRelation="or">
       <ProcessCreate onmatch="include">
+        <!-- T3: an encoded command cannot be combined with -Command, so " -e " inside a -Command text (rg -e, git messages) is not one -->
         <Rule name="Encoded PowerShell command" groupRelation="and">
           <Image condition="contains any">\powershell.exe;\pwsh.exe;\powershell_ise.exe</Image>
           <CommandLine condition="contains any"> -e ; -en ; -enc ; -enco; -encodedcommand ; -ec ; /e ; /enc ; /encodedcommand </CommandLine>
+          <CommandLine condition="excludes all"> -command ; -c ; /command ; /c </CommandLine>
         </Rule>
         <Rule name="PowerShell download or in-memory execution" groupRelation="and">
           <Image condition="contains any">\powershell.exe;\pwsh.exe;\powershell_ise.exe</Image>
@@ -56,8 +58,17 @@
           <Image condition="contains any">\wscript.exe;\cscript.exe</Image>
           <CommandLine condition="contains any">\Downloads\;\AppData\Local\Temp\;\Users\Public\;\Windows\Temp\</CommandLine>
         </Rule>
+        <!-- T2/T4: "net user <name> <password> /add" is caught; listing members ("net localgroup administrators") is not -->
+        <Rule name="New user or admin group change" groupRelation="and">
+          <Image condition="contains any">\net.exe;\net1.exe</Image>
+          <CommandLine condition="contains all"> user ; /add</CommandLine>
+        </Rule>
+        <Rule name="New user or admin group change" groupRelation="and">
+          <Image condition="contains any">\net.exe;\net1.exe</Image>
+          <CommandLine condition="contains all"> localgroup ; /add</CommandLine>
+        </Rule>
         <Rule name="New user or admin group change" groupRelation="or">
-          <CommandLine condition="contains any">user /add;localgroup administrators;Add-LocalGroupMember;New-LocalUser</CommandLine>
+          <CommandLine condition="contains any">Add-LocalGroupMember;New-LocalUser</CommandLine>
         </Rule>
         <Rule name="Defender tampering" groupRelation="or">
           <CommandLine condition="contains any">DisableRealtimeMonitoring;Add-MpPreference -ExclusionPath;Add-MpPreference -ExclusionProcess;Set-MpPreference -Disable;DisableAntiSpyware;Uninstall-WindowsFeature -Name Windows-Defender</CommandLine>

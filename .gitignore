@@ -3,5 +3,10 @@ obj/
 bin/
 build.log
 TestResults/
+# Test bundle output (paths, user names, live data)
+tests/results/
 *.user
 .vs/
+.dev-run/
+__pycache__/
+*.pyc

@@ -5,7 +5,7 @@ using System.Text.Json.Nodes;
 namespace Edr.Core;
 
 /// <summary>
-/// The model as JSON, in the same shape EDR-Tray.ps1 -SelfTest writes with EDR_SELFTEST_DUMP (model.json),
+/// The model as JSON, in the shape of the golden files (model.json; first written by the PowerShell tray),
 /// so the two trays can be compared.
 /// </summary>
 public static class ModelDump
@@ -25,7 +25,7 @@ public static class ModelDump
         {
             ["now"] = now.ToString("yyyy-MM-ddTHH:mm:ss"),
             ["overall"] = new JsonObject { ["key"] = overall.Key, ["text"] = overall.Text, ["sub"] = overall.Sub },
-            ["attention"] = m.Attention, ["pinned"] = m.Pinned, ["claude"] = m.Claude ?? "",
+            ["attention"] = m.Attention, ["pinned"] = m.Pinned, ["claude"] = m.Claude,
             ["sections"] = secs,
             ["messages"] = new JsonArray(m.Messages.Select(RowJson).ToArray()),
         };
