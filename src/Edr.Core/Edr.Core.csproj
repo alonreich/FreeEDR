@@ -4,4 +4,7 @@
     <RootNamespace>Edr.Core</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>   <!-- LibraryImport source-generated P/Invoke (Native\) -->
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Edr.Core.Tests" />   <!-- EnginePipe test hooks (pipe name, accepted owner) -->
+  </ItemGroup>
 </Project>

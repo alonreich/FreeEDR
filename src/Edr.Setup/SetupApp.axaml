@@ -1,0 +1,10 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Edr.Setup.SetupApp"
+             RequestedThemeVariant="Dark">
+  <!-- Same look as the dashboard: Fluent + the tray's Theme.axaml (linked into this project) -->
+  <Application.Styles>
+    <FluentTheme />
+    <StyleInclude Source="avares://FreeEDR-Installer/Theme.axaml" />
+  </Application.Styles>
+</Application>

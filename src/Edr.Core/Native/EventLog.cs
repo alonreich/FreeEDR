@@ -10,6 +10,7 @@ namespace Edr.Core.Native;
 public sealed class EventRecord
 {
     public int Id { get; init; }
+    public string Channel { get; set; } = "";
     public DateTime Time { get; init; }
     public Dictionary<string, string> Data { get; } = new(StringComparer.OrdinalIgnoreCase);
     public string this[string key] => Data.TryGetValue(key, out var v) ? v : "";
@@ -31,6 +32,9 @@ public sealed class EventRecord
                 var name = e.GetAttribute("Name");
                 if (name.Length > 0) r.Data[name] = e.InnerText;
             }
+            // UserData events (e.g. 1102 / 104 "log cleared"): <UserData><LogFileCleared><SubjectUserName>...
+            foreach (XmlElement e in doc.SelectNodes("/e:Event/e:UserData/*/*", ns)!) r.Data.TryAdd(e.LocalName, e.InnerText);
+            if (doc.SelectSingleNode("/e:Event/e:System/e:Channel", ns)?.InnerText is { } ch) r.Channel = ch;
             return r;
         }
         catch (XmlException) { return null; }
@@ -84,7 +88,8 @@ public sealed unsafe partial class EventSubscription : IDisposable
         {
             var err = Marshal.GetLastWin32Error();
             s.Dispose();
-            if (!string.IsNullOrWhiteSpace(bookmarkXml) && err is 15005 or 13 or 87) throw new InvalidDataException($"bookmark rejected (error {err})");
+            // 15011 ERROR_EVT_QUERY_RESULT_STALE / 15012 ..._INVALID_POSITION: the bookmarked record is gone (log cleared or wrapped)
+            if (!string.IsNullOrWhiteSpace(bookmarkXml) && err is 15005 or 15011 or 15012 or 13 or 87) throw new InvalidDataException($"bookmark rejected (error {err})");
             throw new IOException($"Cannot subscribe to {channel} (error {err})");
         }
         return s;

@@ -28,8 +28,15 @@ internal sealed class Context
     public Blocklist Blocks { get; }
     public DateTime Started { get; } = DateTime.Now;
 
-    public JsonObject Event(string blade, string severity, string title, string process = "", string detail = "", JsonObject? extra = null) =>
-        Events.Write(blade, severity, title, process, detail, extra);
+    /// <summary>Something the dashboards show changed (an event was written): set by the engine to notify them over the pipe.</summary>
+    public Action? Changed { get; set; }
+
+    public JsonObject Event(string blade, string severity, string title, string process = "", string detail = "", JsonObject? extra = null)
+    {
+        var e = Events.Write(blade, severity, title, process, detail, extra);
+        Changed?.Invoke();
+        return e;
+    }
 
     public void AppEvent(string text, int id, ushort type = 4) => Win32.WriteAppEvent(EdrPaths.EventSource, text, id, type);
 

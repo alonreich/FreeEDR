@@ -31,7 +31,7 @@ public sealed class Commands(TrayState state)
         _busy = true;
         try
         {
-            var psi = new ProcessStartInfo(exe) { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden };
+            var psi = new ProcessStartInfo(exe) { UseShellExecute = true, Verb = "runas" };   // not Hidden: the helper shows its confirmation window
             psi.ArgumentList.Add("--payload");
             psi.ArgumentList.Add(b64);
             using var p = Process.Start(psi);
@@ -40,29 +40,41 @@ public sealed class Commands(TrayState state)
             try { await p.WaitForExitAsync(cts.Token); }
             catch (OperationCanceledException) { try { p.Kill(); } catch (InvalidOperationException) { } return CommandResult.Failed; }
             state.Dirty = true;
-            return p.ExitCode switch { 0 => CommandResult.Done, 2 => CommandResult.Refused, _ => CommandResult.Failed };
+            // 4: declined in the helper's own confirmation; 6: more than its window can show in full
+            return p.ExitCode switch { 0 => CommandResult.Done, 2 => CommandResult.Refused, 4 => CommandResult.Cancelled, 6 => CommandResult.TooLarge, _ => CommandResult.Failed };
         }
         catch (Win32Exception e) when (e.NativeErrorCode == 1223) { return CommandResult.Cancelled; }   // UAC declined
         catch (Win32Exception) { return CommandResult.Failed; }
         finally { _busy = false; }
     }
 
-    /// <summary>Several steps behind one prompt (duplicates removed); a single step is sent as itself.</summary>
-    public Task<CommandResult> Ops(IEnumerable<JsonObject?> ops)
+    /// <summary>Several steps behind one prompt (duplicates removed); a single step is sent as itself. A request the
+    /// helper's confirmation could not show in full is not sent (the helper would refuse it after the UAC prompt).</summary>
+    public async Task<CommandResult> Ops(IEnumerable<JsonObject?> ops)
     {
         var list = new List<JsonObject>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var o in ops)
             if (o is not null && seen.Add(string.Join(";", o.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={Ps.Str(kv.Value)}")))) list.Add(o);
-        if (list.Count == 0) return Task.FromResult(CommandResult.Refused);
+        if (list.Count == 0) return CommandResult.Refused;
         var cmd = list.Count == 1 ? list[0] : new JsonObject { ["action"] = "batch", ["ops"] = new JsonArray(list.Select(o => (JsonNode)o).ToArray()) };
-        return Admin(cmd);
+        var paths = state.Paths;
+        var summary = await Task.Run(() => RequestSummary.Build(cmd, RequestSummary.LookupFor(paths)));   // reads files: off the UI thread
+        if (!summary.Complete) return CommandResult.TooLarge;
+        return await Admin(cmd);
     }
 
-    /// <summary>resume / scan-now through inbox\ (no prompt); falls back to the elevated helper when the drop fails.</summary>
+    /// <summary>resume / scan-now without a prompt: over the engine's pipe (answered at once); when the engine is not
+    /// reachable through inbox\ (read at its next start); when even that fails, through the elevated helper.</summary>
     public async Task<CommandResult> User(JsonObject cmd)
     {
         if (cmd.Str("user").Length == 0) cmd["user"] = Environment.UserName;
+        var (reached, ok, _) = await EnginePipe.SendAsync(cmd, 5_000);
+        if (reached)
+        {
+            state.Dirty = true;
+            return ok ? CommandResult.Done : CommandResult.Refused;
+        }
         try
         {
             CommandDrop.Write(state.Paths.InboxDir, cmd);
@@ -76,7 +88,7 @@ public sealed class Commands(TrayState state)
         CommandResult.Done => "Done. The lists update within a few seconds.",
         CommandResult.Cancelled => "Cancelled - Windows administrator approval was not given. Nothing was changed.",
         CommandResult.Refused => "FreeEDR refused this change (it would be too broad or is not valid). Nothing was changed.",
-        CommandResult.TooLarge => "Too many items selected for one change. Select fewer items (for example 50) and try again.",
+        CommandResult.TooLarge => $"Too many changes for one administrator approval (at most {RequestSummary.MaxLines}; a trusted app counts as one). Select fewer items and try again.",
         CommandResult.Busy => "Another administrator action is still in progress. Please wait for it to finish.",
         _ => "The change could not be completed. Nothing was changed.",
     };
@@ -85,32 +97,37 @@ public sealed class Commands(TrayState state)
 /// <summary>Things the tray starts for the user: browser pages, Explorer, terminals (argument vectors, never shell strings).</summary>
 public static class Shell
 {
-    public static void OpenUrl(string url)
+    // Each returns false when nothing was opened, so the caller can tell the user why
+
+    public static bool OpenUrl(string url)
     {
-        if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return;
-        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch (Win32Exception) { }
+        if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return false;
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); return true; } catch (Win32Exception) { return false; }
     }
 
-    public static void OpenFile(string path)
+    /// <summary>Opens a document with its associated app; without one (e.g. .md on a fresh Windows) in Notepad.</summary>
+    public static bool OpenDocument(string path)
     {
-        try { if (File.Exists(path) || Directory.Exists(path)) Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); } catch (Win32Exception) { }
+        if (!File.Exists(path)) return false;
+        try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); return true; }
+        catch (Win32Exception) { return Notepad(path); }
     }
 
-    public static void ShowInExplorer(string path)
+    public static bool ShowInExplorer(string path)
     {
-        if (!File.Exists(path)) return;
+        if (!File.Exists(path)) return false;
         var psi = new ProcessStartInfo(Path.Combine(EdrPaths.SystemRoot, "explorer.exe"));
         psi.ArgumentList.Add("/select,");
         psi.ArgumentList.Add(path);
-        try { Process.Start(psi); } catch (Win32Exception) { }
+        try { Process.Start(psi); return true; } catch (Win32Exception) { return false; }
     }
 
-    public static void Notepad(string path)
+    public static bool Notepad(string path)
     {
-        if (!File.Exists(path)) return;
+        if (!File.Exists(path)) return false;
         var psi = new ProcessStartInfo(Path.Combine(EdrPaths.System32, "notepad.exe"));
         psi.ArgumentList.Add(path);
-        try { Process.Start(psi); } catch (Win32Exception) { }
+        try { Process.Start(psi); return true; } catch (Win32Exception) { return false; }
     }
 
     /// <summary>Starts a program with an argument vector in its own console window.</summary>
@@ -132,16 +149,17 @@ public static class Shell
     }
 
     /// <summary>VirusTotal page for the file's SHA256 (only the hash leaves the PC).</summary>
-    public static void VirusTotal(string file, string? knownSha256)
+    public static bool VirusTotal(string file, string? knownSha256)
     {
         var sha = knownSha256 is { Length: 64 } ? knownSha256 : File.Exists(file) ? Tools.Sha256Of(file) : null;
-        if (sha is not null) OpenUrl($"https://www.virustotal.com/gui/file/{sha.ToLowerInvariant()}");
+        return sha is not null && OpenUrl($"https://www.virustotal.com/gui/file/{sha.ToLowerInvariant()}");
     }
 
-    public static void Elevated(string file, IEnumerable<string> args)
+    /// <summary>Starts a program elevated; false when the UAC prompt was declined or it could not start.</summary>
+    public static bool Elevated(string file, IEnumerable<string> args, bool minimized = false)
     {
-        var psi = new ProcessStartInfo(file) { UseShellExecute = true, Verb = "runas" };
+        var psi = new ProcessStartInfo(file) { UseShellExecute = true, Verb = "runas", WindowStyle = minimized ? ProcessWindowStyle.Minimized : ProcessWindowStyle.Normal };
         foreach (var a in args) psi.ArgumentList.Add(a);
-        try { Process.Start(psi); } catch (Win32Exception) { }
+        try { Process.Start(psi); return true; } catch (Win32Exception) { return false; }
     }
 }

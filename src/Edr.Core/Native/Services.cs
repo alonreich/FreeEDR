@@ -53,7 +53,13 @@ public static unsafe partial class Services
     }
 
     /// <summary>Creates (or updates) an auto-start LocalSystem service that restarts itself on failure.</summary>
-    public static void CreateOrUpdate(string name, string displayName, string description, string binaryPath)
+    /// <summary>
+    /// Creates or updates an own-process, auto-start LocalSystem service that restarts on failure. With
+    /// <paramref name="requiredPrivileges"/> the service manager strips every other privilege from the process token
+    /// (least privilege: still SYSTEM for ACL checks, but no SeDebug, SeTcb, SeLoadDriver, SeBackup, SeRestore,
+    /// SeTakeOwnership, ...); <paramref name="serviceSid"/> adds the NT SERVICE\&lt;name&gt; SID to its token.
+    /// </summary>
+    public static void CreateOrUpdate(string name, string displayName, string description, string binaryPath, string[]? requiredPrivileges = null, bool serviceSid = false)
     {
         var scm = OpenSCManagerW(null, null, ScManagerAll);
         if (scm == 0) throw new IOException($"Cannot open the service manager (error {Marshal.GetLastWin32Error()})");
@@ -84,6 +90,20 @@ public static unsafe partial class Services
                 ChangeServiceConfig2W(s, 2, &fa);     // SERVICE_CONFIG_FAILURE_ACTIONS
                 var flag = new FailureActionsFlag { fFailureActionsOnNonCrashFailures = 1 };
                 ChangeServiceConfig2W(s, 4, &flag);   // SERVICE_CONFIG_FAILURE_ACTIONS_FLAG
+                if (serviceSid)
+                {
+                    var sid = 1u;   // SERVICE_SID_TYPE_UNRESTRICTED
+                    if (!ChangeServiceConfig2W(s, 5, &sid)) throw new IOException($"Service SID type failed (error {Marshal.GetLastWin32Error()})");   // SERVICE_CONFIG_SERVICE_SID_INFO
+                }
+                if (requiredPrivileges is { Length: > 0 })
+                {
+                    var multi = string.Join("\0", requiredPrivileges) + "\0\0";
+                    fixed (char* m = multi)
+                    {
+                        var p = (nint)m;   // SERVICE_REQUIRED_PRIVILEGES_INFO { LPWSTR pmszRequiredPrivileges }
+                        if (!ChangeServiceConfig2W(s, 6, &p)) throw new IOException($"Required privileges failed (error {Marshal.GetLastWin32Error()})");   // SERVICE_CONFIG_REQUIRED_PRIVILEGES_INFO
+                    }
+                }
             }
             finally { CloseServiceHandle(s); }
         }

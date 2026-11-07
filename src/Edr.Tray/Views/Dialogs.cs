@@ -16,6 +16,7 @@ public static class Dialogs
         Title = title,
         Width = width,
         SizeToContent = SizeToContent.Height,
+        MaxHeight = MaxDialogHeight(),
         CanResize = false,
         ShowInTaskbar = Owner is not { IsVisible: true },
         WindowStartupLocation = Owner is { IsVisible: true } ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen,
@@ -23,12 +24,58 @@ public static class Dialogs
         Topmost = Owner is not { IsVisible: true },
     };
 
+    /// <summary>90 % of the working area of the screen the dashboard is on (large text, 200 % scaling): the buttons always
+    /// stay on screen, a long message scrolls.</summary>
+    private static double MaxDialogHeight()
+    {
+        try
+        {
+            var w = Owner;
+            var sc = w is { IsVisible: true } ? w.Screens.ScreenFromWindow(w) : w?.Screens.Primary;
+            return sc is null ? double.PositiveInfinity : sc.WorkingArea.Height / sc.Scaling * 0.9;
+        }
+        catch (Exception e) when (e is InvalidOperationException or NullReferenceException) { return double.PositiveInfinity; }
+    }
+
+    /// <summary>The message text, scrolling when it is longer than the screen allows.</summary>
+    private static Control Message(string message) => new ScrollViewer
+    {
+        Content = Ui.T(message, "sub"),
+        MaxHeight = Math.Max(160, (double.IsInfinity(MaxDialogHeight()) ? 900 : MaxDialogHeight()) - 220),
+        HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+    };
+
+    // One dialog at a time: a second request waits until the first is answered (it is brought to the front meanwhile),
+    // so two questions never stack up behind each other or behind the dashboard.
+    private static readonly SemaphoreSlim Gate = new(1, 1);
+    private static Window? _open;
+
+    /// <summary>A dialog is open (another one waits for it).</summary>
+    public static bool IsOpen => _open is not null;
+
     private static async Task<T> Show<T>(Window w, Func<T> fallback)
     {
-        var tcs = new TaskCompletionSource<T>();
-        w.Closed += (_, _) => tcs.TrySetResult(w.Tag is T t ? t : fallback());
-        if (Owner is { IsVisible: true } o) await w.ShowDialog(o); else w.Show();
-        return await tcs.Task;
+        if (_open is { } busy) busy.Activate();
+        await Gate.WaitAsync();
+        try
+        {
+            // The owner may have been shown or hidden while this one waited
+            var owner = Owner is { IsVisible: true } o ? o : null;
+            w.Topmost = owner is null;
+            w.ShowInTaskbar = owner is null;
+            w.WindowStartupLocation = owner is not null ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen;
+            var tcs = new TaskCompletionSource<T>();
+            w.Closed += (_, _) => tcs.TrySetResult(w.Tag is T t ? t : fallback());
+            _open = w;
+            if (owner is not null) _ = w.ShowDialog(owner);
+            else { w.Show(); w.Activate(); }
+            return await tcs.Task;
+        }
+        finally
+        {
+            _open = null;
+            Gate.Release();
+        }
     }
 
     /// <summary>Yes/No with a highlighted main button. <paramref name="danger"/> paints it red.</summary>
@@ -37,11 +84,14 @@ public static class Dialogs
         var w = NewDialog(title);
         var body = Ui.Stack(14,
             Ui.Row(12, Ui.Icon(danger ? "" : "", 26, danger ? Palette.Danger : Palette.Accent), Ui.T(title, "h2")),
-            Ui.T(message, "sub"));
+            Message(message));
         if (note is not null) body.Children.Add(new Border { Classes = { "banner" }, Background = Palette.Tint(Palette.Accent, 0x22), BorderBrush = Palette.Tint(Palette.Accent, 0x66), Child = Ui.T(note, "muted") });
         var yesBtn = Ui.Btn(yes, danger ? "danger" : "primary", () => { w.Tag = true; w.Close(); });
         var noBtn = Ui.Btn(no, "", () => { w.Tag = false; w.Close(); });
-        yesBtn.IsDefault = true; noBtn.IsCancel = true;
+        noBtn.IsCancel = true;
+        // A destructive choice is never the Enter key: in a danger dialog Enter (and the initial focus) means Cancel
+        if (danger) { noBtn.IsDefault = true; w.Opened += (_, _) => noBtn.Focus(); }
+        else yesBtn.IsDefault = true;
         body.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0), Children = { noBtn, yesBtn } });
         w.Content = new Border { Padding = new Thickness(26, 22), Child = body };
         return Show(w, () => false);
@@ -55,7 +105,7 @@ public static class Dialogs
         w.Content = new Border
         {
             Padding = new Thickness(26, 22),
-            Child = Ui.Stack(14, Ui.Row(12, Ui.Icon(error ? "" : "", 26, error ? Palette.Danger : Palette.Accent), Ui.T(title, "h2")), Ui.T(message, "sub"),
+            Child = Ui.Stack(14, Ui.Row(12, Ui.Icon(error ? "" : "", 26, error ? Palette.Danger : Palette.Accent), Ui.T(title, "h2")), Message(message),
                 new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, Children = { ok } }),
         };
         return Show(w, () => true);
@@ -71,11 +121,29 @@ public static class Dialogs
         w.Content = new Border
         {
             Padding = new Thickness(26, 22),
-            Child = Ui.Stack(14, Ui.T(title, "h2"), Ui.T(message, "sub"), box,
+            Child = Ui.Stack(14, Ui.T(title, "h2"), Message(message), box,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Right, Children = { cancel, ok } }),
         };
         w.Opened += (_, _) => box.Focus();
         return Show<string?>(w, () => null);
+    }
+
+    /// <summary>Several choices; returns the index of the clicked one, -1 when the window is closed. The first choice is the
+    /// default (Enter), the last one is Esc.</summary>
+    public static Task<int> Choose(string title, string message, string[] choices)
+    {
+        var w = NewDialog(title, 520);
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
+        for (var i = choices.Length - 1; i >= 0; i--)
+        {
+            var index = i;
+            var b = Ui.Btn(choices[i], i == 0 ? "primary" : "", () => { w.Tag = index; w.Close(); });
+            if (i == 0) b.IsDefault = true;
+            if (i == choices.Length - 1) b.IsCancel = true;
+            row.Children.Add(b);
+        }
+        w.Content = new Border { Padding = new Thickness(26, 22), Child = Ui.Stack(14, Ui.Row(12, Ui.Icon("", 26, Palette.Warn), Ui.T(title, "h2")), Message(message), row) };
+        return Show(w, () => -1);
     }
 
     /// <summary>Bulleted list of names, at most 8 (Format-NameList).</summary>
@@ -104,11 +172,17 @@ public sealed class WelcomeWindow : Window
     public Dictionary<string, bool> ProfileChoice { get; } = new();
     public string NotifyLevel { get; private set; } = "important";
     public bool Finished { get; private set; }
+    /// <summary>The user ended the tour early (Skip, or the window's X): the current choices stay and the tour is not shown
+    /// again at the next sign-in (Settings > Help > Show the welcome tour still opens it). A close the program asked for
+    /// (the installer stopping the tray) is not a skip.</summary>
+    public bool Skipped { get; private set; }
+    private readonly Button _skip;
 
     public WelcomeWindow(Func<string, bool> profileOn, string level)
     {
         Title = "Welcome to FreeEDR";
-        Width = 720; Height = 560; CanResize = false;
+        // Resizable, and the step scrolls: large text or 200 % scaling never cuts off the content or the buttons
+        Width = 720; Height = 560; MinWidth = 520; MinHeight = 420; CanResize = true;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Icon = ShieldIcon.Create(ShieldState.Protected);
         foreach (var p in Profiles.All.Where(p => p.Default || profileOn(p.Id) || Profiles.IsInstalled(p)))
@@ -116,15 +190,21 @@ public sealed class WelcomeWindow : Window
         (level switch { "critical" => _lvCritical, "all" => _lvAll, _ => _lvImportant }).IsChecked = true;
         _back = Ui.Btn("Back", "ghost", () => Go(-1));
         _next = Ui.Btn("Next", "primary big", () => Go(+1));
-        var footer = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), Margin = new Thickness(0, 16, 0, 0) };
+        _skip = Ui.Btn("Skip tour", "ghost", () => { Skipped = true; Close(); });
+        ToolTip.SetTip(_skip, "Keep the current settings. You can open the tour again under Settings > Help.");
+        var footer = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"), Margin = new Thickness(0, 16, 0, 0) };
         footer.Children.Add(_progress);
-        Grid.SetColumn(_back, 1); footer.Children.Add(_back);
+        Grid.SetColumn(_skip, 1); footer.Children.Add(_skip);
+        _back.Margin = new Thickness(10, 0, 0, 0);
+        Grid.SetColumn(_back, 2); footer.Children.Add(_back);
         _next.Margin = new Thickness(10, 0, 0, 0);
-        Grid.SetColumn(_next, 2); footer.Children.Add(_next);
+        Grid.SetColumn(_next, 3); footer.Children.Add(_next);
+        // The window's X is the same as Skip; a programmatic close (installer, shutdown) is not
+        Closing += (_, e) => { if (!Finished && !e.IsProgrammatic && e.CloseReason == WindowCloseReason.WindowClosing) Skipped = true; };
         var root = new DockPanel { Margin = new Thickness(32, 28) };
         DockPanel.SetDock(footer, Dock.Bottom);
         root.Children.Add(footer);
-        root.Children.Add(_host);
+        root.Children.Add(new ScrollViewer { Content = _host, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled });
         Content = root;
         Render();
     }
@@ -146,6 +226,7 @@ public sealed class WelcomeWindow : Window
     private void Render()
     {
         _back.IsVisible = _step > 0;
+        _skip.IsVisible = _step < 2;
         _next.Content = _step == 2 ? "Finish" : "Next";
         _progress.Text = $"Step {_step + 1} of 3";
         _host.Content = _step switch

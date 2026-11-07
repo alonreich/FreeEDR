@@ -23,6 +23,8 @@ internal static class Program
         if (instance is null) return 0;   // already running: it was asked to show the dashboard
 
         AppDomain.CurrentDomain.UnhandledException += (_, e) => log.Write($"Unhandled: {e.ExceptionObject}");
+        // A crash or hang brings the tray back by itself (Windows restarts it); "Hide the tray icon" is a clean exit
+        if (!options.Dev && options.Screenshot is null && !Edr.Core.Native.Win32.RegisterRestart("--restarted")) log.Write("Could not register for restart after a crash");
         log.Write($"Tray started (PID {Environment.ProcessId}{(options.Dev ? ", dev" : "")})");
         try
         {

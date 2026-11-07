@@ -19,6 +19,22 @@ FreeEDR **only detects**: no blade stops, deletes or quarantines anything (Wail2
 | **Wail2Ban** | `wail2ban` | Password guessing and internet logins: [WAIL2BAN.md](WAIL2BAN.md) | Instantly | Security 4625 / 4624 + RDP 140 |
 | **EDR health** | `system` | Heartbeat, Sysmon health and stale rule sets, scan problems, pause/resume, verdicts, tool updates | Continuous | The engine |
 
+The dashboard shows each alert with a colored **module tag** (`Catalog.Module`: REAL-TIME, ANTI-MALWARE, DEFENDER,
+EVENT-LOG SCAN, WAIL2BAN, VULNERABILITIES, FREEEDR) and, in the details pane, "Caught by <tag> <how it was found>".
+
+**Cleared logs** are also caught live, whatever tool did it: the engine watches Security 1102 and System 104 and raises
+`realtime`, High, "Event log cleared" (a "Was this you?" question; reported even while paused). The Sysmon rule of the
+same name catches `wevtutil cl` / `Clear-EventLog` command lines; the Sigma scan finds it again later.
+
+**Event-log archive** (`EventArchive`, `data\archive\`): its own bookmarked subscriptions copy the logs that matter for
+an investigation - all of Sysmon and Defender, Security (logons, process creation, accounts and groups, services, tasks,
+audit policy, 1102), System (104, 7045, 7040, start/stop), PowerShell 4104, Task Scheduler, RDP and session logons, WMI
+activity - into `data\archive\yyyy-MM-dd\<log>.xml.gz` (one event XML per line, a gzip member per batch). Clearing a
+Windows log does not erase what was copied. One below-normal-priority thread writes every 5 s or 1,000 events; a full
+queue (5,000) makes only the archive's own callback wait; never part of detection. Retention: 90 days and 1 GB (oldest
+days first); paused below 2 GB free disk. Its bookmarks: `data\archive\bookmarks.json`; a bookmark lost to a cleared log
+continues from now (engine.log says so). `status.json` `archive {logs, of, written, dropped, queued, mb, lastWrite, error}`.
+
 Pause groups (`EngineState.IsPaused`): `edr` (master) pauses `realtime`, `malware`, `ioc`, `yara`, `sigma`, `cve`.
 `malware` pauses IOC + YARA. Defender is never paused; Wail2Ban has its own pause.
 
@@ -35,7 +51,11 @@ title = Critical, else High. A test (`SysmonRuleTests`) checks that every rule n
 
 ## 3. Real-time pipeline (`Realtime.Handle`)
 Subscriptions (`Native\EventSubscription`, wevtapi `EvtSubscribe`) on Sysmon IDs 1, 3, 6, 8, 10, 11, 12, 13, 14, 19,
-20, 21 (and the Security, RDP and Defender channels) push each event's XML and updated bookmark into one bounded queue.
+20, 21 (and the Security, RDP and Defender channels) push each event's XML and updated bookmark into one bounded queue
+(10,000). A full queue applies **backpressure**: the event log callback waits (the events stay in the Windows log)
+instead of dropping them, so no bookmark moves past an unprocessed event. Only while the engine stops or a watcher is
+re-subscribed can a record be dropped; every drop is counted (`intakeDropped` in `status.json`) and reported once a
+minute as a High "Events may have been missed".
 The main loop drains up to 50 records per cycle and runs commands, the exclusion reload and the heartbeat every 50
 records or 2 s, so nothing is starved under a flood. Bookmarks are saved to `data\bookmarks.json` every 15 s and at
 shutdown; a subscription resumes after its bookmark (`EvtSubscribeStartAfterBookmark | Strict`). A bookmark Windows
@@ -55,23 +75,51 @@ Order per record:
 5. EID 1: the grandparent and up are stored as `ancestors` for "allowed by" in the tray.
 6. Not `malware`-paused: IOC lookup (SHA256 from `Hashes`, IOC allows) → `ioc`, Critical, "Known malware: <name>". Files
    outside `%SystemRoot%` that no YARA allow covers go to the **YARA worker** (bounded queue of 200): `yara64.exe -C
-   data\rules.yarc <file>` (≤ 50 MB, result cached per path + last write); a match turns the alert into `yara`,
-   Critical, "YARA match: <rule>". A full queue records `yaraSkipped = true` instead of blocking intake.
-7. `EventWriter` appends to `events.jsonl`.
+   data\rules.yarc <file>`; a match turns the alert into `yara`, Critical, "YARA match: <rule>". A full queue records
+   `yaraSkipped = true` instead of blocking intake. **A file YARA could not check is never treated as clean** (audit
+   2026-11-07, finding 3): larger than 50 MB, unreadable (YARA's "error ..." lines), a timeout, a non-zero exit without a
+   match, the file gone, or no sandbox: the alert keeps its own severity and gets `yaraNotScanned = <why>` plus a line
+   "YARA could not check this file: ..." in its details; `status.json` `edr.yaraNotScanned` counts them and at most once
+   an hour a Medium health alert "YARA could not check N files" is raised. Results are cached by the file's change
+   stamp (`Win32.FileChangeStamp`, as for signers: a rewrite with restored timestamps gets a new key); only definite
+   results (a match or a clean scan) are cached; without a stamp the file is scanned every time.
+   YARA parses files any user can drop, so it runs in **`Native\Sandbox`**: a restricted copy of the engine's token
+   (no privileges, Administrators deny-only) at **low integrity** (reads, but cannot write to anything labelled medium or
+   higher), in a Job object (one process, 1 GB, killed with the job). If the sandbox cannot start, the file is not
+   scanned and engine.log says so once; YARA never runs with the engine's SYSTEM rights.
+7. `EventWriter` appends to `events.jsonl` (the engine is its only writer; a failed write is counted, see
+   [architecture/DATA_FILES.md](../architecture/DATA_FILES.md) §5).
 
 **Ancestors**: parent from the event, then up to 3 levels from one process snapshot (ToolHelp + `QueryFullProcessImageName`
 + creation time, refreshed at most every 2 s); each step must have the logged path and an earlier start (PID reuse).
 
-**Signers** (`SignerCache`): WinVerifyTrust + the embedded signer, cached per file identity (volume serial, file index,
-size, last write); files under the profiles folder or temp folders are verified live every time.
+**Signers** (`SignerCache`): WinVerifyTrust + the embedded signer, cached per file change stamp (`Win32.FileChangeStamp`:
+volume serial, file index and the file's NTFS change-journal number, which changes on every write and cannot be set back,
+unlike size and timestamps); files without a stamp (no change journal) and files under the profiles folder or temp
+folders are verified live every time.
 
 ## 4. Scheduled scan (`Scanner`, a background task in the engine)
+The parsers run sandboxed (`Native\Sandbox`: low integrity, no privileges, one-process Job): Hayabusa's
+`dfir-timeline` (4 GB cap, writes its CSV into the low-integrity `data\sandbox\`, then moved to
+`data\hayabusa_last_scan.csv`) and OSV-Scanner (2 GB cap, TEMP = `data\sandbox\`). A sandbox that cannot start fails
+that step (it is never run unsandboxed). Hayabusa's `update-rules` downloads from the internet, so it is sandboxed too
+(audit 2026-11-07, finding 4): it runs on a fresh copy of the rules (a git checkout) in `data\sandbox\hayabusa-rules\`;
+only an update with exit code 0 and at least 1,000 rules is copied into a new `bin\hayabusa\rules.new\` (inheriting the
+admin-only folder's permissions, not the work folder's low-integrity label) and swapped in with one rename; otherwise
+the installed rules stay and the step says why. The tools' version checks run in the sandbox as well.
+
 Scheduling: at each `scanTimes` slot; a slot missed while the PC was off runs 5 minutes after the engine starts. Scan now
 at most every 2 minutes. A scan running over 2 hours is cancelled. Pausing `edr`/`sigma`/`cve` cancels a running scan.
 Steps (result `data\scan-result.json`, log `data\scan.log`):
 * **A. IOC feed**: HTTPS download; replaces the list only with HTTP 200 and ≥ 100 valid hash lines (E4).
-* **B. Sigma**: `hayabusa update-rules`, then `hayabusa dfir-timeline -l -w -q -Q -K -C -m high --time-offset <lookback>`
-  in Hayabusa's folder (E6). The CSV is streamed; the newest 2,000 rows are kept (Q10), more marks the step failed.
+* **B. Sigma**: `hayabusa update-rules -r <sandboxed copy>` (above). Hayabusa's live mode (`-l`) refuses to run without
+  administrator rights, which the sandbox never gives (L5), so the engine first copies the records of the lookback
+  window of every log file in `winevt\Logs` that holds any (`Native\LogExport`: `EvtExportLog` with a time filter; the
+  Windows event log service reads the logs; ≤ 1 GB, skipped below 2 GB free) into `data\sandbox\evtx\`, then runs
+  `hayabusa dfir-timeline -d data\sandbox\evtx -w -q -Q -K -C -m high --time-offset <lookback>` in Hayabusa's folder
+  (E6); the copies are deleted right after (they include the Security log). An `[ERROR]` line or a non-zero exit fails
+  the step; no CSV without an error means no hits. The CSV is streamed; the newest 2,000 rows are kept (Q10), more marks
+  the step failed.
 * **C. CVE**: `osv-scanner scan source -r <dir> --format json` for every account's `AppData\Local\Programs\Python` and
   Store Python packages; one row per vulnerability group with a released fix newer than the installed version, with
   `owner` (SID), `python` and `fixPackage` (pip for libraries vendored in `pip\_vendor`). A folder with no readable
@@ -89,7 +137,8 @@ key threat|minute); Sigma allows; `cve-current.json` rewritten only when the OSV
   1122 / 1124 (audit mode: would have blocked, Low, never notified). Allowed threat IDs / programs are skipped
   (`Detection.DefenderExcluded`). The two always-audit ASR rules (`01443614-…`, `d1e49aac-…`) are not listed.
 * Defender status every 10 minutes (`Defender.Status`, Windows PowerShell's `Get-MpComputerStatus`/`Get-MpPreference`).
-* `status.json` health: `backlog` (queue + YARA queue), `dropped` (YARA skipped), `lagSeconds`. The tray shows lag ≥ 5 s;
+* `status.json` health: `backlog` (queue + YARA queue), `dropped` (YARA skipped), `intakeDropped` (records the intake
+  queue lost, see §3), `lagSeconds`. The tray shows lag ≥ 5 s;
   ≥ 30 s marks protection as having a problem.
 * Sysmon health every minute: service `Sysmon64` (restarted at most every 5 minutes), driver `SysmonDrv`, readable log,
   stale rule set within the last hour. Changes raise "Sysmon sensor is not working" (High) / "healthy again"; the last

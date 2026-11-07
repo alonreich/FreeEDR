@@ -28,10 +28,12 @@ antivirus. The one part that acts is **Wail2Ban**, which blocks computers that k
 | 🔐 | **Wail2Ban** | Blocks password guessing over RDP/SMB in Windows Firewall, and asks "Was this you?" about sign-ins from the internet |
 | 🛡️ | **Microsoft Defender** | Defender's detections, and what its attack-surface-reduction rules would have blocked (audit mode) |
 | ❤️ | **Self-health** | Engine heartbeat, Sysmon sensor health, scan problems |
+| 🗄️ | **Event-log archive** | Copies the logs that matter for an investigation into its admin-only folder in the background, so clearing Event Viewer does not erase the evidence; a cleared log is reported at once |
 
 Highlights:
-* **Clear answers:** every alert says what happened and what to do, with buttons for *Allow*, *Flag as threat*,
-  *Scan with Microsoft Defender*, *Look up on VirusTotal* or *Mark reviewed*.
+* **Clear answers:** every alert is tagged with the part that caught it (Real-time, Anti-Malware, Defender, Event-log
+  scan, Wail2Ban, Vulnerabilities), says what happened and what to do, with buttons for *Allow*, *Flag as threat*,
+  *Scan with Microsoft Defender*, *Look up on VirusTotal* or *Mark reviewed*; technical details stay folded away.
 * **Learns with you:** a 7-day learning week with only critical notifications, suggestions to allow what you keep marking
   reviewed, and a weekly summary.
 * **Trusted apps:** Claude Code, ChatGPT/Codex, OneDrive, Office, Google Drive and more run without alerts; switch each on or off.
@@ -42,12 +44,16 @@ Highlights:
 ## 🚀 Install
 
 1. Download or build **`compiled\FreeEDR-Setup.exe`**.
-2. Run it and approve the administrator prompt. It installs Sysmon and the tools (hash-verified), sets everything up,
-   checks every part, and rolls back if the new version does not start.
-3. The shield appears in the notification area and a short welcome asks which apps you trust.
+2. Run it and approve the administrator prompt. FreeEDR's setup window (same look as the dashboard) shows each step. The
+   tools ship inside Setup (hash-verified); only Sysmon is downloaded from Microsoft when it is missing. Setup checks
+   every part and rolls back if the new version does not start.
+3. Already installed? Choose **Upgrade, keep everything** (only the programs change) or **Clean install, start fresh**
+   (settings, allow lists, history and logs are erased).
+4. The shield appears in the notification area and a short welcome asks which apps you trust.
 
 Listed in **Settings > Apps** as "FreeEDR"; **Uninstall** there removes everything and restores the Windows settings it
-changed. Unattended: `FreeEDR-Setup.exe /VERYSILENT`. Requirements: Windows 10 1809+/11 x64, Microsoft Defender.
+changed. Unattended: `FreeEDR-Setup.exe /VERYSILENT [/NoDesktopIcon=1] [/Clean=1]`. Requirements: Windows 10 1809+/11
+x64, Microsoft Defender. After the install only updates are downloaded.
 Details: [docs/install/INSTALLATION.md](docs/install/INSTALLATION.md).
 
 ## 🖥️ Using it
@@ -74,10 +80,15 @@ app updates, FreeEDR's own tools with one-click updates), **Allowed & trusted** 
                          FreeEDR-Tray.exe (each user, unelevated) ── UAC ──► FreeEDR-Control.exe ──► control\
 ```
 
-* The engine runs as a SYSTEM service that restarts itself on failure.
+* The engine runs as a SYSTEM service with only the privileges it needs, and restarts itself on failure. A crash of the
+  dashboard never touches it (the dashboard is restarted by Windows too).
+* The dashboard and the elevated helper talk to the engine over a local named pipe; the engine checks who is asking from
+  Windows itself.
 * The dashboard only reads; every change that weakens detection (allow, pause, settings) needs a Windows UAC approval and
   is validated again by the engine.
-* All programs sit in an admin-only folder, so malware running as a user cannot change them.
+* All programs sit in an admin-only folder, so malware running as a user cannot change them. The scanners that read
+  untrusted files and logs (YARA, Hayabusa, OSV-Scanner) run in a low-rights sandbox.
+* The engine keeps a compressed copy of the important Windows event logs in `data\archive\` (90 days, 1 GB at most).
 
 More: [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md).
 
@@ -89,7 +100,8 @@ More: [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md).
 [OSV-Scanner](https://github.com/google/osv-scanner) ·
 [Velociraptor](https://github.com/Velocidex/velociraptor) ·
 [Neo23x0 signature-base](https://github.com/Neo23x0/signature-base) ·
-Microsoft Defender · C# 14 / .NET 10 NativeAOT · [Avalonia](https://avaloniaui.net) · Inno Setup
+Microsoft Defender · C# 14 / .NET 10 NativeAOT · [Avalonia](https://avaloniaui.net) · Inno Setup.
+Versions and licenses of the bundled tools: `docs\THIRD_PARTY_NOTICES.txt` in the installed folder.
 
 ## 👩‍💻 Development
 
@@ -107,7 +119,8 @@ Workflow for every change:
 dev_build.cmd                                                         # all build gates must pass
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\Run-Tests.ps1   # unelevated; read tests\results\last-run.txt
 ```
-Building needs the .NET 10 SDK, Visual Studio 2022 C++ Build Tools (NativeAOT linker) and Inno Setup 6.3+. A build never
+Building needs the .NET 10 SDK, Visual Studio 2022 C++ Build Tools (NativeAOT linker) and Inno Setup 6.3+. The first
+build downloads the pinned tools once into `obj\tools-cache` (SHA256-checked) to embed them in Setup. A build never
 installs anything. Optional code signing: see [docs/agents/AGENT_WORKFLOW.md](docs/agents/AGENT_WORKFLOW.md) §3.
 
 **AI agents:** start at [`project_structure.txt`](project_structure.txt). Rules: [AGENTS.md](AGENTS.md).

@@ -28,3 +28,29 @@ public static class CommandDrop
         }
     }
 }
+
+/// <summary>
+/// An event from one of FreeEDR's elevated programs (the helper, the installer). The engine is the only writer of
+/// data\events.jsonl (one process, one lock: no rotation race, no silent loss), so these are sent to it as a "note"
+/// request: over the pipe (it answers at once), or into the admin-only control\ when it is not running (written at its
+/// next start).
+/// </summary>
+public static class EngineNote
+{
+    public static void Send(EdrPaths paths, string severity, string title, string process = "", string detail = "", string kind = "status", string tool = "", bool? ok = null)
+    {
+        var cmd = new JsonObject
+        {
+            ["action"] = "note", ["blade"] = "system", ["severity"] = severity, ["title"] = Fit(title, 200), ["process"] = Fit(process, 260),
+            ["detail"] = Fit(detail, 4000), ["kind"] = kind, ["user"] = Environment.UserName,
+        };
+        if (tool.Length > 0) cmd["tool"] = Fit(tool, 64);
+        if (ok is { } b) cmd["ok"] = b;
+        var (reached, accepted, message) = EnginePipe.SendAsync(cmd, 10_000).GetAwaiter().GetResult();
+        if (reached && accepted) return;
+        if (reached) new TextLog(paths.EngineLog).Warn($"Engine refused an event ({title}): {message}");
+        else CommandDrop.Write(paths.ControlDir, cmd);
+    }
+
+    private static string Fit(string s, int max) => s.Length <= max ? s : s[..(max - 3)] + "...";
+}

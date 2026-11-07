@@ -29,6 +29,16 @@ public sealed class EdrPaths
     public const string InstallerExe = "FreeEDR-Installer.exe";
     public const string TrayExe = "FreeEDR-Tray.exe";
 
+    /// <summary>
+    /// The only privileges the engine service keeps (SERVICE_CONFIG_REQUIRED_PRIVILEGES_INFO; the service manager removes
+    /// all others from its token). It stays LocalSystem, which the Security log, firewall, Defender and Sysmon need, but
+    /// without SeDebug, SeTcb, SeLoadDriver, SeBackup, SeRestore, SeTakeOwnership and the rest.
+    /// SeSecurity: read the Security log. SeImpersonate: identify pipe clients. SeAssignPrimaryToken + SeIncreaseQuota:
+    /// start the sandboxed tools (CreateProcessAsUser). SeCreateGlobal: the Global\ mutex. SeChangeNotify: path traversal.
+    /// </summary>
+    public static readonly string[] EnginePrivileges =
+        ["SeChangeNotifyPrivilege", "SeCreateGlobalPrivilege", "SeImpersonatePrivilege", "SeAssignPrimaryTokenPrivilege", "SeIncreaseQuotaPrivilege", "SeSecurityPrivilege"];
+
     /// <summary>The signed-in account's SID: each account has its own private user\&lt;SID&gt;\ folder.</summary>
     public static string CurrentUserSid
     {

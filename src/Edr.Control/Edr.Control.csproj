@@ -8,6 +8,7 @@
     <PublishAot>true</PublishAot>
     <IlcOptimizationPreference>Size</IlcOptimizationPreference>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>   <!-- LibraryImport (MessageBoxW) -->
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Edr.Core\Edr.Core.csproj" />

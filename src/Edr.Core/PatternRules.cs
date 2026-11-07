@@ -14,6 +14,12 @@ public static partial class PatternRules
     public static readonly string[] BatchActions = ["unban", "exclude", "unexclude", "block", "unblock"];
     public static readonly string[] AdminActions = ["pause", "resume", "scan-now", "unban", "exclude", "unexclude", "block", "unblock", "batch", "restart-engine", "set-config", "restore-defaults", "update-tool"];
     public static readonly string[] InboxActions = ["resume", "scan-now"];
+    /// <summary>Verbs FreeEDR's own elevated programs send to the engine; never accepted in a payload to the helper
+    /// (not in <see cref="AdminActions"/>). "note": an event the engine writes for them, so it stays the only writer of
+    /// data\events.jsonl.</summary>
+    public static readonly string[] EngineOnlyActions = ["note"];
+    public static readonly string[] NoteSeverities = ["Info", "Medium", "High"];
+    public static readonly string[] NoteKinds = ["status", "health", "tool-update"];
     public static readonly string[] ToolNames = ["Hayabusa", "YARA", "OSV-Scanner", "Velociraptor"];
     public const int MaxBatch = 100;
     public const int MaxPayload = 65_536;
@@ -125,6 +131,10 @@ public static partial class PatternRules
                 };
             case "set-config": return op["config"] is JsonObject;
             case "update-tool": return ToolNames.Contains(F("name"));
+            case "note":
+                return F("blade") == "system" && NoteSeverities.Contains(F("severity")) && F("title").Length is > 0 and <= 200
+                       && F("process").Length <= 260 && F("detail").Length <= 4000 && NoteKinds.Contains(F("kind"))
+                       && F("tool").Length <= 64 && op.All(kv => kv.Key is "action" or "blade" or "severity" or "title" or "process" or "detail" or "kind" or "tool" or "ok" or "user");
             default: return false;
         }
     }

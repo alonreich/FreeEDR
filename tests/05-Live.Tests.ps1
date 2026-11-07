@@ -29,6 +29,24 @@ Test 'Engine service "FreeEDR" is running' {
     Assert-Equal 'Running' "$($s.Status)" 'service state'
 }
 
+Test 'Engine service keeps only the privileges it needs (least privilege)' {
+    Need-CSharp
+    $out = @(& sc.exe qprivs FreeEDR 2>&1) -join "`n"
+    if ($out -notmatch 'SeChangeNotifyPrivilege') { Known 'the installed version does not restrict the engine''s privileges yet - run compiled\FreeEDR-Setup.exe (with the owner''s approval)' }
+    foreach ($bad in 'SeDebugPrivilege', 'SeTcbPrivilege', 'SeLoadDriverPrivilege', 'SeTakeOwnershipPrivilege', 'SeBackupPrivilege', 'SeRestorePrivilege') {
+        Assert-True ($out -notmatch $bad) "the engine keeps $bad"
+    }
+}
+
+Test 'Engine pipe and event archive are working' {
+    Need-CSharp
+    $st = Read-Status
+    if ($null -eq $st.pipe -or $null -eq $st.archive) { Known 'the installed version has no pipe / event archive yet - run compiled\FreeEDR-Setup.exe (with the owner''s approval)' }
+    Assert-True (-not $st.pipe.error) "pipe: $($st.pipe.error)"
+    Assert-True ([int]$st.archive.logs -gt 0) "event archive copies no log ($($st.archive.error))"
+    Assert-True (-not $st.archive.error) "event archive: $($st.archive.error)"
+}
+
 Test 'Engine heartbeat is fresh (under 60 s)' {
     Need-Install
     $st = Read-Status

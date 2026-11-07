@@ -47,10 +47,22 @@ public sealed class Rec(JsonObject obj)
         _ => [],
     };
 
+    /// <summary>Parses and fully materializes the record: JsonNode builds its children lazily on first access, which is
+    /// not thread-safe, and the tray reads the same records on the UI thread and on its refresh worker.</summary>
     public static Rec? Parse(string json)
     {
-        try { return JsonNode.Parse(json, NodeOptions, DocOptions) is JsonObject o ? new Rec(o) : null; }
+        try { return JsonNode.Parse(json, NodeOptions, DocOptions) is JsonObject o ? new Rec(Materialize(o)) : null; }
         catch (JsonException) { return null; }
+    }
+
+    private static T Materialize<T>(T node) where T : JsonNode
+    {
+        switch (node)
+        {
+            case JsonObject o: foreach (var (_, v) in o) if (v is not null) Materialize(v); break;
+            case JsonArray a: foreach (var v in a) if (v is not null) Materialize(v); break;
+        }
+        return node;
     }
 
     public override string ToString() => Obj.ToJsonString();

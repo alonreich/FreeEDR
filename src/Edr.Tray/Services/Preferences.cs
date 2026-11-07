@@ -13,6 +13,7 @@ public sealed class Preferences
     {
         _path = path;
         _o = JsonFile.ReadObject(path) ?? new JsonObject();
+        if (_o["quietProcesses"] is JsonArray q) _quiet = q.Select(Ps.Str).Where(x => x.Length > 0).ToList().AsReadOnly();
     }
 
     /// <summary>"critical" (only critical alerts), "important" (default), "all".</summary>
@@ -21,6 +22,41 @@ public sealed class Preferences
     public bool LearningSummaryShown { get => _o.Truthy("learningSummaryShown"); set { _o["learningSummaryShown"] = value; Save(); } }
     public string LastWeeklySummary { get => _o.Str("lastWeeklySummary"); set { _o["lastWeeklySummary"] = value; Save(); } }
     public string LastPage { get => _o.Str("lastPage"); set { _o["lastPage"] = value; Save(); } }
+    /// <summary>"system" (default: follows Windows' app mode), "dark" or "light". A choice made before is kept.</summary>
+    public string Theme { get => _o.Str("theme") is "dark" or "light" or "system" ? _o.Str("theme") : "system"; set { _o["theme"] = value; Save(); } }
+
+    private IReadOnlyList<string>? _quiet;
+
+    /// <summary>Quiet mode for this account: program names (wildcards) that hold back pop-ups while they run. Null = not
+    /// chosen yet (the PC's starting list in edr-config.json applies). Read by the notifier off the UI thread: the list
+    /// is replaced, never changed in place.</summary>
+    public IReadOnlyList<string>? QuietProcesses
+    {
+        get => _quiet;
+        set
+        {
+            _quiet = value is null ? null : value.ToList().AsReadOnly();
+            if (value is null) _o.Remove("quietProcesses"); else _o["quietProcesses"] = value.ToJsonArray();
+            Save();
+        }
+    }
+
+    /// <summary>Where the Settings page was scrolled to (restored when it opens again).</summary>
+    public double SettingsScroll { get => _o["settingsScroll"] is JsonValue v && v.TryGetValue<double>(out var d) && d >= 0 ? d : 0; set { _o["settingsScroll"] = Math.Round(value); Save(); } }
+
+    /// <summary>A Settings "Advanced" part was left open (key = the section).</summary>
+    public bool AdvancedOpen(string key) => _o["advancedOpen"] is JsonObject a && a.Truthy(key);
+
+    public void SetAdvancedOpen(string key, bool open)
+    {
+        var a = _o["advancedOpen"] as JsonObject ?? (JsonObject)(_o["advancedOpen"] = new JsonObject());
+        if (a.Truthy(key) == open) return;
+        a[key] = open;
+        Save();
+    }
+
+    /// <summary>The last save of this file failed (the account's folder is not writable): shown in Settings.</summary>
+    public string SaveError { get; private set; } = "";
 
     public (double W, double H, int X, int Y, bool Max)? Window
     {
@@ -35,7 +71,8 @@ public sealed class Preferences
 
     private void Save()
     {
-        try { JsonFile.WriteAtomic(_path, _o); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        try { JsonFile.WriteAtomic(_path, _o); SaveError = ""; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { SaveError = e.Message; }
     }
 }
 
@@ -66,6 +103,15 @@ public sealed class Insights
     {
         var k = KeyOf(e);
         Counts[k] = Counts.Int(k) + 1;
+        Save();
+    }
+
+    /// <summary>Takes back one <see cref="CountReview"/> (the user clicked Undo).</summary>
+    public void UncountReview(Rec e)
+    {
+        var k = KeyOf(e);
+        var n = Counts.Int(k) - 1;
+        if (n > 0) Counts[k] = n; else Counts.Remove(k);
         Save();
     }
 

@@ -8,6 +8,10 @@ then Setup removes the folder), or elevated `FreeEDR-Installer.exe uninstall`. B
 next one still runs. Result line `UNINSTALL RESULT: SUCCESS` (exit 0) or `DONE WITH n WARNING(S)` (exit 1). Log:
 `%TEMP%\FreeEDR-uninstall.log`.
 
+The uninstaller shows the setup window's progress and result pages (no console; `--silent` runs headless). When nothing
+was ever set up (Setup cancelled before its first step: no `preinstall.json`, `managed.json` or engine), it changes no
+Windows setting and only the folder is removed.
+
 The settings recorded before the first install (`data\preinstall.json`) are restored; when nothing is on record (an older
 install already changed them), FreeEDR's additions are removed and Windows' defaults apply.
 

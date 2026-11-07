@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
 using Edr.Core;
+using Edr.Core.Native;
 
 namespace Edr.Engine;
 
@@ -127,7 +128,7 @@ internal sealed class Scanner(Context ctx)
         }
         catch (Exception e) when (e is HttpRequestException or IOException or TaskCanceledException) { if (ct.IsCancellationRequested) throw new OperationCanceledException(); }
         finally { JsonFile.TryDelete(tmp); }
-        if (valid >= 100) step(name, true, $"{valid} SHA256 malware hashes from {ctx.Cfg.IocFeedUrl}");
+        if (valid >= 100) step(name, true, $"{valid} SHA256 malware hashes from {EdrConfig.RedactUrl(ctx.Cfg.IocFeedUrl)}");
         else
         {
             var have = File.Exists(f) ? File.ReadLines(f).Count(l => Ps.Rx(@"^\s*[0-9a-fA-F]{64}").IsMatch(l)) : 0;
@@ -140,17 +141,42 @@ internal sealed class Scanner(Context ctx)
         if (ctx.State.IsPaused("sigma")) { step("Sigma rules update", true, "Skipped: Sigma scanning is paused"); step("Sigma event-log scan", true, "Skipped: Sigma scanning is paused"); return; }
         var haya = ctx.Paths.HayabusaExe;
         if (!File.Exists(haya)) { step("Sigma event-log scan", false, $"hayabusa.exe not found in {ctx.Paths.HayabusaDir}"); return; }
-        // Hayabusa 4.x resolves rules\ and config\ relative to its working directory
-        var (exit, output) = Tools.RunCapture(haya, ["update-rules", "-q"], ctx.Paths.HayabusaDir, 600, ct);
-        log.Info(output.Trim());
-        step("Sigma rules update", exit == 0, $"exit code {exit}");
+        var (updated, updateMsg) = UpdateSigmaRules(haya, log, ct);
+        step("Sigma rules update", updated, updateMsg);
         ct.ThrowIfCancellationRequested();
+        int exit;
+        string output;
 
+        // The log scan parses event logs anyone can write into: sandboxed (low integrity, no privileges, one-process job).
+        // It writes its CSV into the low-integrity work folder; the result is then moved to data\.
         var csv = Path.Combine(ctx.Paths.DataDir, "hayabusa_last_scan.csv");
         JsonFile.TryDelete(csv);
-        (exit, output) = Tools.RunCapture(haya, ["dfir-timeline", "-l", "-w", "-q", "-Q", "-K", "-C", "-m", "high", "--time-offset", ctx.Cfg.SigmaLookback, "-o", csv], ctx.Paths.HayabusaDir, 3600, ct);
+        var work = SandboxWork();
+        var workCsv = Path.Combine(work, "hayabusa_last_scan.csv");
+        JsonFile.TryDelete(workCsv);
+        // Hayabusa's live mode (-l) demands administrator rights, which the sandbox never gives: the engine copies the
+        // recent records of every log (the Windows event log service reads them) and Hayabusa scans the copies (-d)
+        var logs = Path.Combine(work, "evtx");
+        DropFolder(logs);
+        DropFile.TryDelete(workCsv);
+        Sandbox.Result run;
+        try
+        {
+            if (new DriveInfo(Path.GetPathRoot(work)!).AvailableFreeSpace < EventArchive.MinFreeBytes)
+            { step("Sigma event-log scan", false, "less than 2 GB free on the system drive - skipped"); return; }
+            var copied = LogExport.Recent(Lookback(ctx.Cfg.SigmaLookback), logs, MaxLogCopyBytes, ct);
+            log.Info($"Event logs copied for the Sigma scan: {copied.Logs} logs, {copied.Bytes / 1024 / 1024} MB{(copied.Failed > 0 ? $", {copied.Failed} failed ({copied.FirstError})" : "")}");
+            if (copied.Logs == 0) { step("Sigma event-log scan", false, $"no event log could be copied ({copied.FirstError})"); return; }
+            run = Sandbox.RunCapture(haya, ["dfir-timeline", "-d", logs, "-w", "-q", "-Q", "-K", "-C", "-m", "high", "--time-offset", ctx.Cfg.SigmaLookback, "-o", workCsv],
+                                     3600, 4096, ctx.Paths.HayabusaDir, SandboxEnv(work), ct);
+        }
+        finally { DropFolder(logs); }   // copies of the Security log are not kept
         ct.ThrowIfCancellationRequested();
-        if (!File.Exists(csv)) { log.Info(output.Trim()); step("Sigma event-log scan", false, $"no output (exit code {exit}) - see data\\scan.log"); return; }
+        if (!run.Started) { step("Sigma event-log scan", false, $"sandbox could not start: {run.Error}"); return; }
+        (exit, output) = (run.Exit, run.Output + run.Error);
+        if (File.Exists(workCsv)) File.Move(workCsv, csv, true);
+        if (HayabusaFailed(exit, output)) { log.Info(output.Trim()); step("Sigma event-log scan", false, $"Hayabusa failed (exit code {exit}) - see data\\scan.log"); return; }
+        if (!File.Exists(csv)) { step("Sigma event-log scan", true, $"0 high/critical hits in the last {ctx.Cfg.SigmaLookback}"); return; }   // nothing found: no CSV
         const int maxRows = 2000;   // newest hits kept (bounded memory); more is reported as a problem
         var queue = new Queue<Dictionary<string, string>>();
         var total = 0;
@@ -201,7 +227,11 @@ internal sealed class Scanner(Context ctx)
         foreach (var (dir, owner) in targets)
         {
             ct.ThrowIfCancellationRequested();
-            var (exit, output) = Tools.RunCapture(osv, ["scan", "source", "-r", dir, "--format", "json"], ctx.Paths.BinDir, 1200, ct);
+            // OSV-Scanner parses files in users' folders: sandboxed like YARA and Hayabusa
+            var run = Sandbox.RunCapture(osv, ["scan", "source", "-r", dir, "--format", "json"], 1200, 2048, ctx.Paths.BinDir, SandboxEnv(SandboxWork()), ct, 64_000_000);
+            ct.ThrowIfCancellationRequested();
+            if (!run.Started) { failed.Add(dir); log.Error($"OSV sandbox could not start: {run.Error}"); continue; }
+            var (exit, output) = (run.Exit, run.Output);
             var jsonStart = output.IndexOf('{');
             var jsonEnd = output.LastIndexOf('}');
             var o = jsonStart >= 0 && jsonEnd > jsonStart ? JsonFile.Parse(output[jsonStart..(jsonEnd + 1)]) as JsonObject : null;
@@ -215,6 +245,86 @@ internal sealed class Scanner(Context ctx)
         if (failed.Count > 0) step(name, false, $"no result for {string.Join(", ", failed)} - kept the previous list (see data\\scan.log)");
         else step(name, true, $"{result.Arr("vulns").Count} vulnerabilities with an available update in {targets.Count} folders ({noFix} without a fix yet are not shown)");
     }
+
+    /// <summary>The copied logs may not pass this size (the Security log of a busy PC over the lookback).</summary>
+    public const long MaxLogCopyBytes = 1L << 30;
+
+    /// <summary>"2d" / "12h" (EdrConfig.SigmaLookback) as a time span; anything else = 2 days.</summary>
+    internal static TimeSpan Lookback(string s)
+    {
+        if (s.Length >= 2 && int.TryParse(s[..^1], out var n) && n > 0)
+            return char.ToLowerInvariant(s[^1]) switch { 'd' => TimeSpan.FromDays(n), 'h' => TimeSpan.FromHours(n), _ => TimeSpan.FromDays(2) };
+        return TimeSpan.FromDays(2);
+    }
+
+    /// <summary>Hayabusa reports its own errors on stdout with "[ERROR]" and can still exit 0 (e.g. "-l needs to be run as
+    /// Administrator"): that is a failed scan, never "nothing found".</summary>
+    internal static bool HayabusaFailed(int exit, string output) =>
+        exit != 0 || output.Contains("[ERROR]", StringComparison.Ordinal);
+
+    /// <summary>Removes a work folder of the sandbox (read-only files included, links not followed).</summary>
+    private void DropFolder(string dir)
+    {
+        try { Tools.DeleteTree(dir); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { ctx.Log.Warn($"Could not remove {dir}: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// Hayabusa's rule update downloads from the internet, so it runs in the sandbox, never as SYSTEM: on a fresh copy of
+    /// the rules (a git checkout) in the low-integrity work folder. Only a successful update with a plausible rule set
+    /// is copied back into the admin-only bin\hayabusa\rules\ (new files there inherit that folder's permissions, not the
+    /// work folder's low-integrity label), replacing the old set in one rename; otherwise the installed rules stay.
+    /// </summary>
+    private (bool Ok, string Message) UpdateSigmaRules(string haya, TextLog log, CancellationToken ct)
+    {
+        var rules = Path.Combine(ctx.Paths.HayabusaDir, "rules");
+        if (!Directory.Exists(rules)) return (false, $"no rule set in {rules}");
+        var stage = Path.Combine(SandboxWork(), "hayabusa-rules");
+        var fresh = rules + ".new";
+        var old = rules + ".old";
+        try
+        {
+            Tools.DeleteTree(stage);   // never reuse what a sandboxed process could have touched
+            Tools.CopyTree(rules, stage);
+            ct.ThrowIfCancellationRequested();
+            var run = Sandbox.RunCapture(haya, ["update-rules", "-q", "-K", "-r", stage], 600, 2048, Path.GetDirectoryName(stage), SandboxEnv(SandboxWork()), ct);
+            ct.ThrowIfCancellationRequested();
+            if (!run.Started) return (false, $"sandbox could not start: {run.Error}");
+            log.Info((run.Output + run.Error).Trim());
+            if (run.Exit != 0) return (false, $"exit code {run.Exit}{(run.Error.Length > 0 ? $" ({run.Error})" : "")} - kept the installed rules");
+            var count = Directory.EnumerateFiles(stage, "*.yml", SearchOption.AllDirectories).Count();
+            if (count < 1000) return (false, $"the update holds only {count} rules - kept the installed rules");
+
+            Tools.DeleteTree(fresh);
+            Tools.CopyTree(stage, fresh);
+            Tools.DeleteTree(old);
+            Directory.Move(rules, old);
+            try { Directory.Move(fresh, rules); }
+            catch (IOException) { Directory.Move(old, rules); throw; }
+            Tools.DeleteTree(old);
+            return (true, $"{count} rules (updated in the sandbox)");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            if (!Directory.Exists(rules) && Directory.Exists(old)) try { Directory.Move(old, rules); } catch (IOException) { }
+            return (false, $"{e.Message} - kept the installed rules");
+        }
+        finally
+        {
+            try { Tools.DeleteTree(stage); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            try { Tools.DeleteTree(fresh); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+    }
+
+    /// <summary>data\sandbox\: the only folder the sandboxed tools can write (low integrity label; admin-only DACL).</summary>
+    private string SandboxWork()
+    {
+        var d = Path.Combine(ctx.Paths.DataDir, "sandbox");
+        if (!Sandbox.LowIntegrityFolder(d)) ctx.Log.Warn($"Could not label {d} low integrity: sandboxed tools cannot write their output");
+        return d;
+    }
+
+    private static Dictionary<string, string> SandboxEnv(string work) => new() { ["TEMP"] = work, ["TMP"] = work };
 
     private void ToolVersions(JsonObject result, Action<string, bool, string> step, CancellationToken ct)
     {

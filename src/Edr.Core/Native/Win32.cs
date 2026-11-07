@@ -31,6 +31,15 @@ public static partial class Win32
     [LibraryImport("kernel32.dll")]
     private static partial nint LocalFree(nint hMem);
 
+    // ---- crash recovery ------------------------------------------------------------------------------
+
+    /// <summary>Windows restarts this program (with <paramref name="args"/>) when it crashes or hangs after running at
+    /// least 60 s (Windows Error Reporting). A clean exit, or being stopped by the installer, does not restart it.</summary>
+    public static bool RegisterRestart(string args) => RegisterApplicationRestart(args, 4 | 8) == 0;   // RESTART_NO_PATCH | RESTART_NO_REBOOT
+
+    [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int RegisterApplicationRestart(string pwzCommandline, uint dwFlags);
+
     // ---- file identity -------------------------------------------------------------------------------
 
     /// <summary>Volume serial + file index + size + last write: a cache key that changes when the file is replaced.</summary>
@@ -63,6 +72,36 @@ public static partial class Win32
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool GetFileInformationByHandle(nint hFile, out ByHandleFileInformation info);
+
+    /// <summary>
+    /// A cache key that changes whenever the file's content or attributes change and that the file's owner cannot set
+    /// back: volume + file index + the file's last NTFS change-journal number (USN, FSCTL_READ_FILE_USN_DATA). Size and
+    /// timestamps are not enough (SetFileTime can restore them after an in-place rewrite). Null when the volume keeps no
+    /// change journal (USN 0) or the file cannot be opened: the caller must then check the file live.
+    /// </summary>
+    public static unsafe string? FileChangeStamp(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var h = fs.SafeFileHandle.DangerousGetHandle();
+            if (!GetFileInformationByHandle(h, out var fi)) return null;
+            var buf = stackalloc byte[1024];
+            if (!DeviceIoControl(h, 0x000900EB, null, 0, buf, 1024, out var got, 0) || got < 8) return null;   // FSCTL_READ_FILE_USN_DATA
+            var major = *(ushort*)(buf + 4);
+            var usnOffset = major switch { 2 => 24, 3 => 40, _ => -1 };   // USN_RECORD_V2 / V3 (ReFS)
+            if (usnOffset < 0 || got < usnOffset + 8) return null;
+            var usn = *(long*)(buf + usnOffset);
+            if (usn <= 0) return null;
+            var index = ((ulong)fi.FileIndexHigh << 32) | fi.FileIndexLow;
+            return $"{fi.VolumeSerialNumber:X8}:{index:X16}:{usn:X16}";
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return null; }
+    }
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static unsafe partial bool DeviceIoControl(nint hDevice, uint code, void* inBuf, uint inSize, void* outBuf, uint outSize, out uint returned, nint overlapped);
 
     // ---- processes -----------------------------------------------------------------------------------
 
@@ -104,6 +143,39 @@ public static partial class Win32
         }
         finally { CloseHandle(h); }
     }
+
+    /// <summary>
+    /// Who is on the other end of a named pipe, from the client process's own token (no data needs to be read first):
+    /// "SID|elevated" or "SID|user", or null when it cannot be told (the caller then treats it as one shared, untrusted
+    /// client). Used to cap connections per account; requests are still authorized by impersonation.
+    /// </summary>
+    public static string? PipeClientKey(Microsoft.Win32.SafeHandles.SafePipeHandle pipe)
+    {
+        if (!GetNamedPipeClientProcessId(pipe, out var pid) || pid == 0) return null;
+        var h = OpenProcess(0x1000, false, pid);   // PROCESS_QUERY_LIMITED_INFORMATION
+        if (h == 0) return null;
+        try
+        {
+            if (!OpenProcessToken(h, 0x0008 | 0x0002, out var tok)) return null;   // TOKEN_QUERY | TOKEN_DUPLICATE
+            try
+            {
+                using var id = new System.Security.Principal.WindowsIdentity(tok);
+                var admin = new System.Security.Principal.WindowsPrincipal(id).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+                return id.User is { } sid ? $"{sid.Value}|{(admin ? "elevated" : "user")}" : null;
+            }
+            catch (Exception e) when (e is ArgumentException or System.Security.SecurityException or UnauthorizedAccessException) { return null; }
+            finally { CloseHandle(tok); }
+        }
+        finally { CloseHandle(h); }
+    }
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetNamedPipeClientProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, out uint pid);
+
+    [LibraryImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool OpenProcessToken(nint process, uint access, out nint token);
 
     /// <summary>The command line of another process (Windows 8.1+, ProcessCommandLineInformation), or "".</summary>
     public static string CommandLineOf(int pid)

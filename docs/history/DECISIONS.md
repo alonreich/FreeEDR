@@ -195,3 +195,28 @@ bookmarks through `EvtSubscribe`/`EvtCreateBookmark` instead of reflection; the 
 rules are read from the firewall's registry store; the installer no longer adds the `FreeEDR-Setup.exe` Defender process
 exclusion (a name-based exclusion any program could use) and removes it from existing installs - only the specific
 Inno Setup threat-ID allow stays; AllSigned / Constrained Language PowerShell policies no longer block FreeEDR.
+
+## 10. Pre-ship architectural audit and owner requests (2026-11-06)
+Owner: "fix all" findings of the pre-ship audit, then seven requests. Details: [STATUS.md](STATUS.md).
+
+| ID | Finding / request | Decision and result |
+|---|---|---|
+| S1 | Elevated helper trusted any caller's payload and `--root` | No `--root` in the helper or installer; the helper shows the decoded request in its own elevated Yes/No window (UAC only names the program) |
+| S2 | Engine queue dropped events silently | 10,000-item queue with backpressure in the event-log callback; counted, alerted drops |
+| S3 | Scan thread and engine loop shared `EngineState` | One re-entrant lock |
+| S4 | Tray did I/O and model building on the UI thread | Worker refresh, published snapshot |
+| S5 | Signer cache key could be kept after an in-place rewrite | NTFS change-journal number in the key |
+| S6 | YARA parsed attacker files as SYSTEM | `Native\Sandbox` (low integrity, no privileges, Job object), no unsandboxed fallback. Hayabusa and OSV-Scanner still run with the engine's rights (open) |
+| L4 | Stale bookmark (15011) left Sysmon/Defender unwatched after a cleared log | Treated as a rejected bookmark: restart from now with "Events may have been missed" |
+| R1 | Setup in the app's look, no console | FreeEDR-Installer.exe is an Avalonia window; Inno Setup shows no pages of its own |
+| R2 | Ship the baseline, download only updates | **Reverses §6 ("downloads instead of bundling")**: the pinned tools and an IOC seed ship inside Setup (~100 MB); Sysmon is still downloaded because the Sysinternals license does not allow redistribution; tools already installed are never downgraded |
+| R4 | Clear which part caught an alert, less clutter | Module tags, one-line rows, "Caught by", folded technical details |
+| R5 | Slicker, calmer look | Smaller type and spacing, tinted ok/danger buttons, flat primary |
+| R6 | Upgrade vs clean install | Setup window choice / `/Clean=1`; clean = `FactoryReset.Apply(everything)`, but the pre-install record of Windows settings stays (the uninstaller needs it) and a legacy `quarantine\` (users' files) is never deleted |
+| R7 | A cleared Event Viewer must not blind FreeEDR | `EventArchive` copies the important logs to `data\archive\` in the background (90 days / 1 GB, below-normal priority, paused under 2 GB free); Security 1102 / System 104 are alerted live |
+| A1 | Dashboard crash leaves no tray | `RegisterApplicationRestart`: Windows restarts it after a crash or hang |
+| A2 | Hayabusa / OSV-Scanner ran as SYSTEM | Sandboxed like YARA; `data\sandbox\` (low integrity) is their only writable folder; Hayabusa rule updates stay unsandboxed |
+| A3 | File-based IPC between processes | Named pipe `\\.\pipe\FreeEDR-Engine` with token-based caller identity, answers and change notices; drop folders kept only as the offline queue |
+| A4 | Engine with full SYSTEM rights | Still LocalSystem (needed for the Security log, firewall, Defender, Sysmon) but only the required privileges (`EdrPaths.EnginePrivileges`) and a service SID |
+| A5 | Dashboard silent when the engine is down | Home banner with *Restart engine* / *Open engine log* |
+| R3 | Review of this PC's alerts | All false positives or legitimate (agent edits of the Sysmon template, own test files, Office, ASUS WPBT driver); open questions to the owner: an SMB sign-in from 46.19.85.255, two log clears by `alon`, built-in accounts renamed `delete22`-`delete26` |

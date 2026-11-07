@@ -163,7 +163,8 @@ public sealed class Notifier
 
     private bool QuietAppRunning()
     {
-        var patterns = _state.Config.QuietProcesses;
+        // This account's quiet list; until it picks one, the PC's starting list
+        IReadOnlyList<string> patterns = _prefs.QuietProcesses ?? _state.Config.QuietProcesses;
         if (patterns.Count == 0) return false;
         try
         {

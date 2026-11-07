@@ -35,24 +35,49 @@ public sealed class EventWriter(EdrPaths paths)
         return e;
     }
 
-    public void Append(JsonObject e)
+    private long _failures;
+    private string _lastError = "";
+
+    /// <summary>Events that could not be written since this writer was created (never silent: the engine reports them).</summary>
+    public long Failures => Interlocked.Read(ref _failures);
+
+    public string LastError { get { lock (_gate) return _lastError; } }
+
+    /// <summary>False when the event could not be written (counted in <see cref="Failures"/>). A failed rotation does
+    /// not lose the event: it is still appended to the current file.</summary>
+    public bool Append(JsonObject e)
     {
         lock (_gate)
         {
             try
             {
                 Directory.CreateDirectory(paths.DataDir);
-                var fi = new FileInfo(paths.EventsFile);
-                if (fi.Exists && fi.Length > RotateBytes)
-                {
-                    File.Move(paths.EventsFile, Path.Combine(paths.DataDir, $"events-{DateTime.Now:yyyyMMdd-HHmmss}.jsonl"), true);
-                    var archives = new DirectoryInfo(paths.DataDir).GetFiles("events-*.jsonl").OrderBy(f => f.LastWriteTimeUtc).ToList();
-                    foreach (var old in archives.Take(Math.Max(0, archives.Count - 5))) JsonFile.TryDelete(old.FullName);
-                }
-                JsonFile.AppendLine(paths.EventsFile, JsonFile.ToText(e, indented: false));
+                Rotate();
+                if (JsonFile.AppendLine(paths.EventsFile, JsonFile.ToText(e, indented: false))) return true;
+                return Failed("the events file stayed locked or is not writable");
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return Failed(ex.Message); }
         }
+    }
+
+    private void Rotate()
+    {
+        try
+        {
+            var fi = new FileInfo(paths.EventsFile);
+            if (!fi.Exists || fi.Length <= RotateBytes) return;
+            File.Move(paths.EventsFile, Path.Combine(paths.DataDir, $"events-{DateTime.Now:yyyyMMdd-HHmmss}.jsonl"), true);
+            var archives = new DirectoryInfo(paths.DataDir).GetFiles("events-*.jsonl").OrderBy(f => f.LastWriteTimeUtc).ToList();
+            foreach (var old in archives.Take(Math.Max(0, archives.Count - 5))) JsonFile.TryDelete(old.FullName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { _lastError = $"rotation failed: {ex.Message}"; }
+    }
+
+    private bool Failed(string why)
+    {
+        _lastError = why;
+        Interlocked.Increment(ref _failures);
+        return false;
     }
 }
 

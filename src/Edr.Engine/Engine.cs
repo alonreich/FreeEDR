@@ -25,6 +25,9 @@ internal sealed class Engine : IDisposable
         new("rt-sysmon", "Microsoft-Windows-Sysmon/Operational", "*[System[(EventID=1 or EventID=3 or EventID=6 or EventID=8 or EventID=10 or EventID=11 or EventID=12 or EventID=13 or EventID=14 or EventID=19 or EventID=20 or EventID=21)]]"),
         new("def", "Microsoft-Windows-Windows Defender/Operational", "*[System[(EventID=1116 or EventID=1121 or EventID=1122 or EventID=1123 or EventID=1124)]]"),
         new("logon-ok", "Security", "*[System[(EventID=4624)] and EventData[Data[@Name='LogonType']='3' or Data[@Name='LogonType']='10']]"),
+        // A Windows log was cleared (whatever tool did it): reported live, the copy in data\archive\ keeps what was there
+        new("clear-sec", "Security", "*[System[(EventID=1102)]]"),
+        new("clear-sys", "System", "*[System[(EventID=104)]]"),
     ];
 
     private readonly Context _ctx;
@@ -33,7 +36,17 @@ internal sealed class Engine : IDisposable
     private readonly DefenderEvents _def;
     private readonly Scanner _scanner;
     private readonly Commands _commands;
-    private readonly BlockingCollection<Item> _queue = new(100_000);
+    private readonly EventArchive _archive;
+    private readonly PipeServer _pipe;
+    private readonly CommandIntake _intake;
+    // Bounded queue with backpressure: a full queue makes the event log callback wait (the events stay in the Windows
+    // log), so a flood slows intake instead of silently losing events past a bookmark.
+    private const int QueueCapacity = 10_000;
+    private readonly BlockingCollection<Item> _queue = new(QueueCapacity);
+    private CancellationToken _stop;
+    private volatile string? _closingSid;   // StartWatch is closing this subscription: its callback must not wait on the queue
+    private long _intakeDropped;
+    private long _intakeDroppedReported;
     private readonly Dictionary<string, EventSubscription> _subs = [];
     private readonly Dictionary<string, string> _watchErrors = [];
     private readonly Dictionary<string, string> _bookmarks = [];
@@ -57,6 +70,10 @@ internal sealed class Engine : IDisposable
         _def = new DefenderEvents(_ctx);
         _scanner = new Scanner(_ctx);
         _commands = new Commands(_ctx, _w2b, _scanner);
+        _archive = new EventArchive(_ctx);
+        _pipe = new PipeServer(_ctx);
+        _intake = new CommandIntake(_ctx);
+        _ctx.Changed = _pipe.Changed;
     }
 
     private void Safely(string name, Action a)
@@ -89,6 +106,7 @@ internal sealed class Engine : IDisposable
 
     public int Run(CancellationToken stop)
     {
+        _stop = stop;
         foreach (var d in new[] { _ctx.Paths.DataDir, _ctx.Paths.ControlDir, _ctx.Paths.InboxDir }) Directory.CreateDirectory(d);
         if (!AcquireMutex()) { _ctx.Log.Warn("Another engine is running - exiting"); return 0; }
         JsonFile.Recovered = (path, why) =>
@@ -114,6 +132,9 @@ internal sealed class Engine : IDisposable
         Safely("IPv6 RDP rules", _w2b.ApplyRdpIpv6Setting);
         Safely("Startup sync", _w2b.SyncRecentFailures);
         foreach (var w in Watches) Safely($"Watcher {w.Sid}", () => StartWatch(w));
+        Safely("Event archive", _archive.Start);
+        Safely("Pipe", _pipe.Start);
+        Safely("Command intake", _intake.Start);
         Safely("Sysmon health", SysmonHealth);
         Safely("Defender", _def.UpdateStatus);
         Safely("Bans", _w2b.RemoveExpiredBans);
@@ -121,6 +142,7 @@ internal sealed class Engine : IDisposable
 
         var now = DateTime.Now;
         DateTime nextStatus = now, nextMinute = now.AddSeconds(60), nextFive = now.AddMinutes(5), nextTen = now.AddMinutes(10);
+        var nextSettings = now.AddSeconds(5);
         var cadence = Stopwatch.StartNew();
         var sinceCadence = 0;
         try
@@ -138,7 +160,8 @@ internal sealed class Engine : IDisposable
                     if (sinceCadence >= 50 || cadence.ElapsedMilliseconds >= 2000)
                     {
                         Safely("Exclusions reload", _ctx.Excl.ReloadIfChanged);
-                        Safely("Commands", _commands.Read);
+                        Safely("Commands", () => _commands.RunQueued(_intake));
+                        Safely("Pipe requests", () => _pipe.Drain(_commands.Execute));
                         if (DateTime.Now >= nextStatus) { nextStatus = DateTime.Now.AddSeconds(15); Safely("Status", WriteStatus); }
                         SaveBookmarks();
                         sinceCadence = 0;
@@ -146,17 +169,28 @@ internal sealed class Engine : IDisposable
                     }
                 }
                 now = DateTime.Now;
+                // Settings saved from the dashboard take effect within seconds (one file-time check every 5 s); the
+                // status is rewritten at once so the dashboard sees the new values and can say they are active
+                if (now >= nextSettings)
+                {
+                    nextSettings = now.AddSeconds(5);
+                    Safely("Settings reload", () => { if (_ctx.ReloadConfigIfChanged()) { _w2b.ApplyRdpIpv6Setting(); nextStatus = now; } });
+                }
                 Safely("Exclusions reload", _ctx.Excl.ReloadIfChanged);
-                Safely("Commands", _commands.Read);
+                Safely("Commands", () => _commands.RunQueued(_intake));
+                Safely("Pipe requests", () => _pipe.Drain(_commands.Execute));
                 if (now >= nextMinute)
                 {
                     nextMinute = now.AddSeconds(60);
-                    Safely("Settings reload", () => { if (_ctx.ReloadConfigIfChanged()) _w2b.ApplyRdpIpv6Setting(); });
                     Safely("Attempts cleanup", _w2b.Housekeeping);
                     Safely("Permanent bans", _w2b.RepairPermanentBans);
                     Safely("Ban expiry", _w2b.RemoveExpiredBans);
                     Safely("Sysmon health", SysmonHealth);
                     Safely("Scan", _scanner.Watch);
+                    Safely("Intake drops", ReportIntakeDrops);
+                    Safely("Command intake health", _intake.CheckStalls);
+                    Safely("YARA coverage", _rt.ReportYaraNotScanned);
+                    Safely("Event writes", ReportEventWriteFailures);
                     Safely("User folders", () => UserFolders.Ensure(_ctx.Paths));
                 }
                 if (now >= nextFive)
@@ -165,6 +199,7 @@ internal sealed class Engine : IDisposable
                     Safely("Local IPs", _w2b.UpdateSelfIps);
                     Safely("IOC list", _rt.UpdateIocSet);
                     foreach (var w in Watches.Where(w => _watchErrors.ContainsKey(w.Sid))) Safely($"Watcher {w.Sid}", () => StartWatch(w));
+                    Safely("Event archive", _archive.RetryMissing);
                 }
                 if (now >= nextTen) { nextTen = now.AddMinutes(10); Safely("Defender", _def.UpdateStatus); }
                 if (now >= nextStatus) { nextStatus = now.AddSeconds(15); Safely("Status", WriteStatus); }
@@ -203,15 +238,32 @@ internal sealed class Engine : IDisposable
             case "rt-sysmon": _rt.Handle(r); break;
             case "def": _def.Handle(r); break;
             case "logon-ok": _w2b.LogonSuccess(r); break;
+            case "clear-sec" or "clear-sys": LogCleared(r); break;
         }
+    }
+
+    /// <summary>Security 1102 / System 104: a Windows event log was cleared. Always reported (also while paused): it is
+    /// how an attacker hides their tracks. A "Was this you?" question in the dashboard.</summary>
+    private void LogCleared(EventRecord r)
+    {
+        var log = r.Id == 1102 ? "Security" : r["Channel"].Length > 0 ? r["Channel"] : "a Windows log";
+        var who = r["SubjectUserName"].Length > 0 ? (r["SubjectDomainName"].Length > 0 ? $"{r["SubjectDomainName"]}\\{r["SubjectUserName"]}" : r["SubjectUserName"]) : "unknown";
+        _ctx.Event("realtime", "High", "Event log cleared", "", $"The {log} log was cleared by {who} at {r.Time:yyyy-MM-dd HH:mm:ss}. FreeEDR's copy in data\\archive\\ still has what was archived before.",
+                   new() { ["rule"] = "Event log cleared", ["user"] = who, ["channel"] = log, ["kind"] = "log-cleared", ["eventId"] = r.Id });
+        _ctx.Log.Audit($"Windows log '{log}' was cleared by {who}");
     }
 
     private void StartWatch(Watch w)
     {
-        if (_subs.Remove(w.Sid, out var old)) old.Dispose();
+        if (_subs.Remove(w.Sid, out var old))
+        {
+            // EvtClose waits for a running callback; that callback may wait for this (the consumer) thread to drain the queue
+            _closingSid = w.Sid;
+            try { old.Dispose(); } finally { _closingSid = null; }
+        }
         var bm = _bookmarks.GetValueOrDefault(w.Sid);
-        void OnEvent(string xml, string? bookmark) => _queue.TryAdd(new Item(w.Sid, xml, bookmark, 0));
-        void OnError(int code) => _queue.TryAdd(new Item(w.Sid, null, null, code));
+        void OnEvent(string xml, string? bookmark) => Enqueue(new Item(w.Sid, xml, bookmark, 0));
+        void OnError(int code) => Enqueue(new Item(w.Sid, null, null, code));
         try
         {
             try { _subs[w.Sid] = EventSubscription.Start(w.Channel, w.XPath, bm, OnEvent, OnError); }
@@ -231,6 +283,50 @@ internal sealed class Engine : IDisposable
             _watchErrors[w.Sid] = e.Message;
             _ctx.Log.Error($"Cannot watch {w.Channel}: {e.Message}");
         }
+    }
+
+    /// <summary>Runs on the event log's thread: waits while the queue is full (backpressure). An event is dropped only
+    /// when the engine is stopping or re-subscribing, and every drop is counted and reported.</summary>
+    private void Enqueue(Item it)
+    {
+        if (_queue.TryAdd(it)) return;
+        try
+        {
+            while (!_stop.IsCancellationRequested && _closingSid != it.Sid)
+                if (_queue.TryAdd(it, 250, _stop)) return;
+        }
+        catch (Exception e) when (e is OperationCanceledException or InvalidOperationException or ObjectDisposedException) { }
+        Interlocked.Increment(ref _intakeDropped);
+    }
+
+    private void ReportIntakeDrops()
+    {
+        var n = Interlocked.Read(ref _intakeDropped);
+        if (n == _intakeDroppedReported) return;
+        var lost = n - _intakeDroppedReported;
+        _intakeDroppedReported = n;
+        _ctx.Log.Error($"{lost} event log records were dropped by the intake queue");
+        _ctx.Event("system", "High", "Events may have been missed", detail: $"{lost} Windows event log records could not be queued for analysis (engine stopping or a watcher restarting during a flood).",
+                   extra: new() { ["kind"] = "health", ["dropped"] = lost });
+    }
+
+    private long _eventFailuresReported;
+    private DateTime _eventFailuresAt = DateTime.MinValue;
+
+    /// <summary>Alerts that could not be written to events.jsonl are never lost silently: engine log, the Application
+    /// log (event 4000, which does not depend on FreeEDR's data folder) and an alert once writing works again.</summary>
+    private void ReportEventWriteFailures()
+    {
+        var n = _ctx.Events.Failures;
+        if (n == _eventFailuresReported || DateTime.Now - _eventFailuresAt < TimeSpan.FromMinutes(10)) return;   // while it lasts: every 10 minutes
+        _eventFailuresAt = DateTime.Now;
+        var lost = n - _eventFailuresReported;
+        _eventFailuresReported = n;
+        var why = _ctx.Events.LastError;
+        _ctx.Log.Error($"{lost} events could not be written to events.jsonl: {why}");
+        _ctx.AppEvent($"FreeEDR could not record {lost} alerts or messages in its events file ({why}). Check free disk space and the FreeEDR data folder.", 4000, 2);
+        _ctx.Event("system", "High", "Alerts could not be recorded", detail: $"{lost} alerts or messages could not be written to the events file ({why}). This is also recorded in the engine log and in the Windows Application log (source wail2ban, event 4000).",
+                   extra: new() { ["kind"] = "health", ["lost"] = lost });
     }
 
     private void LoadBookmarks()
@@ -305,11 +401,13 @@ internal sealed class Engine : IDisposable
             ["mode"] = "detect-only",
             ["backlog"] = backlog,
             ["dropped"] = _rt.Dropped,
+            ["intakeDropped"] = Interlocked.Read(ref _intakeDropped),
+            ["eventWriteFailures"] = _ctx.Events.Failures,
             ["lagSeconds"] = _lagSeconds,
             ["edr"] = new JsonObject
             {
                 ["state"] = edrState, ["pausedUntil"] = NullIfEmpty(_ctx.State.PausedUntil("edr")), ["error"] = _watchErrors.GetValueOrDefault("rt-sysmon"),
-                ["iocHashes"] = _rt.IocCount, ["yaraRules"] = _rt.YaraRuleNames.ToJsonArray(),
+                ["iocHashes"] = _rt.IocCount, ["yaraRules"] = _rt.YaraRuleNames.ToJsonArray(), ["yaraNotScanned"] = _rt.YaraNotScanned,
             },
             ["realtime"] = PauseInfo("realtime", _ctx.State.State("realtime")),
             ["malware"] = PauseInfo("malware", _ctx.State.State("malware")),
@@ -331,9 +429,16 @@ internal sealed class Engine : IDisposable
                 ["nextDue"] = _scanner.NextDue().ToString("s", CultureInfo.InvariantCulture), ["times"] = _ctx.Cfg.ScanTimes.ToJsonArray(),
             },
             ["blocks"] = _ctx.Blocks.Items.Count,
+            ["archive"] = _archive.Status(),
+            ["pipe"] = _pipe.Status(),
+            ["commandIntake"] = _intake.Status(),
             ["installedAt"] = _ctx.Cfg.InstalledAt,
+            // The settings file version the engine runs with (UTC write time): the dashboard compares it with the file to
+            // say "active" after a save
+            ["settingsLoaded"] = _ctx.CfgStamp == DateTime.MinValue ? null : _ctx.CfgStamp.ToString("o", CultureInfo.InvariantCulture),
         };
         JsonFile.WriteAtomic(_ctx.Paths.StatusFile, status);
+        _pipe.Changed();
     }
 
     private static JsonNode? NullIfEmpty(string s) => s.Length > 0 ? s : null;
@@ -342,6 +447,9 @@ internal sealed class Engine : IDisposable
 
     public void Dispose()
     {
+        _pipe.Dispose();
+        _intake.Dispose();
+        _archive.Dispose();
         foreach (var s in _subs.Values) s.Dispose();
         _subs.Clear();
         _rt.Dispose();

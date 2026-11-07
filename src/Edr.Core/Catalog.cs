@@ -35,6 +35,23 @@ public static class Catalog
         ["system"] = "EDR health",
     };
 
+    /// <summary>Which FreeEDR module raised an alert (short name for the tag) and how it found it.</summary>
+    public sealed record ModuleInfo(string Name, string Method);
+
+    public static ModuleInfo Module(string? blade) => (blade ?? "").ToLowerInvariant() switch
+    {
+        "realtime" => new("Real-time", "live rule (Sysmon or a Windows log event)"),
+        "ioc" => new("Anti-Malware", "known-malware fingerprint (SHA256 list)"),
+        "yara" => new("Anti-Malware", "YARA file scan"),
+        "defender" => new("Defender", "Microsoft Defender detection, reported by FreeEDR"),
+        "sigma" => new("Event-log scan", "Sigma rule (Hayabusa) over the Windows event logs"),
+        "wail2ban" => new("Wail2Ban", "failed and remote sign-ins"),
+        "cve" => new("Vulnerabilities", "OSV-Scanner, packages with a known fix"),
+        "patch" => new("App updates", "winget"),
+        "system" => new("FreeEDR", "engine health and your own actions"),
+        var b => new(b.Length > 0 ? b : "FreeEDR", ""),
+    };
+
     public static readonly Dictionary<string, string> BladeSection = new(StringComparer.OrdinalIgnoreCase)
     {
         ["ioc"] = "malware", ["yara"] = "malware", ["defender"] = "malware", ["realtime"] = "edr",

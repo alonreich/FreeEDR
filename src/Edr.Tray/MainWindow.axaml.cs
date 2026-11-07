@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -16,8 +17,11 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, TextBlock> _badges = [];
     private readonly ContentControl _host = new();
     private readonly Border _snack;
-    private readonly TextBlock _snackText = new() { Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 720 };
-    private readonly Image _logo = new() { Width = 34, Height = 34 };
+    private readonly TextBlock _snackText = new() { Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 640 };
+    private readonly Button _snackAction = new() { Classes = { "small" }, IsVisible = false, VerticalAlignment = VerticalAlignment.Center };
+    private readonly Button _snackClose = new() { Content = "✕", Classes = { "ghost", "small" }, VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.White };
+    private Action? _snackDo;
+    private readonly Image _logo = new() { Width = 28, Height = 28 };
     private readonly TextBlock _engine = new() { FontSize = 12, Foreground = Palette.Muted };
     private readonly DispatcherTimer _snackTimer = new() { Interval = TimeSpan.FromSeconds(5) };
 
@@ -28,6 +32,26 @@ public partial class MainWindow : Window
     private readonly AllowedPage _allowed;
     private readonly SettingsPage _settings;
     private string _page = "home";
+    private PixelPoint? _normalPos;
+    private Size? _normalSize;
+
+    /// <summary>The window's top-left area (40 x 40 px) lies on one of the screens now attached.</summary>
+    private bool OnAScreen(PixelPoint p)
+    {
+        try { return Screens.All.Any(sc => sc.WorkingArea.Intersects(new PixelRect(p.X, p.Y, 40, 40))); }
+        catch (Exception e) when (e is InvalidOperationException or NullReferenceException) { return false; }
+    }
+
+    /// <summary>The Settings page has edits that are not saved (asked about before the tray exits).</summary>
+    public bool SettingsUnsaved => _settings.HasUnsaved;
+
+    /// <summary>The page on screen ("home", "settings", ...).</summary>
+    public string CurrentPage => _page;
+
+    /// <summary>--screenshot: the whole Settings page as one image.</summary>
+    public void RenderSettings(string file) => _settings.RenderFull(file);
+
+    public Task<bool> SaveSettingsNow() => _settings.SaveFromOutside();
 
     public MainWindow() : this(null!) { }   // XAML loader
 
@@ -53,28 +77,60 @@ public partial class MainWindow : Window
         [
             new("Vulnerabilities", () => Merge(0, "cve"), "No fixable vulnerability found in Python packages."),
             new("App updates", () => Merge(0, "apps"), "All apps are up to date (winget)."),
-            new("Updated", () => Merge(1, "cve").Concat(Merge(1, "apps")), "Nothing updated from FreeEDR yet."),
+            new("Started here", () => Merge(1, "cve").Concat(Merge(1, "apps")), "No update was started from FreeEDR yet."),
             new("FreeEDR tools", () => [], "", () => ToolPanel.Build(c)),
         ]);
         _allowed = new AllowedPage(c);
         _settings = new SettingsPage(c);
-        _snackTimer.Tick += (_, _) => { _snack!.IsVisible = false; _snackTimer.Stop(); };
+        // The countdown waits while the pointer is on the bar or keyboard focus is in it (WCAG 2.2.1), and starts again
+        // when they leave, so an Undo is never taken away from someone still reaching for it
+        _snackTimer.Tick += (_, _) => { if (SnackHeld) _snackTimer.Stop(); else HideSnack(); };
         _snack = new Border
         {
             CornerRadius = new CornerRadius(12), Padding = new Thickness(18, 12), Margin = new Thickness(0, 0, 0, 24), IsVisible = false,
             HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, BoxShadow = BoxShadows.Parse("0 8 24 0 #66000000"),
             Child = Ui.Row(12, Ui.Icon("", 16, Brushes.White), _snackText),
         };
+        ((StackPanel)_snack.Child!).Children.Add(_snackAction);
+        ((StackPanel)_snack.Child!).Children.Add(_snackClose);
+        // Messages are announced by screen readers; errors stay until dismissed
+        AutomationProperties.SetLiveSetting(_snack, AutomationLiveSetting.Assertive);
+        AutomationProperties.SetName(_snackClose, "Dismiss message");
+        ToolTip.SetTip(_snackClose, "Dismiss");
+        _snackClose.Click += (_, _) => HideSnack();
+        _snack.PointerEntered += (_, _) => _snackTimer.Stop();
+        _snack.PointerExited += (_, _) => RestartSnackTimer();
+        _snack.GotFocus += (_, _) => _snackTimer.Stop();
+        _snack.LostFocus += (_, _) => Dispatcher.UIThread.Post(RestartSnackTimer);   // after focus moved: inside the bar or out
+        _snackAction.Click += (_, _) => { var a = _snackDo; HideSnack(); a?.Invoke(); };
+        _settings.UnsavedChanged += RefreshSettingsBadge;
         Content = BuildLayout();
         c.Clipboard = () => Clipboard;
         if (c.Prefs.Window is { } w)
         {
-            Width = w.W; Height = w.H;
-            if (w.X > -10000) { Position = new PixelPoint(w.X, w.Y); WindowStartupLocation = WindowStartupLocation.Manual; }
+            Width = Math.Max(MinWidth, w.W); Height = Math.Max(MinHeight, w.H);
+            _normalSize = new Size(Width, Height);
+            // Only where a screen still is (an unplugged monitor would put the window out of reach): otherwise centred
+            if (w.X > -10000 && OnAScreen(new PixelPoint(w.X, w.Y)))
+            {
+                Position = new PixelPoint(w.X, w.Y);
+                _normalPos = Position;
+                WindowStartupLocation = WindowStartupLocation.Manual;
+            }
             if (w.Max) WindowState = WindowState.Maximized;
         }
-        Closing += (_, _) => c.Prefs.Window = (Bounds.Width, Bounds.Height, Position.X, Position.Y, WindowState == WindowState.Maximized);
-        Navigate(c.Prefs.LastPage is { Length: > 0 } lp && lp != "settings" ? lp : "home", null);
+        // The size and place to come back to are the last ones the window had while it was neither maximized nor minimized
+        PositionChanged += (_, e) => { if (WindowState == WindowState.Normal) _normalPos = e.Point; };
+        SizeChanged += (_, e) => { if (WindowState == WindowState.Normal) _normalSize = e.NewSize; };
+        Closing += (_, _) =>
+        {
+            var size = WindowState == WindowState.Normal ? Bounds.Size : _normalSize ?? Bounds.Size;
+            var pos = WindowState == WindowState.Normal ? Position : _normalPos ?? Position;
+            c.Prefs.Window = (size.Width, size.Height, pos.X, pos.Y, WindowState == WindowState.Maximized);
+            if (_page == "settings") _settings.RememberScroll();
+        };
+        // The last page again (Settings too: it opens where it was scrolled to; unsaved edits never outlive the tray)
+        Navigate(c.Prefs.LastPage is { Length: > 0 } lp ? lp : "home", null);
     }
 
     private IEnumerable<Row> Merge(int list, params string[] keys) =>
@@ -84,30 +140,31 @@ public partial class MainWindow : Window
 
     private Control BuildLayout()
     {
-        var side = new DockPanel { Width = 236, Background = Palette.Brush("#121B2E") };
-        var brand = Ui.Row(10, _logo, Ui.Stack(0, Ui.T("FreeEDR", "", 18, null, FontWeight.Bold), Ui.T("Endpoint protection", "muted")));
-        brand.Margin = new Thickness(20, 22, 16, 22);
+        var side = new DockPanel { Width = 210, Background = Palette.Sidebar };
+        var brand = Ui.Row(10, _logo, Ui.Stack(0, Ui.T("FreeEDR", "", 15, null, FontWeight.Bold), Ui.T("Endpoint protection", "muted")));
+        brand.Margin = new Thickness(16, 16, 12, 16);
         DockPanel.SetDock(brand, Dock.Top);
         side.Children.Add(brand);
         var foot = Ui.Stack(6, _engine);
         foot.Margin = new Thickness(20, 12, 16, 18);
         DockPanel.SetDock(foot, Dock.Bottom);
         side.Children.Add(foot);
-        var nav = new StackPanel { Spacing = 4, Margin = new Thickness(12, 0) };
+        var nav = new StackPanel { Spacing = 2, Margin = new Thickness(10, 0) };
         foreach (var (key, icon, label) in new[]
                  {
                      ("home", "", "Home"), ("activity", "", "Activity"), ("network", "", "Network"),
                      ("updates", "", "Updates"), ("allowed", "", "Allowed & trusted"), ("settings", "", "Settings"),
                  })
         {
-            var badge = new TextBlock { FontSize = 11.5, FontWeight = FontWeight.Bold, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
+            var badge = new TextBlock { FontSize = 10.5, FontWeight = FontWeight.Bold, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
             var badgeBox = new Border { CornerRadius = new CornerRadius(999), Padding = new Thickness(7, 1), Background = Palette.Danger, Child = badge, IsVisible = false, VerticalAlignment = VerticalAlignment.Center };
             _badges[key] = badge;
             var content = new DockPanel { LastChildFill = true };
             DockPanel.SetDock(badgeBox, Dock.Right);
             content.Children.Add(badgeBox);
-            content.Children.Add(Ui.Row(12, Ui.Icon(icon, 17), Ui.T(label, "", 13.5).Also(t => t.TextWrapping = TextWrapping.NoWrap)));
+            content.Children.Add(Ui.Row(10, Ui.Icon(icon, 15), Ui.T(label, "", 12.5).Also(t => t.TextWrapping = TextWrapping.NoWrap)));
             var b = new Button { Content = content, Classes = { "nav" } };
+            AutomationProperties.SetName(b, label);
             b.Click += (_, _) => Navigate(key, null);
             _nav[key] = b;
             nav.Children.Add(b);
@@ -123,7 +180,15 @@ public partial class MainWindow : Window
 
     public void Navigate(string page, string? selectId)
     {
+        // "activity:edr" = Activity filtered to one part (a Home tile)
+        string? part = null;
+        if (page.IndexOf(':') is var colon and > 0) { part = page[(colon + 1)..]; page = page[..colon]; }
         if (!_nav.ContainsKey(page)) page = "home";
+        if (page == "activity" && part is not null) _activity.ShowPart(part);
+        // Unsaved settings are kept (Settings shows them again), but say so when the user walks away from them
+        if (_page == "settings" && page != "settings") _settings.RememberScroll();
+        if (_page == "settings" && page != "settings" && _settings.HasUnsaved)
+            Snack("Your settings changes are not saved yet. They wait in Settings until you save or discard them.", false, "Back to Settings", () => Navigate("settings", null));
         _page = page;
         _c.Prefs.LastPage = page;
         foreach (var (k, b) in _nav) { if (k == page) b.Classes.Add("active"); else b.Classes.Remove("active"); }
@@ -132,6 +197,8 @@ public partial class MainWindow : Window
             "activity" => _activity, "network" => _network, "updates" => _updates, "allowed" => _allowed, "settings" => _settings, _ => _home,
         };
         _host.Content = view;
+        // On Settings the message bar sits above the pinned save bar, never over its buttons
+        _snack.Margin = new Thickness(0, 0, 0, page == "settings" ? 84 : 24);
         RefreshPage();
         if (selectId is not null)
         {
@@ -165,22 +232,42 @@ public partial class MainWindow : Window
         _logo.Source = ShieldIcon.Bitmap(ShieldIcon.From(ov.Key), 64);
         Icon = ShieldIcon.Create(ShieldIcon.From(ov.Key));
         Title = $"FreeEDR - {ov.Text}";
-        void Badge(string k, int n, IBrush color)
+        void Badge(string k, int n, IBrush color, string what)
         {
             _badges[k].Text = n > 99 ? "99+" : n.ToString();
             ((Border)_badges[k].Parent!).IsVisible = n > 0;
             ((Border)_badges[k].Parent!).Background = color;
+            AutomationProperties.SetName(_nav[k], n > 0 ? $"{NavLabel(k)}, {n} {what}" : NavLabel(k));
         }
         if (m is not null)
         {
+            // The badge shows the same number as the page's first tab (every open item); red when one of them is serious
             var att = m.Sec["malware"].Attention + m.Sec["edr"].Attention + m.Sec["sigma"].Attention;
-            Badge("activity", att > 0 ? att : m.Sec["malware"].Count + m.Sec["edr"].Count + m.Sec["sigma"].Count, att > 0 ? Palette.Danger : Palette.Brush("#3B5487"));
-            Badge("network", m.Sec["wail2ban"].Attention, Palette.Danger);
-            Badge("updates", m.Sec["cve"].Count + m.Sec["apps"].Count, Palette.Brush("#3B5487"));
+            Badge("activity", m.Sec["malware"].Count + m.Sec["edr"].Count + m.Sec["sigma"].Count, att > 0 ? Palette.Danger : Palette.BadgeNeutral, att > 0 ? "to review" : "open");
+            var w2b = m.Sec["wail2ban"];
+            Badge("network", w2b.Count, w2b.Attention > 0 ? Palette.Danger : Palette.BadgeNeutral, w2b.Attention > 0 ? "to review" : "open");
+            Badge("updates", m.Sec["cve"].Count + m.Sec["apps"].Count, Palette.BadgeNeutral, "waiting");
         }
         _engine.Text = _c.State.EngineAlive ? $"Engine running  ·  {ModelBuilder.FormatWhen(_c.State.Status?.S("heartbeat"), "HH:mm:ss")}" : "Engine not running";
         _engine.Foreground = _c.State.EngineAlive ? Palette.Muted : Palette.Danger;
         RefreshPage();
+        RefreshSettingsBadge();
+    }
+
+    private static string NavLabel(string k) => k switch
+    {
+        "home" => "Home", "activity" => "Activity", "network" => "Network", "updates" => "Updates", "allowed" => "Allowed & trusted", _ => "Settings",
+    };
+
+    /// <summary>Settings with unsaved changes: an "Unsaved" badge on the Settings button.</summary>
+    private void RefreshSettingsBadge()
+    {
+        var unsaved = _settings.HasUnsaved;
+        _badges["settings"].Text = unsaved ? "Unsaved" : "";
+        var box = (Border)_badges["settings"].Parent!;
+        box.IsVisible = unsaved;
+        box.Background = Palette.BadgeWarn;
+        AutomationProperties.SetName(_nav["settings"], unsaved ? "Settings, unsaved changes" : "Settings");
     }
 
     private void RefreshPage()
@@ -213,15 +300,46 @@ public partial class MainWindow : Window
         await _c.SaveSettings(new System.Text.Json.Nodes.JsonObject { ["wail2ban"] = new System.Text.Json.Nodes.JsonObject { ["block"] = block } });
     }
 
-    public void Snack(string text, bool error)
+    /// <summary>The message bar at the bottom: information hides after a few seconds, errors stay until dismissed;
+    /// an optional button (Undo, Show in folder, ...) runs <paramref name="action"/>.</summary>
+    public void Snack(string text, bool error, string? actionLabel = null, Action? action = null)
     {
         Dispatcher.UIThread.Post(() =>
         {
             _snackText.Text = text;
+            AutomationProperties.SetName(_snack, text);
             _snack.Background = error ? Palette.Brush("#B8323F") : Palette.Brush("#2B467A");
+            _snackDo = action;
+            _snackAction.Content = actionLabel;
+            _snackAction.IsVisible = actionLabel is not null && action is not null;
             _snack.IsVisible = true;
             _snackTimer.Stop();
-            _snackTimer.Start();
+            _snackTimed = !error;
+            if (!error)
+            {
+                _snackTimer.Interval = TimeSpan.FromSeconds(_snackAction.IsVisible ? 10 : 6);
+                if (!SnackHeld) _snackTimer.Start();
+            }
         });
+    }
+
+    private bool _snackTimed;
+
+    /// <summary>The pointer is on the message bar or keyboard focus is in it.</summary>
+    private bool SnackHeld => _snack.IsPointerOver || _snack.IsKeyboardFocusWithin;
+
+    private void RestartSnackTimer()
+    {
+        if (!_snack.IsVisible || !_snackTimed || SnackHeld) return;
+        _snackTimer.Stop();
+        _snackTimer.Start();
+    }
+
+    private void HideSnack()
+    {
+        _snackTimer.Stop();
+        _snackTimed = false;
+        _snack.IsVisible = false;
+        _snackDo = null;
     }
 }

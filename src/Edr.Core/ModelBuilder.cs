@@ -10,7 +10,7 @@ namespace Edr.Core;
 public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
 {
     private readonly EdrInputs _in = inputs;
-    private readonly ISignerLookup _signers = new CachedSigners(signers);
+    private readonly ISignerLookup _signers = new CachedSigners(signers, int.MaxValue, stamped: false);   // one build: per path
 
     // ---- per-event helpers --------------------------------------------------------------------------
 
@@ -599,7 +599,7 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         var att = model?.Attention ?? 0;
         if (model is { Pinned: > 0 })
             return new("attention", $"Please confirm {model.Pinned} item{(model.Pinned != 1 ? "s" : "")}: was this you?",
-                       "Logins from the internet, cleared logs or account changes. Answer Yes (it was me) or No (it was not me) on Home.");
+                       "Logins from the internet, cleared logs or account changes. Answer \"Yes, it was me\" or \"No, it wasn't me\" for each one.");
         var cve = model?.Sec["cve"].Count ?? 0;
         var paused = new List<string>();
         if (edr is not null && Ps.Eq(edr.S("state"), "paused")) paused.Add($"EDR is paused {FormatUntil(edr)}");
@@ -610,10 +610,13 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         if (w2b is not null && Ps.Eq(w2b.S("state"), "paused")) paused.Add($"Wail2Ban is paused {FormatUntil(w2b)}");
         if (att > 0)
         {
-            var parts = new[] { "malware", "edr", "sigma" }.Select(s => model!.Sec[s]).Where(s => s.Attention > 0).Select(s => $"{s.Info.Name}: {s.Attention}");
+            // The same number as Activity's "To review" tab and the sidebar badge: every open item (red because of the serious ones)
+            var secs = new[] { "malware", "edr", "sigma" }.Select(s => model!.Sec[s]).ToList();
+            var open = secs.Sum(s => s.Count);
+            var parts = secs.Where(s => s.Count > 0).Select(s => $"{s.Info.Name}: {s.Count}");
             var sub = string.Join(",  ", parts) + ".  Open Activity, pick an item, then allow it, flag it or mark it reviewed.";
             if (paused.Count > 0) sub = string.Join("; ", paused) + ". " + sub;
-            return new("attention", $"{att} item{(att != 1 ? "s" : "")} need{(att == 1 ? "s" : "")} your review", sub);
+            return new("attention", $"{open} item{(open != 1 ? "s" : "")} need{(open == 1 ? "s" : "")} your review", sub);
         }
         if (paused.Count > 0) return new("paused", "Protection partly paused", string.Join("; ", paused) + ".");
         var scan = st.Child("scan");

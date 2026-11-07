@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- FreeEDR-Installer.exe: install / upgrade / repair / uninstall, run by FreeEDR-Setup.exe (Inno Setup) and Settings > Apps. -->
+  <!-- FreeEDR-Installer.exe: install / upgrade / repair / uninstall, run by FreeEDR-Setup.exe (Inno Setup) and Settings > Apps.
+       Its window uses Avalonia with the dashboard's theme (Theme.axaml and ShieldIcon.cs are linked from Edr.Tray). -->
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <RootNamespace>Edr.Setup</RootNamespace>
     <AssemblyName>FreeEDR-Installer</AssemblyName>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -9,7 +10,18 @@
     <IlcOptimizationPreference>Size</IlcOptimizationPreference>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+  </ItemGroup>
+  <ItemGroup>
+    <AvaloniaXaml Include="..\Edr.Tray\Theme.axaml" Link="Theme.axaml" />
+    <Compile Include="..\Edr.Tray\ShieldIcon.cs" Link="ShieldIcon.cs" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Edr.Core\Edr.Core.csproj" />
   </ItemGroup>

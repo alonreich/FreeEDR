@@ -12,5 +12,9 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Tools.EnsurePinned: the same pinned versions and SHA256 checks the installer uses, to embed the tools in Setup -->
+    <ProjectReference Include="..\..\src\Edr.Core\Edr.Core.csproj" />
+  </ItemGroup>
 
 </Project>

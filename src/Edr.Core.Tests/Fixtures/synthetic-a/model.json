@@ -3,7 +3,7 @@
   "overall": {
     "key": "attention",
     "text": "Please confirm 3 items: was this you?",
-    "sub": "Logins from the internet, cleared logs or account changes. Answer Yes (it was me) or No (it was not me) on Home."
+    "sub": "Logins from the internet, cleared logs or account changes. Answer \"Yes, it was me\" or \"No, it wasn't me\" for each one."
   },
   "attention": 8,
   "pinned": 3,

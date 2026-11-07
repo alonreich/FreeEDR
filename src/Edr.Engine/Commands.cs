@@ -6,55 +6,32 @@ using Edr.Core.Native;
 namespace Edr.Engine;
 
 /// <summary>
-/// Command intake: control\ (admin-only, from the elevated helper) first, then inbox\ (any account: only resume and
-/// scan-now). At most 25 files per folder per sweep, files over 64 KB are discarded, a file is deleted before it runs.
+/// Runs the requests from the drop folders (control\ admin-only, from the elevated helper; inbox\ any account: only
+/// resume and scan-now) and from the pipe. The folders are read by <see cref="CommandIntake"/>'s worker threads (a
+/// file is removed before it runs); this class only executes, on the engine's main loop.
 /// <see cref="Execute"/> is the single validation gate (the tray's checks are advisory).
 /// </summary>
 internal sealed class Commands(Context ctx, Wail2Ban w2b, Scanner scanner)
 {
-    private readonly Dictionary<string, DateTime> _locked = new(StringComparer.OrdinalIgnoreCase);
-
-    public void Read()
+    /// <summary>Runs what the intake workers queued (main loop). At most 50 per call so the event path is never starved.</summary>
+    public void RunQueued(CommandIntake intake)
     {
-        foreach (var (dir, trusted) in new[] { (ctx.Paths.ControlDir, true), (ctx.Paths.InboxDir, false) })
+        for (var i = 0; i < 50 && intake.TryDequeue(out var r); i++)
         {
-            if (!Directory.Exists(dir)) continue;
-            foreach (var f in Directory.EnumerateFiles(dir, "*.json").Take(25).ToList())
-            {
-                if (_locked.TryGetValue(f, out var t) && (DateTime.Now - t).TotalMinutes < 5) continue;
-                JsonObject? cmd = null;
-                try
-                {
-                    if (new FileInfo(f).Length > PatternRules.MaxPayload) { ctx.Log.Warn($"Command file '{f}' exceeds 64KB; discarded"); File.Delete(f); continue; }
-                    cmd = JsonFile.ReadObject(f);
-                }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { continue; }
-                var deleted = false;
-                for (var i = 0; i < 3 && !deleted; i++)
-                {
-                    try { File.Delete(f); deleted = true; _locked.Remove(f); }
-                    catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Thread.Sleep(50); }
-                }
-                if (!deleted) { _locked[f] = DateTime.Now; ctx.Log.Warn($"Could not delete command file '{f}'; locked by another process"); continue; }
-                if (cmd is null) continue;
-                try { Execute(cmd, trusted); }
-                catch (Exception e) { ctx.Log.Error($"Command failed: {e.Message}"); }
-            }
+            // control\: the elevated helper wrote its own account name; inbox\ cannot prove who wrote the file
+            if (!r.Trusted) r.Cmd["user"] = "a local account (inbox)";
+            try { Execute(r.Cmd, r.Trusted); }
+            catch (Exception e) { ctx.Log.Error($"Command failed: {e.Message}"); }
         }
-        // Half-written requests (a .tmp the tray could not rename) are never read: removed after 2 minutes
-        try
-        {
-            foreach (var t in Directory.Exists(ctx.Paths.InboxDir) ? new DirectoryInfo(ctx.Paths.InboxDir).GetFiles("*.tmp") : [])
-                if (t.LastWriteTime < DateTime.Now.AddMinutes(-2)) JsonFile.TryDelete(t.FullName);
-        }
-        catch (IOException) { }
     }
 
-    public void Execute(JsonObject cmd, bool trusted)
+    /// <summary>Validates and runs one request (from control\ / inbox\ or the pipe). False = refused (not allowed for this
+    /// caller, or not a valid request); true = accepted (a no-op such as resuming what is not paused counts as done).</summary>
+    public bool Execute(JsonObject cmd, bool trusted)
     {
         var action = cmd.Str("action");
-        if (!trusted && !PatternRules.InboxActions.Contains(action)) { ctx.Log.Warn($"Ignored '{action}' from inbox (needs admin)"); return; }
-        if (action != "batch" && !PatternRules.IsValidOp(cmd)) { ctx.Log.Warn($"Refused invalid '{action}' request"); return; }
+        if (!trusted && !PatternRules.InboxActions.Contains(action)) { ctx.Log.Warn($"Ignored '{action}' from an unelevated caller (needs admin)"); return false; }
+        if (action != "batch" && !PatternRules.IsValidOp(cmd)) { ctx.Log.Warn($"Refused invalid '{action}' request"); return false; }
         var user = cmd.Str("user").Length > 0 ? cmd.Str("user") : "administrator";
         switch (action)
         {
@@ -76,7 +53,7 @@ internal sealed class Commands(Context ctx, Wail2Ban w2b, Scanner scanner)
             case "resume":
             {
                 var b = cmd.Str("blade");
-                if (ctx.State.PausedUntil(b).Length == 0) return;
+                if (ctx.State.PausedUntil(b).Length == 0) return true;
                 ctx.State.Set(b + "PausedUntil", null);
                 ctx.State.Save();
                 ctx.Audit("RESUME", b, user, "[DURATION: 0] [UNTIL: NOW]", $"Forensic Audit: Rubric '{b}' resumed by '{user}'");
@@ -88,19 +65,29 @@ internal sealed class Commands(Context ctx, Wail2Ban w2b, Scanner scanner)
             case "block": Flag(cmd); break;
             case "unblock": Unflag(cmd.Str("id")); break;
             case "batch":
-                if (cmd["ops"] is not JsonArray ops || ops.Count > PatternRules.MaxBatch) { ctx.Log.Warn("Refused batch (missing or over the cap)"); return; }
+                if (cmd["ops"] is not JsonArray ops || ops.Count > PatternRules.MaxBatch) { ctx.Log.Warn("Refused batch (missing or over the cap)"); return false; }
+                var all = true;
                 foreach (var op in ops.OfType<JsonObject>())
                 {
                     if (!PatternRules.BatchActions.Contains(op.Str("action"))) continue;
-                    if (op.Str("user").Length == 0) op["user"] = user;
-                    Execute(op, trusted);
+                    op["user"] = user;   // every step is recorded under the batch's (verified) caller
+                    all &= Execute(op, trusted);
                 }
-                break;
+                return all;
             case "unban": Unban(Ip.Normalize(cmd.Str("ip"))!); break;
             case "exclude": Exclude(cmd, user); break;
             case "unexclude": Unexclude(cmd.Str("id"), user); break;
-            default: ctx.Log.Warn($"Command '{action}' is handled by the control helper, not the engine"); break;
+            case "note":   // an event from FreeEDR's elevated helper or installer: the engine is the only writer of events.jsonl
+            {
+                var extra = new JsonObject { ["kind"] = cmd.Str("kind"), ["by"] = user };
+                if (cmd.Str("tool").Length > 0) extra["tool"] = cmd.Str("tool");
+                if (cmd.ContainsKey("ok")) extra["ok"] = cmd.Truthy("ok");
+                ctx.Event("system", cmd.Str("severity"), cmd.Str("title"), cmd.Str("process"), cmd.Str("detail"), extra);
+                break;
+            }
+            default: ctx.Log.Warn($"Command '{action}' is handled by the control helper, not the engine"); return false;
         }
+        return true;
     }
 
     /// <summary>"Flag as threat": a verdict on record. Detect-only: a program is never stopped or moved. Only an IP ban

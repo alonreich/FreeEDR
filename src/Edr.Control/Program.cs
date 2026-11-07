@@ -10,9 +10,14 @@ namespace Edr.Control;
 /// FreeEDR-Control.exe --payload &lt;base64 JSON&gt;: the elevated helper the tray starts through UAC (manifest:
 /// requireAdministrator). It validates the request with the same rules as the engine, then either drops it into the
 /// admin-only control\ folder or (restart-engine, set-config, restore-defaults, update-tool) carries it out itself.
-/// Exit codes: 0 done, 2 refused (invalid request), 3 failed, 5 not elevated.
+/// The UAC prompt only names this program, and any unelevated process can start it with its own payload, so before
+/// acting it shows the decoded request in its own elevated confirmation window (UIPI keeps unelevated programs from
+/// clicking it) and always works on the installed folder (EdrPaths.DefaultRoot, admin-only): there is no --root.
+/// The confirmation shows the whole request or the request is refused (exit code 6): no step or value is cut.
+/// Exit codes: 0 done, 2 refused (invalid request), 3 failed, 4 declined in the confirmation, 5 not elevated,
+/// 6 too large to confirm in one window.
 /// </summary>
-internal static class Program
+internal static partial class Program
 {
     private static int Main(string[] args)
     {
@@ -30,7 +35,14 @@ internal static class Program
         }
         catch (FormatException) { return 2; }
         if (cmd is null || !PatternRules.IsValidCommand(cmd, out _)) return 2;
-        var paths = new EdrPaths(Value(args, "--root"));
+        var paths = new EdrPaths();
+        var summary = RequestSummary.Build(cmd, RequestSummary.LookupFor(paths));
+        if (!summary.Complete)
+        {
+            new TextLog(paths.EngineLog).Warn($"Control helper: '{cmd.Str("action")}' refused: {summary.Lines} changes or {summary.Text.Length} characters cannot be confirmed in one window");
+            return 6;
+        }
+        if (!Confirmed(summary.Text, RequestSummary.Weakens(cmd))) return 4;
         try
         {
             return cmd.Str("action") switch
@@ -49,15 +61,30 @@ internal static class Program
         }
     }
 
-    private static string? Value(string[] args, string name)
+    /// <summary>The administrator confirms the decoded request (default button: No).</summary>
+    private static bool Confirmed(string summary, bool weakens)
     {
-        var i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
-        return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+        var text = $"FreeEDR is about to make this change as administrator:\n\n{summary}\n\n" +
+                   "Continue only if you started it from the FreeEDR dashboard just now.";
+        const uint yesNo = 0x4, warning = 0x30, question = 0x20, defaultNo = 0x100, setForeground = 0x10000, topmost = 0x40000;
+        var flags = yesNo | defaultNo | setForeground | topmost | (weakens ? warning : question);
+        return MessageBoxW(0, text, "FreeEDR - confirm administrator change", flags) == 6;   // IDYES
     }
 
+    [System.Runtime.InteropServices.LibraryImport("user32.dll", StringMarshalling = System.Runtime.InteropServices.StringMarshalling.Utf16)]
+    private static partial int MessageBoxW(nint hWnd, string text, string caption, uint type);
+
+    /// <summary>Engine verbs: over the engine's pipe (the engine identifies this elevated caller and answers); when the
+    /// engine is not running, dropped into control\ for its next start.</summary>
     private static int Drop(EdrPaths paths, JsonObject cmd)
     {
-        if (cmd.Str("user").Length == 0) cmd["user"] = Environment.UserName;
+        cmd["user"] = Environment.UserName;   // the administrator who confirmed it, never what the payload claims
+        var (reached, ok, message) = EnginePipe.SendAsync(cmd, 30_000).GetAwaiter().GetResult();
+        if (reached)
+        {
+            if (!ok) new TextLog(paths.EngineLog).Warn($"Control helper: the engine refused '{cmd.Str("action")}': {message}");
+            return ok ? 0 : 2;
+        }
         CommandDrop.Write(paths.ControlDir, cmd);
         return 0;
     }
@@ -74,7 +101,7 @@ internal static class Program
         var defenderChanged = cfg.Apply(req);
         cfg.Save(paths.ConfigFile);
         var log = new TextLog(paths.EngineLog);
-        log.Audit($"[FORENSIC-AUDIT] [{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}] [USER: {Environment.UserName}] [RUBRIC: settings] [ACTION: SET-CONFIG] {JsonFile.ToText(req, false)}");
+        log.Audit($"[FORENSIC-AUDIT] [{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}] [USER: {Environment.UserName}] [RUBRIC: settings] [ACTION: SET-CONFIG] {JsonFile.ToText(EdrConfig.Redacted(req), false)}");
         Win32.WriteAppEvent(EdrPaths.EventSource, $"Forensic Audit: settings changed by '{Environment.UserName}'", 3000);
         if (defenderChanged)
         {
@@ -83,8 +110,8 @@ internal static class Program
                 ? Defender.ApplyAudit(baseline, Defender.GameExes())
                 : Defender.Restore(baseline, JsonFile.ReadObject(paths.ManagedFile), []);
             foreach (var n in notes) log.Info($"Defender ({cfg.DefenderMode}): {n}");
-            new EventWriter(paths).Write("system", "Info", cfg.DefenderMode == "audit" ? "Microsoft Defender: audit mode applied" : "Microsoft Defender: FreeEDR's settings removed",
-                detail: string.Join("\n", notes), extra: new() { ["kind"] = "status" });
+            EngineNote.Send(paths, "Info", cfg.DefenderMode == "audit" ? "Microsoft Defender: audit mode applied" : "Microsoft Defender: FreeEDR's settings removed",
+                detail: string.Join("\n", notes));
         }
         if (restart) RestartEngine();
         return 0;
@@ -94,30 +121,8 @@ internal static class Program
     private static int RestoreDefaults(EdrPaths paths)
     {
         Services.Stop(EdrPaths.ServiceName, 30);
-        var old = EdrConfig.Load(paths.ConfigFile);
-        var cfg = new EdrConfig { AllowProfilesInitialized = true, InstalledAt = old.InstalledAt, DefenderMode = old.DefenderMode };
-        cfg.Save(paths.ConfigFile);
-
-        var excl = new JsonObject();
-        foreach (var l in new[] { "realtimePath", "realtime", "ioc", "yara", "sigma", "wail2ban", "cve", "defender" }) excl[l] = new JsonArray();
-        foreach (var p in Profiles.All.Where(p => p.Default && Profiles.IsInstalled(p)))
-            foreach (var op in Profiles.Ops(p))
-            {
-                var entry = new JsonObject { ["id"] = Guid.NewGuid().ToString("N"), ["added"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) };
-                foreach (var (k, v) in op) if (k is not ("action" or "blade")) entry[k] = v?.DeepClone();
-                ((JsonArray)excl[op.Str("blade")]!).Add((JsonNode)entry);
-            }
-        JsonFile.WriteAtomic(paths.ExclusionsFile, excl);
-        JsonFile.WriteAtomic(paths.BlocklistFile, new JsonObject { ["items"] = new JsonArray() });
-        Firewall.RemoveAllBans();
-        foreach (var f in new[] { paths.StrikesFile, paths.StateFile, paths.BookmarksFile, paths.EventsFile })
-        {
-            JsonFile.TryDelete(f);
-            JsonFile.TryDelete(f + ".bak");
-        }
-        if (Directory.Exists(paths.UserDir))
-            foreach (var u in Directory.GetDirectories(paths.UserDir))
-                foreach (var f in new[] { "reviewed.txt", "history.json", "ignored-apps.txt", "insights.json" }) JsonFile.TryDelete(Path.Combine(u, f));
+        var log = new TextLog(paths.EngineLog);
+        foreach (var n in FactoryReset.Apply(paths, everything: false)) log.Info($"Restore defaults: {n}");
         new TextLog(paths.EngineLog).Audit($"[FORENSIC-AUDIT] [{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}] [USER: {Environment.UserName}] [RUBRIC: all] [ACTION: RESTORE-DEFAULTS]");
         Win32.WriteAppEvent(EdrPaths.EventSource, $"Forensic Audit: factory reset by '{Environment.UserName}'", 3000);
         return Services.Start(EdrPaths.ServiceName, 30) ? 0 : 3;
@@ -129,8 +134,7 @@ internal static class Program
         var log = new TextLog(paths.EngineLog);
         var (ok, msg) = new Tools(paths, log.Info).UpdateToLatest(spec).GetAwaiter().GetResult();
         log.Audit($"Tool update by {Environment.UserName}: {msg}");
-        new EventWriter(paths).Write("system", ok ? "Info" : "Medium", ok ? $"Tool updated: {spec.Name}" : $"Tool update failed: {spec.Name}", spec.Name, msg,
-            new() { ["kind"] = "tool-update", ["tool"] = spec.Name, ["ok"] = ok });
+        EngineNote.Send(paths, ok ? "Info" : "Medium", ok ? $"Tool updated: {spec.Name}" : $"Tool update failed: {spec.Name}", spec.Name, msg, "tool-update", spec.Name, ok);
         if (ok && spec.Name == "YARA") RestartEngine();   // recompiles the rules with the new version
         return ok ? 0 : 3;
     }

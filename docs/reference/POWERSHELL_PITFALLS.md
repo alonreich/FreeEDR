@@ -17,6 +17,26 @@ Short, scan it before writing code. Avalonia-specific rules: [tray/TRAY_GUI.md](
 * Shell heredocs / Python string literals ate backslashes in Windows paths while editing (a backslash + n became a
   newline in the Sysmon XML, a backslash + t a tab in a .csproj): edit Windows paths with an editor, then check the file.
 * The test file that looks for credential-tool strings must not contain them itself: AMSI blocks the whole script.
+* Edit scripts written in Python (non-raw strings) turned `\a` into a bell character (`data\archive` became
+  `data<BEL>rchive`) and `\t` into a tab in docs: write such scripts with raw strings, then grep the changed files for
+  control characters.
+* Sysmon's own rule texts are alert triggers: a command line that merely contains `user /add`, `wevtutil cl` or
+  `Clear-EventLog` (an agent editing the Sysmon template, a code search) raises "New user or admin group change" /
+  "Event log cleared". That is a true match on text, not an action; check the command line before you worry.
+* Avalonia: `Bitmap.Save(path)` without encoder options is obsolete (warning = error): pass `PngBitmapEncoderOptions.Default`.
+  A theme shared by two programs is linked (`<AvaloniaXaml Include="..\Edr.Tray\Theme.axaml" Link="Theme.axaml" />`) and
+  included as `avares://<AssemblyName>/Theme.axaml`.
+* A program started with `ProcessWindowStyle.Hidden` may hide its first window (a `MessageBox` too): FreeEDR-Control.exe is
+  started normally because it shows a confirmation.
+* `JsonNode.Parse` builds children lazily and that is not thread-safe: records shared between threads are fully
+  materialized (`Rec.Parse`).
+* `icacls <dir> /setintegritylevel low` needs WRITE_OWNER: it works for the engine (SYSTEM) but is "Access is denied"
+  for an unelevated test run, so that test SKIPs.
+* A named pipe's further instances need FILE_CREATE_PIPE_INSTANCE: the creating account needs it in the pipe's ACL
+  (otherwise the second client times out); never grant it to Users (instance squatting).
+* xUnit v3 analyzer xUnit1051 is an error here: pass `TestContext.Current.CancellationToken` to methods taking a token.
+* wevtapi error 15011 (`ERROR_EVT_QUERY_RESULT_STALE`) / 15012: the bookmarked record is gone (log cleared or wrapped):
+  restart the subscription from now, never retry the bookmark.
 
 ## Encoding (the build checks these)
 * `*.ps1` must be **UTF-8 with BOM**. Windows PowerShell 5.1 reads BOM-less files as ANSI and corrupts non-ASCII characters.

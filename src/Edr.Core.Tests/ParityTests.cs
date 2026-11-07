@@ -53,4 +53,22 @@ public class GoldenModelTests(ITestOutputHelper output)
         Assert.Equal("down", o.Key);
         Assert.DoesNotContain("tray shield", o.Sub);
     }
+
+    [Fact]
+    public void Overall_review_count_matches_the_open_items_of_Activity()
+    {
+        // UI audit 2026-11-07: the hero, the sidebar badge and Activity's "To review" tab all count every open item
+        // (a Low one too); the serious ones only make it red
+        var now = DateTime.Now;
+        var st = Rec.Parse("{\"heartbeat\":\"" + now.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture) + "\",\"sysmon\":{\"ok\":true}}");
+        var m = new TrayModel();
+        m.Sec["edr"].Count = 4; m.Sec["edr"].Attention = 3;
+        m.Sec["malware"].Count = 2; m.Sec["malware"].Attention = 2;
+        m.Sec["sigma"].Count = 2; m.Sec["sigma"].Attention = 2;
+        m.Attention = 7;
+        var o = ModelBuilder.GetOverall(m, st, now);
+        Assert.Equal("attention", o.Key);
+        Assert.StartsWith("8 items need your review", o.Text);
+        Assert.Contains(": 4", o.Sub);
+    }
 }

@@ -19,7 +19,8 @@ public sealed record SigmaProcess(string Image, string Parent)
         }
         var img = new[] { "Proc", "Image", "SrcProc", "Process" }
             .Select(k => f.GetValueOrDefault(k)).FirstOrDefault(v => v is not null && Ps.Match(v, @"\.exe$")) ?? "";
-        var par = f.GetValueOrDefault("ParentImage") ?? "";
+        // Sysmon names it ParentImage, the Security log (4688) ParentProcessName
+        var par = f.GetValueOrDefault("ParentImage") ?? f.GetValueOrDefault("ParentProcessName") ?? "";
         if (par.Length == 0 && f.TryGetValue("ParentCmdline", out var pc) && pc.Length > 0)
         {
             var q = Ps.Rx("^\"([^\"]+\\.exe)\"").Match(pc);

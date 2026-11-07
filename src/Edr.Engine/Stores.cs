@@ -5,9 +5,11 @@ using Edr.Core;
 namespace Edr.Engine;
 
 /// <summary>data\state.json: pauses, scan bookkeeping and the "already reported" sets. Fail-closed: a state that could
-/// not be read is never written back empty over the damaged file.</summary>
+/// not be read is never written back empty over the damaged file. Thread-safe: the engine loop and the background
+/// scan both read pauses (an expired pause is cleared and saved on read), so every access holds one lock.</summary>
 internal sealed class EngineState(Context ctx)
 {
+    private readonly Lock _gate = new();   // re-entrant: IsPaused -> Active -> Save
     private JsonObject _s = new();
     private bool _corrupted;
 
@@ -15,6 +17,11 @@ internal sealed class EngineState(Context ctx)
     private static readonly string[] EdrChildren = ["realtime", "malware", "ioc", "yara", "sigma", "cve"];
 
     public void Load()
+    {
+        lock (_gate) LoadLocked();
+    }
+
+    private void LoadLocked()
     {
         try { _s = JsonFile.ReadStrict(ctx.Paths.StateFile) as JsonObject ?? new JsonObject(); }
         catch (InvalidDataException e)
@@ -29,6 +36,11 @@ internal sealed class EngineState(Context ctx)
 
     public void Save()
     {
+        lock (_gate) SaveLocked();
+    }
+
+    private void SaveLocked()
+    {
         if (_corrupted)
         {
             var hasData = PauseKeys.Any(k => _s.Str(k + "PausedUntil").Length > 0) || new[] { "sigmaSeen", "cveSeen", "toolSeen", "defSeen" }.Any(k => _s.Objects(k).Any() || (_s[k] as JsonArray)?.Count > 0);
@@ -39,21 +51,31 @@ internal sealed class EngineState(Context ctx)
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { ctx.Log.Error($"State save failed: {e.Message}"); }
     }
 
-    public string Get(string key) => _s.Str(key);
-    public void Set(string key, JsonNode? value) => _s[key] = value;
-    public bool? GetBool(string key) => _s[key] is JsonValue v && v.TryGetValue(out bool b) ? b : null;
+    public string Get(string key) { lock (_gate) return _s.Str(key); }
+    public void Set(string key, JsonNode? value) { lock (_gate) _s[key] = value; }
+    public bool? GetBool(string key) { lock (_gate) return _s[key] is JsonValue v && v.TryGetValue(out bool b) ? b : null; }
 
-    public HashSet<string> Seen(string key) => _s[key] is JsonArray a ? a.Select(Ps.Str).Where(s => s.Length > 0).ToHashSet(StringComparer.Ordinal) : new HashSet<string>(StringComparer.Ordinal);
+    public HashSet<string> Seen(string key)
+    {
+        lock (_gate) return _s[key] is JsonArray a ? a.Select(Ps.Str).Where(s => s.Length > 0).ToHashSet(StringComparer.Ordinal) : new HashSet<string>(StringComparer.Ordinal);
+    }
 
-    public void SetSeen(string key, IEnumerable<string> items, int keep) => _s[key] = items.TakeLast(keep).ToJsonArray();
+    public void SetSeen(string key, IEnumerable<string> items, int keep)
+    {
+        var arr = items.TakeLast(keep).ToJsonArray();
+        lock (_gate) _s[key] = arr;
+    }
 
-    public string PausedUntil(string blade) => _s.Str(blade + "PausedUntil");
+    public string PausedUntil(string blade) { lock (_gate) return _s.Str(blade + "PausedUntil"); }
 
     /// <summary>Is this part paused? An expired pause is cleared here and reported as "resumed automatically".</summary>
     public bool IsPaused(string blade)
     {
-        if (EdrChildren.Contains(blade) && Active("edr")) return true;
-        return Active(blade);
+        lock (_gate)
+        {
+            if (EdrChildren.Contains(blade) && Active("edr")) return true;
+            return Active(blade);
+        }
     }
 
     private bool Active(string blade)

@@ -41,18 +41,20 @@ internal sealed class Installer(EdrPaths paths, string source, SetupOptions opt,
             var other = sysmons.FirstOrDefault(s => !Ps.Eq(s.Name, "Sysmon64") && !Ps.Eq(s.Name, "SysmonDrv"));
             if (other.Name is not null) throw new InvalidOperationException($"Another Sysmon is installed as service '{other.Name}' ({other.Image}). FreeEDR needs it as 'Sysmon64': remove it first ('<that exe> -u'), then run Setup again.");
             _sysmonForeign = Services.Exists("Sysmon64") && !prior;
-            if (_sysmonForeign && !opt.ReplaceSysmonConfig)
-            {
-                if (opt.Silent) throw new InvalidOperationException("Sysmon is already installed with a configuration that is not FreeEDR's. Allow FreeEDR to replace it (it is saved and put back on uninstall): FreeEDR-Setup.exe /ReplaceSysmonConfig=1");
-                Console.Write("   Sysmon is already installed with another configuration. Replace it with FreeEDR's? It is saved and put back when FreeEDR is uninstalled. [y/N] ");
-                if (!(Console.ReadLine() ?? "").Trim().StartsWith('y')) throw new OperationCanceledException("Cancelled: the existing Sysmon configuration was kept.");
-            }
+            if (_sysmonForeign && !opt.ReplaceSysmonConfig)   // the setup window asks first; silent needs /ReplaceSysmonConfig=1
+                throw new InvalidOperationException("Sysmon is already installed with a configuration that is not FreeEDR's. Allow FreeEDR to replace it (it is saved and put back on uninstall): FreeEDR-Setup.exe /ReplaceSysmonConfig=1");
 
             log.Step("Stopping the running version");
             Services.Stop(EdrPaths.ServiceName, 30);
             foreach (var t in OldTasks) Sys.TaskDisable(t);
             Sys.StopFreeEdrProcesses(paths, includeTools: true);
             log.Ok("Engine, scans, tools and trays stopped");
+
+            if (opt.Clean && prior)
+            {
+                log.Step("Clean install: erasing the previous settings and data");
+                foreach (var n in FactoryReset.Apply(paths, everything: true)) log.Note(n);
+            }
 
             log.Step("Installing program files");
             Backup();
@@ -65,7 +67,8 @@ internal sealed class Installer(EdrPaths paths, string source, SetupOptions opt,
             var tools = new Tools(paths, s => log.Info(s));
             foreach (var t in Tools.Pinned)
             {
-                try { log.Note(tools.EnsurePinned(t).GetAwaiter().GetResult()); }
+                if (FromPackage(tools, t)) continue;
+                try { log.Note(tools.EnsurePinned(t).GetAwaiter().GetResult()); }   // not in the package (dev build): download
                 catch (Exception e) when (e is IOException or InvalidDataException or HttpRequestException) { throw new IOException($"{t.Name}: {e.Message} (behind a proxy, Windows' proxy settings are used)"); }
             }
 
@@ -79,7 +82,7 @@ internal sealed class Installer(EdrPaths paths, string source, SetupOptions opt,
             var verified = Verify(out var failed);
             if (verified)
             {
-                new EventWriter(paths).Write("system", "Info", "FreeEDR installation verified", detail: "All protection parts and tools were checked.", extra: new() { ["kind"] = "health" });
+                EngineNote.Send(paths, "Info", "FreeEDR installation verified", detail: "All protection parts and tools were checked.", kind: "health");   // the engine writes events.jsonl
                 CleanupOldVersion();
                 result = "SUCCESS";
                 StartTrays("FreeEDR is active", "All protection parts were checked and are running.", "Info");
@@ -105,6 +108,16 @@ internal sealed class Installer(EdrPaths paths, string source, SetupOptions opt,
         return result == "SUCCESS" ? 0 : result.StartsWith("ROLLED BACK", StringComparison.Ordinal) ? 3 : 1;
     }
 
+    /// <summary>What the setup window needs before it starts: the installed version (null = first install) and whether a
+    /// Sysmon that FreeEDR did not install is present (its configuration would be replaced).</summary>
+    public static (string? Installed, bool SysmonForeign, bool DesktopIcon) Inspect(EdrPaths paths)
+    {
+        var prior = File.Exists(Path.Combine(paths.Root, "EDR-Engine.ps1")) || File.Exists(paths.EnginePath);
+        string? ver = null;
+        if (prior) { try { ver = File.Exists(paths.VersionFile) ? File.ReadAllText(paths.VersionFile).Trim() : "an earlier version"; } catch (IOException) { ver = "an earlier version"; } }
+        return (ver, Services.Exists("Sysmon64") && !prior, !prior || File.Exists(Path.Combine(Sys.CommonDesktop, "FreeEDR.lnk")));
+    }
+
     private void Backup()
     {
         if (!File.Exists(paths.EnginePath) && !_fromPowerShell) return;
@@ -120,6 +133,29 @@ internal sealed class Installer(EdrPaths paths, string source, SetupOptions opt,
             try { old.Delete(true); log.Ok($"Removed old backup {old.Name}"); } catch (IOException e) { log.Warn($"Could not remove old backup {old.Name}: {e.Message}"); }
     }
 
+    /// <summary>Tool files ship inside Setup (build\EdrBuild EmbedTools) but are copied by <see cref="FromPackage"/> only when
+    /// missing, so a tool updated from the dashboard is never downgraded by an upgrade; seed\ is read from the package.</summary>
+    private static bool IsToolFile(string rel) =>
+        rel.StartsWith(@"bin\hayabusa\", StringComparison.OrdinalIgnoreCase) || rel.StartsWith(@"seed\", StringComparison.OrdinalIgnoreCase) ||
+        Ps.Rx(@"^bin\\(yara64|yarac64|osv-scanner|velociraptor)\.exe$").IsMatch(rel);
+
+    /// <summary>Installs a pinned tool from the setup package when it is missing (or, for Velociraptor, not the pinned
+    /// build). The SHA256 is checked again after the copy. False when the package has no copy (then it is downloaded).</summary>
+    private bool FromPackage(Tools tools, ToolSpec t)
+    {
+        var target = tools.ExePath(t);
+        var need = !File.Exists(target) || (t.Name == "Velociraptor" && !Ps.Eq(Tools.Sha256Of(target), t.Sha256));
+        if (!need) { log.Ok($"{t.Name} present"); return true; }
+        var src = Path.Combine(source, "bin", t.Exe);
+        if (!File.Exists(src)) return false;
+        if (t.Name == "Hayabusa") CopyTree(Path.Combine(source, "bin", "hayabusa"), paths.HayabusaDir);
+        else File.Copy(src, target, true);
+        if (t.Name == "YARA" && File.Exists(Path.Combine(source, "bin", "yarac64.exe"))) File.Copy(Path.Combine(source, "bin", "yarac64.exe"), paths.YaracExe, true);
+        if (!Ps.Eq(Tools.Sha256Of(target), t.Sha256)) { JsonFile.TryDelete(target); throw new InvalidDataException($"{t.Name}: the copy in the setup package does not match its pinned SHA256"); }
+        log.Ok($"{t.Name} {t.Tag} installed from the setup package (SHA256 checked, nothing downloaded)");
+        return true;
+    }
+
     private void CopyFiles()
     {
         var src = Path.GetFullPath(source).TrimEnd('\\');
@@ -128,6 +164,7 @@ internal sealed class Installer(EdrPaths paths, string source, SetupOptions opt,
         foreach (var f in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
         {
             var rel = Path.GetRelativePath(src, f);
+            if (IsToolFile(rel)) continue;
             var to = Path.Combine(paths.Root, rel);
             Directory.CreateDirectory(Path.GetDirectoryName(to)!);
             for (var i = 0; ; i++)
@@ -245,6 +282,13 @@ internal sealed class Installer(EdrPaths paths, string source, SetupOptions opt,
         JsonFile.WriteAtomic(paths.ExclusionsFile, x);
         cfg.Save(paths.ConfigFile);
         log.Ok($"edr-config.json (Wail2Ban: {(cfg.Wail2Ban.Block ? "blocks attackers" : "report only")}, Defender: {cfg.DefenderMode})");
+        var seed = Path.Combine(source, "seed", "ioc_sha256.txt");
+        if (!File.Exists(paths.IocFile) && File.Exists(seed))
+        {
+            Directory.CreateDirectory(paths.RulesDir);
+            File.Copy(seed, paths.IocFile);
+            log.Ok($"Malware hash list from the setup package ({File.GetLastWriteTime(seed):yyyy-MM-dd}; every scan updates it)");
+        }
         if (!File.Exists(paths.IocFile))
         {
             try
@@ -323,8 +367,10 @@ internal sealed class Installer(EdrPaths paths, string source, SetupOptions opt,
     private void ServiceAndTray()
     {
         log.Step($"Windows service \"{EdrPaths.ServiceName}\" (LocalSystem, automatic start, restarts on failure)");
-        Services.CreateOrUpdate(EdrPaths.ServiceName, "FreeEDR engine", "FreeEDR: detect-only EDR (Sysmon, YARA/IOC, Sigma, CVE) and Wail2Ban. Dashboard: FreeEDR in the Start menu.", $"\"{paths.EnginePath}\"");
+        Services.CreateOrUpdate(EdrPaths.ServiceName, "FreeEDR engine", "FreeEDR: detect-only EDR (Sysmon, YARA/IOC, Sigma, CVE) and Wail2Ban. Dashboard: FreeEDR in the Start menu.",
+                                $"\"{paths.EnginePath}\"", EdrPaths.EnginePrivileges, serviceSid: true);
         log.Ok($"Service registered: {paths.EnginePath}");
+        log.Ok($"Least privilege: the engine keeps only {string.Join(", ", EdrPaths.EnginePrivileges)}");
 
         log.Step("Tray auto-start and shortcuts (every account)");
         using (var run = Registry.LocalMachine.CreateSubKey(EdrPaths.RunKey)) run.SetValue(EdrPaths.RunValue, $"\"{paths.TrayPath}\"");

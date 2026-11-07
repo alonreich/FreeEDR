@@ -1,5 +1,6 @@
-using Avalonia.Controls.Primitives;
 using Avalonia;
+using Avalonia.Automation;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -15,7 +16,8 @@ public sealed class HomePage : UserControl
 {
     private readonly Controller _c;
     private readonly Action<string, string?> _navigate;
-    private readonly StackPanel _root = new() { Spacing = 18, Margin = new Thickness(28, 24, 28, 28), MaxWidth = 1180 };
+    private readonly StackPanel _root = new() { Spacing = 12, Margin = new Thickness(20, 16, 20, 20), MaxWidth = 1180 };
+    private string _shown = "";
 
     public HomePage(Controller c, Action<string, string?> navigate)
     {
@@ -24,54 +26,76 @@ public sealed class HomePage : UserControl
         Content = new ScrollViewer { Content = _root };
     }
 
+    /// <summary>Rebuilds the page, but swaps it in only when something visible changed (the engine refreshes every
+    /// 15 s): an unchanged page keeps keyboard focus, the scroll position and an open Pause menu.</summary>
     public void Refresh()
     {
-        _root.Children.Clear();
+        var items = new List<Control>();
         var s = _c.State;
         var m = s.Model;
         var ov = s.Overall;
-        _root.Children.Add(Hero(ov));
+        items.Add(Hero(ov));
+        if (!s.EngineAlive)
+        {
+            // The dashboard cannot reach the engine: say what that means and offer the fix in one click
+            var hb = s.Status?.S("heartbeat");
+            var since = Ps.ToDate(hb) is { } t ? $"Its last sign of life was {Ui.When(hb!)}." : "It has not reported since this dashboard started.";
+            var fix = Ui.Row(6, Ui.Btn("Restart engine", "primary small", () => _ = _c.RestartEngine()),
+                                Ui.Btn("Open engine log", "small", _c.OpenEngineLog));
+            items.Add(Banner("\uE7BA", Palette.Danger, "The FreeEDR engine is not responding",
+                $"{since} Until it runs again nothing is detected and Wail2Ban does not block. Restart it (Windows asks for administrator approval); Windows also restarts it by itself after a failure.", fix));
+        }
         if (_c.Notifier?.InLearningWeek == true && Ps.ToDate(s.Config.InstalledAt) is { } inst)
         {
             var left = Math.Max(1, 7 - (int)(DateTime.Now - inst).TotalDays);
-            _root.Children.Add(Banner("", Palette.Info, $"Learning week - {Ui.Plural(left, "day")} left",
+            items.Add(Banner("", Palette.Info, $"Learning week - {Ui.Plural(left, "day")} left",
                 "FreeEDR is learning what is normal on this PC. Until then it only notifies you about critical alerts. Everything is still detected and listed in Activity."));
         }
         if (m is not null)
         {
-            var pinned = new[] { "malware", "edr", "sigma", "wail2ban" }.SelectMany(k => m.Sec[k].Rows[0]).Where(r => r.Pinned && !r.Muted).Take(4).ToList();
-            if (pinned.Count > 0)
+            // Same question asked several times (e.g. four "Event log cleared") = one card that answers all of them
+            var groups = new[] { "malware", "edr", "sigma", "wail2ban" }.SelectMany(k => m.Sec[k].Rows[0]).Where(r => r.Pinned && !r.Muted && r.Ev is not null)
+                .GroupBy(r => $"{r.Sec}|{r.Ev!.S("blade")}|{r.Ev.S("title")}").Select(g => g.ToList()).ToList();
+            if (groups.Count > 0)
             {
-                _root.Children.Add(Ui.T("Was this you?", "h2"));
-                foreach (var r in pinned) _root.Children.Add(Question(r));
+                items.Add(Ui.T("Was this you?", "h2"));
+                var list = new StackPanel { Spacing = 0 };
+                for (var i = 0; i < Math.Min(groups.Count, 6); i++) list.Children.Add(Question(groups[i], first: i == 0));
+                if (groups.Count > 6) list.Children.Add(Ui.Btn($"{groups.Count - 6} more in Activity", "link", () => _navigate("activity", null)).Also(b => b.Margin = new Thickness(14, 8)));
+                items.Add(Ui.Card(list, "card").Also(c => c.Padding = new Thickness(0)));
             }
         }
-        _root.Children.Add(Ui.T("Protection", "h2"));
-        _root.Children.Add(Tiles());
+        items.Add(Ui.T("Protection", "h2"));
+        items.Add(Tiles());
         var suggestions = Suggestions();
-        if (suggestions is not null) _root.Children.Add(suggestions);
-        _root.Children.Add(Weekly());
+        if (suggestions is not null) items.Add(suggestions);
+        items.Add(Weekly());
+        var fp = string.Join("\n", items.Select(Ui.Fingerprint));
+        if (fp == _shown && _root.Children.Count > 0) return;
+        _shown = fp;
+        _root.Children.Clear();
+        foreach (var i in items) _root.Children.Add(i);
     }
 
     private Control Hero(Overall ov)
     {
         var state = ShieldIcon.From(ov.Key);
         var color = Palette.ForState(ov.Key);
-        var img = new Image { Source = ShieldIcon.Bitmap(state, 128), Width = 84, Height = 84, VerticalAlignment = VerticalAlignment.Center };
-        var glow = new Border { Width = 104, Height = 104, CornerRadius = new CornerRadius(52), Background = Palette.Tint(color, 0x26), Child = img, VerticalAlignment = VerticalAlignment.Center };
+        var img = new Image { Source = ShieldIcon.Bitmap(state, 128), Width = 56, Height = 56, VerticalAlignment = VerticalAlignment.Center };
+        var glow = new Border { Width = 72, Height = 72, CornerRadius = new CornerRadius(36), Background = Palette.Tint(color, 0x26), Child = img, VerticalAlignment = VerticalAlignment.Center };
         var scanning = _c.State.Status?.Child("scan")?.T("running") == true;
-        var scan = Ui.Btn(scanning ? "Scanning..." : "Scan now", "primary big", () => _ = _c.ScanNow(), icon: "");
+        var scan = Ui.Btn(scanning ? "Scanning..." : "Scan now", "primary", () => _ = _c.ScanNow(), icon: "");
         scan.IsEnabled = !scanning && _c.State.EngineAlive;
-        var review = Ui.Btn("Review alerts", "big", () => _navigate("activity", null), icon: "");
+        var review = Ui.Btn("Review alerts", "", () => _navigate("activity", null), icon: "");
         review.IsVisible = (_c.State.Model?.Attention ?? 0) > 0;
         var buttons = Ui.Row(10, scan, review);
-        if (ov.Key == "down" && !_c.State.EngineAlive) buttons.Children.Add(Ui.Btn("Restart engine", "danger big", () => _ = _c.RestartEngine(), icon: ""));
+        if (ov.Key == "down" && !_c.State.EngineAlive) buttons.Children.Add(Ui.Btn("Restart engine", "danger", () => _ = _c.RestartEngine(), icon: ""));
         var mode = Ui.Row(8, Ui.Pill("Detect-only", Palette.Accent), Ui.Pill(_c.State.Config.Wail2Ban.Block ? "Wail2Ban blocks attackers" : "Wail2Ban reports only", _c.State.Config.Wail2Ban.Block ? Palette.Ok : Palette.Warn));
-        var text = Ui.Stack(8, mode, Ui.T(ov.Text, "h1"), Ui.T(ov.Sub, "sub"), buttons);
+        var text = Ui.Stack(6, mode, Ui.T(ov.Text, "h1"), Ui.T(ov.Sub, "sub"), buttons);
         text.VerticalAlignment = VerticalAlignment.Center;
         var g = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
         g.Children.Add(glow);
-        text.Margin = new Thickness(24, 0, 0, 0);
+        text.Margin = new Thickness(18, 0, 0, 0);
         Grid.SetColumn(text, 1);
         g.Children.Add(text);
         return Ui.Card(g, "hero");
@@ -90,16 +114,31 @@ public sealed class HomePage : UserControl
         return new Border { Classes = { "banner" }, Background = Palette.Tint(color, 0x1E), BorderBrush = Palette.Tint(color, 0x60), Child = d };
     }
 
-    private Control Question(Row r)
+    private Control Question(List<Row> rows, bool first)
     {
+        var r = rows[0];
         var e = r.Ev!;
-        var me = Ui.Btn("Yes, it was me", "ok", () => _ = _c.Run(new TrayAction(ActionKind.ItWasMe, ""), [r]), icon: "");
-        var notMe = Ui.Btn(r.Sec == "wail2ban" ? "No - ban this IP" : "No, it wasn't me", "danger", () => _ = _c.Run(new TrayAction(ActionKind.Flag, ""), [r]), icon: "");
-        var more = Ui.Btn("Details", "ghost", () => _navigate(r.Sec == "wail2ban" ? "network" : "activity", e.S("id")));
+        var times = rows.Sum(x => Math.Max(1, x.Group.Count));
+        // The same answer labels as the details pane and the notification (ActionBuilder): "Yes, it was me" / "No, it wasn't me"
+        var me = Ui.Btn("Yes, it was me", "ok small", () => _ = _c.Run(new TrayAction(ActionKind.ItWasMe, ""), rows));
+        var notMe = Ui.Btn(r.Sec == "wail2ban" ? "No - ban this IP" : "No, it wasn't me", "danger small", () => _ = _c.Run(new TrayAction(ActionKind.Flag, ""), rows));
+        var more = Ui.Btn("Details", "ghost small", () => _navigate(r.Sec == "wail2ban" ? "network" : "activity", e.S("id")));
         var what = Hints.For(e).What;
-        var body = Ui.Stack(6, Ui.Row(8, Ui.Pill(e.S("severity"), Palette.ForSeverity(e.S("severity"))), Ui.T(Ui.When(e.S("time")), "muted")),
-            Ui.T(e.S("title"), "h3"), Ui.T(what.Length > 0 ? what : e.S("detail"), "sub"), Ui.Row(10, me, notMe, more));
-        return Ui.Card(new DockPanel { Children = { Ui.Icon("", 26, Palette.Warn).Also(i => { i.Margin = new Thickness(0, 2, 16, 0); i.VerticalAlignment = VerticalAlignment.Top; DockPanel.SetDock(i, Dock.Left); }), body } });
+        var who = new RowItem(r).Subtitle;
+        AutomationProperties.SetName(me, $"Yes, it was me: {e.S("title")}");
+        AutomationProperties.SetName(notMe, $"{(r.Sec == "wail2ban" ? "No, ban this IP" : "No, it wasn't me")}: {e.S("title")}");
+        AutomationProperties.SetName(more, $"Details: {e.S("title")}");
+        var title = Ui.Row(8, Ui.ModuleTag(e.S("blade")), Ui.T(e.S("title") + (times > 1 ? $"  ×{times}" : ""), "h3"), Ui.T(Ui.When(e.S("time")), "muted"));
+        var body = Ui.Stack(3, title, Ui.T(what.Length > 0 ? what : ModelBuilder.Short(e.S("detail"), 160), "muted"));
+        if (who.Length > 0) body.Children.Add(Ui.T(who, "muted"));
+        var line = new DockPanel { Margin = new Thickness(14, 10) };
+        var btns = Ui.Row(6, me, notMe, more);
+        btns.VerticalAlignment = VerticalAlignment.Center;
+        DockPanel.SetDock(btns, Dock.Right);
+        line.Children.Add(btns);
+        body.Margin = new Thickness(0, 0, 12, 0);
+        line.Children.Add(body);
+        return new Border { BorderBrush = Palette.Line, BorderThickness = new Thickness(0, first ? 0 : 1, 0, 0), Child = line };
     }
 
     private Control Tiles()
@@ -107,11 +146,11 @@ public sealed class HomePage : UserControl
         var s = _c.State;
         var m = s.Model;
         var grid = new UniformGrid { Columns = 3 };
-        void Add(Control c) { c.Margin = new Thickness(0, 0, 14, 14); grid.Children.Add(c); }
-        Add(Tile("", "Real-time", "realtime", "edr", m?.Sec["edr"], "Sysmon watches process starts, risky tools, credential theft and persistence."));
-        Add(Tile("", "Anti-Malware", "malware", "malware", m?.Sec["malware"], "Malware fingerprints, YARA rules and Microsoft Defender's findings."));
-        Add(Tile("", "Event logs", "sigma", "sigma", m?.Sec["sigma"], "Thousands of Sigma rules over the Windows event logs, twice a day."));
-        Add(Tile("", "Wail2Ban", "wail2ban", "wail2ban", m?.Sec["wail2ban"], s.Config.Wail2Ban.Block ? "Blocks computers that keep failing to sign in." : "Reports password guessing (report-only)."));
+        void Add(Control c) { c.Margin = new Thickness(0, 0, 10, 10); grid.Children.Add(c); }
+        Add(Tile("", "Real-time", "realtime", "activity:edr", m?.Sec["edr"], "Sysmon watches process starts, risky tools, credential theft and persistence."));
+        Add(Tile("", "Anti-Malware", "malware", "activity:malware", m?.Sec["malware"], "Malware fingerprints, YARA rules and Microsoft Defender's findings."));
+        Add(Tile("", "Event logs", "sigma", "activity:sigma", m?.Sec["sigma"], "Thousands of Sigma rules over the Windows event logs, twice a day."));
+        Add(Tile("", "Wail2Ban", "wail2ban", "network", m?.Sec["wail2ban"], s.Config.Wail2Ban.Block ? "Blocks computers that keep failing to sign in." : "Reports password guessing (report-only)."));
         Add(Tile("", "Updates", "cve", "updates", m?.Sec["cve"], "Python vulnerabilities with a fix, and app updates."));
         Add(SensorTile());
         return grid;
@@ -126,23 +165,24 @@ public sealed class HomePage : UserControl
         IBrush color; string status;
         if (!engine || st == "error") { color = Palette.Danger; status = st == "error" ? "Not working" : "Engine stopped"; }
         else if (st == "paused") { color = Palette.Paused; status = "Paused " + Until(blade); }
-        else if (attention > 0) { color = Palette.Danger; status = $"{attention} to review"; }
+        else if (attention > 0) { color = Palette.Danger; status = $"{open} to review"; }   // same number as the page's tab and badge
         else if (open > 0) { color = Palette.Warn; status = blade == "cve" ? $"{open} update{(open == 1 ? "" : "s")} waiting" : $"{open} to look at"; }
         else { color = Palette.Ok; status = "All clear"; }
         var action = st == "paused"
             ? Ui.Btn("Resume", "ok small", () => _ = _c.Resume(blade))
             : PauseButton(blade);
         action.IsEnabled = engine;
+        AutomationProperties.SetName(action, $"{(st == "paused" ? "Resume" : "Pause")} {name}");
         var head = new DockPanel();
-        var ic = new Border { Width = 38, Height = 38, CornerRadius = new CornerRadius(11), Background = Palette.Tint(color, 0x26), Child = Ui.Icon(icon, 18, color).Also(i => i.HorizontalAlignment = HorizontalAlignment.Center) };
+        var ic = new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(8), Background = Palette.Tint(color, 0x26), Child = Ui.Icon(icon, 15, color).Also(i => i.HorizontalAlignment = HorizontalAlignment.Center) };
         DockPanel.SetDock(ic, Dock.Left);
         head.Children.Add(ic);
         DockPanel.SetDock(action, Dock.Right);
         head.Children.Add(action);
-        head.Children.Add(Ui.Stack(1, Ui.T(name, "h3"), Ui.Row(6, Ui.Dot(color, 8), Ui.T(status, "", 12.5, color))).Also(x => x.Margin = new Thickness(12, 0, 8, 0)));
-        var tile = Ui.Card(Ui.Stack(10, head, Ui.T(what, "muted")), "tile");
-        tile.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
-        tile.PointerPressed += (_, e) => { if (e.Source is not Button && e.Source is Visual v && v.FindAncestorOfType<Button>() is null) _navigate(page, null); };
+        head.Children.Add(Ui.Stack(1, Ui.T(name, "h3"), Ui.Row(6, Ui.Dot(color, 7), Ui.T(status, "", 11.5, color))).Also(x => x.Margin = new Thickness(10, 0, 8, 0)));
+        var tile = new LinkTile(Ui.Stack(6, head, Ui.T(what, "muted")), () => _navigate(page, null));
+        AutomationProperties.SetName(tile, $"{name}: {status}. Press Enter to open.");
+        ToolTip.SetTip(tile, $"Open {name}");
         return tile;
     }
 
@@ -181,7 +221,7 @@ public sealed class HomePage : UserControl
             Ui.T($"Sysmon: {sysmon?.S("message") ?? "unknown"}", "muted"),
             Ui.T(def is null ? "Defender: status unknown" : $"Defender: real-time {(def.T("realtime") ? "on" : "OFF")}, ASR {def.S("asrAuditRules")} audit / {def.S("asrBlockRules")} block", "muted"),
             Ui.T($"Last scan: {ModelBuilder.FormatWhen(st?.Child("scan")?.S("lastEnd"), "ddd HH:mm")}  -  next {ModelBuilder.FormatWhen(st?.Child("scan")?.S("nextDue"), "ddd HH:mm")}", "muted"));
-        var head = Ui.Row(12, new Border { Width = 38, Height = 38, CornerRadius = new CornerRadius(11), Background = Palette.Tint(color, 0x26), Child = Ui.Icon("", 18, color).Also(i => i.HorizontalAlignment = HorizontalAlignment.Center) },
+        var head = Ui.Row(12, new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(8), Background = Palette.Tint(color, 0x26), Child = Ui.Icon("", 18, color).Also(i => i.HorizontalAlignment = HorizontalAlignment.Center) },
             Ui.Stack(1, Ui.T("Sensors & scans", "h3"), Ui.Row(6, Ui.Dot(color, 8), Ui.T(ok ? "Healthy" : "Needs attention", "", 12.5, color))));
         return Ui.Card(Ui.Stack(10, head, lines), "tile");
     }
@@ -213,7 +253,7 @@ public sealed class HomePage : UserControl
         var now = DateTime.Now;
         var sum = PeriodSummary.Compute(_c.State.Inputs.Events, now.AddDays(-7), now);
         var stats = new UniformGrid { Columns = 4 };
-        void Stat(string value, string label, IBrush color) => stats.Children.Add(Ui.Stack(2, Ui.T(value, "", 26, color, FontWeight.SemiBold), Ui.T(label, "muted")));
+        void Stat(string value, string label, IBrush color) => stats.Children.Add(Ui.Stack(1, Ui.T(value, "", 20, color, FontWeight.SemiBold), Ui.T(label, "muted")));
         Stat(sum.Alerts.ToString(), "alerts", sum.Critical > 0 ? Palette.Danger : Palette.Text);
         Stat(sum.Bans.ToString(), "Wail2Ban bans", Palette.Text);
         Stat(sum.SignInFailures.ToString(), "failed sign-ins", Palette.Text);
@@ -222,6 +262,48 @@ public sealed class HomePage : UserControl
         if (sum.Noisiest.Count > 0)
             body.Children.Add(Ui.Stack(4, Ui.T("MOST FREQUENT", "label"), Ui.Stack(2, sum.Noisiest.Select(n => (Control)Ui.T($"{n.Count}×  {n.Title}", "sub")).ToArray())));
         return Ui.Card(body);
+    }
+}
+
+/// <summary>
+/// A Home tile that opens its page: click anywhere but its own button, or Tab to it and press Enter or Space.
+/// Screen readers see it as a button (name set by the caller) that can be invoked.
+/// </summary>
+internal sealed class LinkTile : Border
+{
+    private readonly Action _open;
+
+    protected override Type StyleKeyOverride => typeof(Border);   // themed as "Border.tile"
+
+    public LinkTile(Control child, Action open)
+    {
+        _open = open;
+        Child = child;
+        Classes.Add("tile");
+        Focusable = true;
+        Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
+    }
+
+    protected override void OnPointerPressed(Avalonia.Input.PointerPressedEventArgs e)
+    {
+        base.OnPointerPressed(e);
+        if (e.Source is not Button && e.Source is Visual v && v.FindAncestorOfType<Button>() is null) _open();
+    }
+
+    protected override void OnKeyDown(Avalonia.Input.KeyEventArgs e)
+    {
+        if (ReferenceEquals(e.Source, this) && e.Key is Avalonia.Input.Key.Enter or Avalonia.Input.Key.Space) { _open(); e.Handled = true; }
+        base.OnKeyDown(e);
+    }
+
+    protected override Avalonia.Automation.Peers.AutomationPeer OnCreateAutomationPeer() => new Peer(this);
+
+    private sealed class Peer(LinkTile owner) : Avalonia.Automation.Peers.ControlAutomationPeer(owner), Avalonia.Automation.Provider.IInvokeProvider
+    {
+        protected override Avalonia.Automation.Peers.AutomationControlType GetAutomationControlTypeCore() => Avalonia.Automation.Peers.AutomationControlType.Button;
+        protected override bool IsControlElementCore() => true;
+        protected override bool IsContentElementCore() => true;
+        public void Invoke() => owner._open();
     }
 }
 

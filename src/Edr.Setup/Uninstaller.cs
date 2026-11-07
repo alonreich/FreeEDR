@@ -14,6 +14,12 @@ internal sealed class Uninstaller(EdrPaths paths, SetupOptions opt, SetupLog log
     public int Run()
     {
         Directory.SetCurrentDirectory(EdrPaths.SystemRoot);   // the install folder is deleted: never hold it
+        if (!File.Exists(paths.BaselineFile) && !File.Exists(paths.ManagedFile) && !File.Exists(paths.EnginePath) && !File.Exists(Path.Combine(paths.Root, "EDR-Engine.ps1")))
+        {
+            // Setup was cancelled before it changed anything: putting "defaults" back would only lower settings
+            log.Ok("FreeEDR was never set up on this PC (Setup was cancelled): no Windows setting to put back");
+            return 0;
+        }
         var baseline = JsonFile.ReadObject(paths.BaselineFile);
         var managed = JsonFile.ReadObject(paths.ManagedFile);
         var known = baseline?.Truthy("known") == true;

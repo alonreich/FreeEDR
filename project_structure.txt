@@ -53,11 +53,16 @@ WHAT FreeEDR IS
                          (EventWriter), validation of allows and commands (PatternRules), trusted-app profiles (Profiles),
                          allow decisions + own-process trust (Detection, OwnProcess), Defender settings (Defender), tools
                          and downloads (Tools), dashboard model (ModelBuilder, EdrInputs, Catalog, Hints, Actions, Summary),
-                         Native\ (wevtapi event subscriptions, services, firewall, Authenticode, process snapshot)
-    Edr.Engine\          FreeEDR-Engine.exe: Engine (main loop, watchers, health, status), Realtime (Sysmon + IOC + YARA),
-                         Wail2Ban, DefenderEvents, Scanner (IOC feed, Hayabusa, OSV, tool versions), Commands, Stores
+                         Native\ (wevtapi event subscriptions, services, firewall, Authenticode, process snapshot,
+                         Sandbox, DropFile: untrusted drop files without following links or waiting on oplocks)
+    Edr.Engine\          FreeEDR-Engine.exe: Engine (main loop, watchers, health, status), Archive (event-log copy in
+                         data\archive\), Realtime (Sysmon + IOC + YARA),
+                         Wail2Ban, DefenderEvents, Scanner (IOC feed, Hayabusa, OSV, tool versions), Commands, Stores,
+                         CommandIntake (control\ + inbox\ on worker threads), PipeServer (\\.\pipe\FreeEDR-Engine:
+                         requests + change notices, per-account caps)
     Edr.Control\         FreeEDR-Control.exe (requireAdministrator)
-    Edr.Setup\           FreeEDR-Installer.exe (requireAdministrator): Installer, Uninstaller
+    Edr.Setup\           FreeEDR-Installer.exe (requireAdministrator): Installer, Uninstaller, SetupWindow (Avalonia,
+                         the tray's Theme.axaml linked; upgrade vs clean install)
     Edr.Tray\            FreeEDR-Tray.exe: App (tray icon, tick, notifications), MainWindow, Theme.axaml, Controller,
                          Views\ (Home, ListPage for Activity/Network/Updates, Allowed, Settings, DetailView, Dialogs),
                          Services\ (TrayState, Commands, Notifier, Preferences/Insights, WingetCheck)
@@ -134,7 +139,9 @@ WHAT FreeEDR IS
   - The engine (SYSTEM) must never stop: every step inside Engine.Safely; the service restarts itself on failure.
   - The tray is unelevated: reads the install folder, writes only user\<SID>\ and inbox\ (and its own notification
     registration under HKCU). Every weakening change goes UAC -> FreeEDR-Control.exe -> control\ -> PatternRules
-    validation again in the engine. inbox\ accepts only resume / scan-now.
+    validation again in the engine. inbox\ accepts only resume / scan-now. The confirmation shows the whole request
+    or the helper refuses it. Files in user-writable folders: Native\DropFile, never on the engine's main loop.
+  - Only the engine writes data\events.jsonl (other FreeEDR programs: EngineNote.Send).
   - Paths only from EdrPaths; everything FreeEDR keeps lives under the install folder.
   - Installer changes outside the folder are recorded (preinstall.json / managed.json) and undone by the uninstaller;
     never lower a Windows protection setting that was stronger before FreeEDR.

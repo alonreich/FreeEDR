@@ -7,23 +7,55 @@ using Edr.Core;
 
 namespace Edr.Tray.Views;
 
-/// <summary>Colors of the theme (same values as Theme.axaml) for code-built views.</summary>
+/// <summary>
+/// Colors of the theme (same values as Theme.axaml's Dark / Light dictionaries) for code-built views. The brushes are
+/// changed in place by <see cref="Apply"/>, so every control that uses one follows a theme switch at once; tinted
+/// copies (<see cref="Tint"/>) are rebuilt with the next refresh of the page.
+/// </summary>
 public static class Palette
 {
-    public static readonly IBrush Bg = Brush("#172238");
-    public static readonly IBrush Surface = Brush("#1E2C47");
-    public static readonly IBrush SurfaceHi = Brush("#263859");
-    public static readonly IBrush SurfaceLo = Brush("#1A2740");
-    public static readonly IBrush Line = Brush("#2D3F66");
-    public static readonly IBrush Text = Brush("#EAF0FB");
-    public static readonly IBrush Text2 = Brush("#AEBBD3");
-    public static readonly IBrush Muted = Brush("#7E8DA9");
-    public static readonly IBrush Accent = Brush("#4F8EFF");
-    public static readonly IBrush Ok = Brush("#2FBF71");
-    public static readonly IBrush Warn = Brush("#F5A524");
-    public static readonly IBrush Danger = Brush("#F0505F");
-    public static readonly IBrush Paused = Brush("#8C99B1");
-    public static readonly IBrush Info = Brush("#3AB8E8");
+    public static bool IsLight { get; private set; }
+
+    private static readonly List<(SolidColorBrush Brush, Color Dark, Color Light)> All = [];
+
+    private static SolidColorBrush Themed(string dark, string light)
+    {
+        var b = new SolidColorBrush(Color.Parse(dark));
+        All.Add((b, Color.Parse(dark), Color.Parse(light)));
+        return b;
+    }
+
+    public static readonly SolidColorBrush Bg = Themed("#172238", "#EEF2F8");
+    public static readonly SolidColorBrush Sidebar = Themed("#121B2E", "#E3E9F3");
+    public static readonly SolidColorBrush Surface = Themed("#1E2C47", "#FFFFFF");
+    public static readonly SolidColorBrush SurfaceHi = Themed("#263859", "#F0F4FA");
+    public static readonly SolidColorBrush SurfaceLo = Themed("#1A2740", "#F6F8FC");
+    public static readonly SolidColorBrush Line = Themed("#2D3F66", "#D0D9E8");
+    public static readonly SolidColorBrush Text = Themed("#EAF0FB", "#142033");
+    public static readonly SolidColorBrush Text2 = Themed("#AEBBD3", "#384867");
+    public static readonly SolidColorBrush Muted = Themed("#95A3BD", "#56647E");   // >= 4.5:1 on Surface, SurfaceHi and the selected row (both themes)
+    public static readonly SolidColorBrush Accent = Themed("#4F8EFF", "#2563D9");
+    public static readonly SolidColorBrush Ok = Themed("#2FBF71", "#1B8048");
+    public static readonly SolidColorBrush Warn = Themed("#F5A524", "#9A5B00");
+    public static readonly SolidColorBrush Danger = Themed("#F0505F", "#C42F3D");
+    /// <summary>Error text on cards (inline field errors): >= 4.5:1 in both themes, unlike <see cref="Danger"/> in dark.</summary>
+    public static readonly SolidColorBrush ErrorText = Themed("#FF8A95", "#B42634");
+    public static readonly SolidColorBrush Paused = Themed("#8C99B1", "#66728A");
+    public static readonly SolidColorBrush Info = Themed("#3AB8E8", "#1874A3");
+    /// <summary>Count badges that are not alarms (white text on it in both themes).</summary>
+    public static readonly SolidColorBrush BadgeNeutral = Themed("#3B5487", "#4A5F8C");
+    /// <summary>The "Unsaved" badge (white text on it in both themes).</summary>
+    public static readonly SolidColorBrush BadgeWarn = Themed("#8A5A12", "#8A5000");
+    public static readonly SolidColorBrush OkButtonText = Themed("#7FD6AA", "#146B3A");
+    public static readonly SolidColorBrush DangerButtonText = Themed("#F09AA4", "#A3202E");
+    public static readonly SolidColorBrush PrimaryButtonText = Themed("#FFFFFF", "#FFFFFF");
+
+    /// <summary>Switches every themed brush to the dark or light value.</summary>
+    public static void Apply(bool light)
+    {
+        IsLight = light;
+        foreach (var (b, dark, lt) in All) b.Color = light ? lt : dark;
+    }
 
     public static IBrush Brush(string hex) => new SolidColorBrush(Color.Parse(hex));
 
@@ -35,6 +67,13 @@ public static class Palette
     };
 
     public static IBrush ForState(string key) => key switch { "ok" => Ok, "attention" => Warn, "paused" => Paused, _ => Danger };
+
+    /// <summary>One calm color per module, so the tag tells at a glance which part caught an alert.</summary>
+    public static IBrush ForModule(string? blade) => (blade ?? "").ToLowerInvariant() switch
+    {
+        "realtime" => Brush("#6E9BF0"), "ioc" or "yara" => Brush("#B48CF0"), "defender" => Brush("#5CB3E6"),
+        "sigma" => Brush("#4DBFA8"), "wail2ban" => Brush("#E0A74A"), "cve" or "patch" => Brush("#9AA9C4"), _ => Muted,
+    };
 }
 
 /// <summary>Small factory helpers so the code-built views stay readable.</summary>
@@ -62,8 +101,10 @@ public static class Ui
             content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Icon(icon, 14, null), new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.NoWrap } } };
         var b = new Button { Content = content };
         foreach (var c in classes.Split(' ', StringSplitOptions.RemoveEmptyEntries)) b.Classes.Add(c);
-        if (icon is not null && content is StackPanel sp && sp.Children[0] is TextBlock ic) ic.Foreground = classes.Contains("primary") || classes.Contains("ok") || classes.Contains("danger") ? Brushes.White : Palette.Text2;
+        if (icon is not null && content is StackPanel sp && sp.Children[0] is TextBlock ic) ic.Foreground = classes.Contains("primary") ? Palette.PrimaryButtonText : classes.Contains("ok") ? Palette.OkButtonText : classes.Contains("danger") ? Palette.DangerButtonText : Palette.Text2;
         b.Click += (_, _) => onClick();
+        // With an icon the content is a panel, which screen readers cannot name: give the button its label
+        Avalonia.Automation.AutomationProperties.SetName(b, label);
         if (tip is not null) ToolTip.SetTip(b, tip);
         return b;
     }
@@ -82,9 +123,20 @@ public static class Ui
         Background = solid ? color : Palette.Tint(color, 0x2E),
         BorderBrush = Palette.Tint(color, 0x80),
         BorderThickness = new Thickness(1),
-        Child = new TextBlock { Text = text, FontSize = 11.5, FontWeight = FontWeight.SemiBold, Foreground = solid ? Brushes.White : color, TextWrapping = TextWrapping.NoWrap },
+        Child = new TextBlock { Text = text, FontSize = 10.5, FontWeight = FontWeight.SemiBold, Foreground = solid ? Brushes.White : color, TextWrapping = TextWrapping.NoWrap },
         VerticalAlignment = VerticalAlignment.Center,
     };
+
+    /// <summary>Small uppercase tag naming the module that raised an alert ("REAL-TIME", "EVENT-LOG SCAN", ...).</summary>
+    public static Border ModuleTag(string? blade)
+    {
+        var color = Palette.ForModule(blade);
+        return new Border
+        {
+            CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 1), Background = Palette.Tint(color, 0x24), VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock { Text = Catalog.Module(blade).Name.ToUpperInvariant(), FontSize = 10, FontWeight = FontWeight.SemiBold, LetterSpacing = 0.4, Foreground = color, TextWrapping = TextWrapping.NoWrap },
+        };
+    }
 
     public static Border Dot(IBrush color, double size = 10) => new() { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = color, VerticalAlignment = VerticalAlignment.Center };
 
@@ -126,6 +178,43 @@ public static class Ui
     }
 
     public static string Plural(int n, string word) => $"{n} {word}{(n == 1 ? "" : "s")}";
+
+    /// <summary>
+    /// What a view tree shows (types, texts, colors, visibility, enabled, checked, selected, classes). Two builds with the
+    /// same fingerprint look the same, so a periodic refresh keeps the live controls - and with them keyboard focus,
+    /// scroll position, open menus and anything the user is typing.
+    /// </summary>
+    public static string Fingerprint(object? root)
+    {
+        var sb = new System.Text.StringBuilder();
+        Walk(root, sb);
+        return sb.ToString();
+    }
+
+    private static void Walk(object? o, System.Text.StringBuilder sb)
+    {
+        if (o is null) return;
+        if (o is not Control c) { sb.Append('"').Append(o).Append('"'); return; }
+        sb.Append('<').Append(c.GetType().Name);
+        if (!c.IsVisible) sb.Append(" hidden");
+        if (!c.IsEnabled) sb.Append(" disabled");
+        foreach (var cl in c.Classes) sb.Append(" .").Append(cl);
+        if (c is TextBlock t) sb.Append(" \"").Append(t.Text).Append('"').Append(t.Foreground is SolidColorBrush f ? f.Color.ToString() : "");
+        if (c is TextBox tb) sb.Append(" \"").Append(tb.Text).Append('"');
+        if (c is ToggleButton tg) sb.Append(tg.IsChecked == true ? " on" : " off");
+        if (c is NumericUpDown n) sb.Append(' ').Append(n.Value);
+        if (c is SelectingItemsControl si) sb.Append(" #").Append(si.SelectedIndex);
+        if (c is Border { Background: SolidColorBrush bg }) sb.Append(' ').Append(bg.Color.ToString());
+        if (c is Expander ex) { sb.Append(ex.IsExpanded ? " open" : " closed"); Walk(ex.Header, sb); }
+        sb.Append('>');
+        switch (c)
+        {
+            case Panel p: foreach (var ch in p.Children) Walk(ch, sb); break;
+            case Decorator d: Walk(d.Child, sb); break;
+            case ContentControl cc: Walk(cc.Content, sb); break;
+        }
+        sb.Append("</>");
+    }
 }
 
 /// <summary>A list row with display text derived from the model row.</summary>
@@ -163,20 +252,18 @@ public sealed class RowItem(Row row)
                 case "ban": return $"{Row.Cols.ElementAtOrDefault(5)}  -  until {Row.Cols.ElementAtOrDefault(2)}  -  {Row.Cols.ElementAtOrDefault(4)}";
                 case "banhist": return $"{Row.Cols.ElementAtOrDefault(2)}  -  {Row.Cols.ElementAtOrDefault(4)}";
                 case "cve": return $"Fixed in {Row.Entry?.S("fixed")}  -  {Row.Entry?.S("summary")}";
-                case "hist": return "Update started from FreeEDR";
+                case "hist": return "Started from FreeEDR - the next check shows whether it worked";
                 case "app": return $"{Row.Entry?.S("version")}  ->  {Row.Entry?.S("latest")}   ({Row.Entry?.S("appId")})";
                 case "hidden": return "Hidden from the update list";
                 case "sys": return Row.Cols.ElementAtOrDefault(2) ?? "";
             }
             if (e is null) return "";
-            var blade = Catalog.BladeNames.GetValueOrDefault(e.S("blade")) ?? e.S("blade");
+            // One short fact: the module is shown by its tag, the rest is in the details pane
+            if (Ps.Eq(e.S("blade"), "wail2ban")) return $"{e.S("ip")}  ·  {Ip.NetLabel(e.S("ip"))}".Trim(' ', '·');
             var proc = Ps.Eq(e.S("blade"), "sigma") ? SigmaProcess.Of(e).Image : e.S("process");
             var par = ActionBuilder.ParentOf(e);
-            var parts = new List<string> { blade };
-            if (Ps.Eq(e.S("blade"), "wail2ban")) parts.Add(Ip.NetLabel(e.S("ip")));
-            if (proc.Length > 0) parts.Add(Ps.Leaf(proc));
-            if (par.Length > 0) parts.Add("started by " + Ps.Leaf(par));
-            return string.Join("  -  ", parts);
+            if (proc.Length == 0) return "";
+            return par.Length > 0 ? $"{Ps.Leaf(proc)}  ←  {Ps.Leaf(par)}" : Ps.Leaf(proc);
         }
     }
 
@@ -187,23 +274,30 @@ public sealed class RowItem(Row row)
 /// <summary>The visual of one list row; updates itself when a recycled container gets a new item (no reflection bindings).</summary>
 public sealed class RowView : Border
 {
-    private readonly Border _bar = new() { Width = 4, CornerRadius = new CornerRadius(11, 0, 0, 11) };
-    private readonly TextBlock _title = new() { FontWeight = FontWeight.SemiBold, FontSize = 13.5, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis };
-    private readonly TextBlock _sub = new() { FontSize = 12.5, Foreground = Palette.Text2, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis };
-    private readonly TextBlock _time = new() { FontSize = 12, Foreground = Palette.Muted, TextWrapping = TextWrapping.NoWrap, HorizontalAlignment = HorizontalAlignment.Right };
-    private readonly StackPanel _badges = new() { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right };
+    private readonly Border _bar = new() { Width = 3, CornerRadius = new CornerRadius(8, 0, 0, 8) };
+    private readonly ContentControl _tag = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _title = new() { FontWeight = FontWeight.SemiBold, FontSize = 12.5, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _sub = new() { FontSize = 11.5, Foreground = Palette.Text2, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis };
+    private readonly TextBlock _time = new() { FontSize = 11, Foreground = Palette.Muted, TextWrapping = TextWrapping.NoWrap, HorizontalAlignment = HorizontalAlignment.Right };
+    private readonly StackPanel _badges = new() { Orientation = Orientation.Horizontal, Spacing = 4, HorizontalAlignment = HorizontalAlignment.Right };
 
     protected override Type StyleKeyOverride => typeof(Border);   // themed as a Border ("Border.row")
 
     public RowView()
     {
         Classes.Add("row");
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("4,*,Auto"), MinHeight = 58 };
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("3,*,Auto"), MinHeight = 44 };
         grid.Children.Add(_bar);
-        var mid = new StackPanel { Spacing = 3, Margin = new Thickness(14, 10, 10, 10), VerticalAlignment = VerticalAlignment.Center, Children = { _title, _sub } };
+        var line1 = new DockPanel();
+        _tag.Margin = new Thickness(0, 0, 8, 0);
+        DockPanel.SetDock(_tag, Dock.Left);
+        line1.Children.Add(_tag);
+        line1.Children.Add(_title);
+        var mid = new StackPanel { Spacing = 2, Margin = new Thickness(10, 6, 8, 6), VerticalAlignment = VerticalAlignment.Center, Children = { line1, _sub } };
         Grid.SetColumn(mid, 1);
         grid.Children.Add(mid);
-        var right = new StackPanel { Spacing = 6, Margin = new Thickness(0, 10, 14, 10), VerticalAlignment = VerticalAlignment.Center, Children = { _time, _badges } };
+        var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 6, 10, 6), VerticalAlignment = VerticalAlignment.Center, Children = { _badges, _time } };
+        _time.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(right, 2);
         grid.Children.Add(right);
         Child = grid;
@@ -217,6 +311,9 @@ public sealed class RowView : Border
         _sub.Text = ModelBuilder.Short(it.Subtitle, 260);
         _sub.IsVisible = it.Subtitle.Length > 0;
         _time.Text = Ui.When(it.Time);
+        var blade = it.Row.Ev?.S("blade");
+        _tag.Content = blade is { Length: > 0 } && it.Row.Kind is "event" or "fail" or "defender" or "cve" or "sys" ? Ui.ModuleTag(blade) : null;
+        _tag.IsVisible = _tag.Content is not null;
         var sev = it.Severity;
         _bar.Background = it.Row.Pinned && !it.Row.Muted ? Palette.Warn : sev.Length > 0 ? Palette.ForSeverity(sev) : Palette.Line;
         _badges.Children.Clear();
@@ -225,7 +322,10 @@ public sealed class RowView : Border
         if (it.Row.Muted && it.Row.Kind is "event" or "fail") _badges.Children.Add(Ui.Pill("Reviewed", Palette.Muted));
         if (it.Row.Kind == "excl" && it.Row.Entry?.T("profile") == true) _badges.Children.Add(Ui.Pill("Trusted app", Palette.Ok));
         if (it.Row.Kind == "ban") _badges.Children.Add(Ui.Pill(it.Row.Entry is not null ? "Permanent" : "Blocked", Palette.Danger));
+        // Reviewed rows: calmer (no bold, darker card), but every text keeps its full contrast (no opacity)
         if (it.Row.Muted) Classes.Add("muted"); else Classes.Remove("muted");
+        _title.FontWeight = it.Row.Muted ? FontWeight.Normal : FontWeight.SemiBold;
+        _title.Foreground = it.Row.Muted ? Palette.Text2 : Palette.Text;
         _time.IsVisible = _time.Text?.Length > 0;
     }
 }

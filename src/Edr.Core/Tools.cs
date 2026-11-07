@@ -8,13 +8,22 @@ using System.Text.RegularExpressions;
 
 namespace Edr.Core;
 
-/// <summary>A tool FreeEDR runs, pinned to a version and the SHA256 of its executable.</summary>
-public sealed record ToolSpec(string Name, string Repo, string Tag, string AssetPattern, string Exe, string Sha256, string VersionArgs, string VersionLinePattern);
+/// <summary>A tool FreeEDR runs, pinned to a version and the SHA256 of its executable. <see cref="Publisher"/>: the
+/// Authenticode signer its releases must carry to be installed from GitHub by a dashboard update ("" = its releases are
+/// not signed, so only the version pinned in a FreeEDR release is ever installed).</summary>
+public sealed record ToolSpec(string Name, string Repo, string Tag, string AssetPattern, string Exe, string Sha256, string VersionArgs, string VersionLinePattern, string Publisher = "")
+{
+    public bool Updatable => Publisher.Length > 0;
+}
 
 /// <summary>
 /// Downloads, verifies and updates the external tools (Hayabusa, YARA, OSV-Scanner, Velociraptor).
-/// Install: the pinned version, SHA256 checked. Update (one click in the dashboard): the latest GitHub release, checked
-/// against the SHA256 digest GitHub publishes for the asset, swapped in with roll-back when the new copy does not run.
+/// Install: the pinned version, SHA256 checked. Update (one click in the dashboard): only for a tool whose releases are
+/// Authenticode-signed by a pinned publisher (<see cref="ToolSpec.Publisher"/>). The latest GitHub release must match the
+/// SHA256 digest GitHub publishes (a transfer check) AND carry a valid signature of that publisher (an origin check:
+/// GitHub computes its digest from whatever was uploaded, so on its own it proves nothing about who built the file).
+/// Unsigned tools change only with a FreeEDR release (a new pin). Version queries run in the <see cref="Native.Sandbox"/>,
+/// and a new copy is checked before it replaces the old one.
 /// </summary>
 public sealed partial class Tools(EdrPaths paths, Action<string>? log = null)
 {
@@ -23,7 +32,7 @@ public sealed partial class Tools(EdrPaths paths, Action<string>? log = null)
         new("Hayabusa", "Yamato-Security/hayabusa", "v4.3.1", @"-win-x64\.zip$", @"hayabusa\hayabusa.exe", "411CE8749115C85B359ADE15B9824B38650B06274DC816D1D4B9035859C8C573", "help", ""),
         new("YARA", "VirusTotal/yara", "v4.6.0", @"win64\.zip$", "yara64.exe", "6B4897B945F408080645EC06E2D2540F067A57A68D5E5830781CDC1D88FC41E2", "-v", ""),
         new("OSV-Scanner", "google/osv-scanner", "v2.7.0", @"windows_amd64\.exe$", "osv-scanner.exe", "9964ED64EC9A387391EB4CC006AD5C531154821AEF29B793E02C448DE4686438", "--version", ""),
-        new("Velociraptor", "Velocidex/velociraptor", "v0.77.3", @"windows-amd64\.exe(\.gz)?$", "velociraptor.exe", "3D20A5A2D272E3EB2BCCAE4A80EBE469FC1A6F63EB4A8F8A586DBAE356437D32", "version", "^version:"),
+        new("Velociraptor", "Velocidex/velociraptor", "v0.77.3", @"windows-amd64\.exe(\.gz)?$", "velociraptor.exe", "3D20A5A2D272E3EB2BCCAE4A80EBE469FC1A6F63EB4A8F8A586DBAE356437D32", "version", "^version:", Publisher: "Rapid7 LLC"),
     ];
 
     public static ToolSpec? Spec(string name) => Pinned.FirstOrDefault(t => Ps.Eq(t.Name, name));
@@ -42,12 +51,18 @@ public sealed partial class Tools(EdrPaths paths, Action<string>? log = null)
 
     public string ExePath(ToolSpec t) => Path.Combine(paths.BinDir, t.Exe);
 
-    /// <summary>Version reported by the installed tool ("4.3.1"), or null.</summary>
-    public string? InstalledVersion(ToolSpec t)
+    /// <summary>Version reported by the installed tool ("4.3.1"), or null. The tool runs in the sandbox (low integrity, no
+    /// privileges), never with the caller's administrator or SYSTEM rights.</summary>
+    public string? InstalledVersion(ToolSpec t) => VersionOfExe(t, ExePath(t));
+
+    private static string? VersionOfExe(ToolSpec t, string exe)
     {
-        var exe = ExePath(t);
         if (!File.Exists(exe)) return null;
-        var (_, output) = RunCapture(exe, t.VersionArgs.Split(' '), Path.GetDirectoryName(exe)!, 30);
+        var run = Native.Sandbox.RunCapture(exe, t.VersionArgs.Split(' '), timeoutSeconds: 30, memoryMb: 1024, workDir: Path.GetDirectoryName(exe)!);
+        // A tool whose manifest demands elevation (Velociraptor: error 740) cannot start with a restricted token: its
+        // version resource is read instead; it is never run with the caller's rights just to ask its version
+        if (!run.Started) return VersionOf(FileVersionInfo.GetVersionInfo(exe).ProductVersion);
+        var output = run.Output;
         var lines = output.Split('\n');
         var line = t.VersionLinePattern.Length > 0 ? lines.FirstOrDefault(l => Ps.Match(l, t.VersionLinePattern)) : lines.FirstOrDefault(l => l.Trim().Length > 0);
         return VersionOf(line ?? output);
@@ -109,11 +124,14 @@ public sealed partial class Tools(EdrPaths paths, Action<string>? log = null)
     }
 
     /// <summary>
-    /// Updates a tool to the latest release. The asset must carry a SHA256 digest from GitHub and must match it; the
-    /// new copy must run (version query) or the old one is put back. Returns a one-line result.
+    /// Updates a tool to the latest release: only a tool with a pinned publisher. The asset must carry GitHub's SHA256
+    /// digest and match it, the executable must be Authenticode-signed (valid chain) by that publisher, and it must run
+    /// (version query in the sandbox) before it replaces the installed copy. Returns a one-line result.
     /// </summary>
     public async Task<(bool Ok, string Message)> UpdateToLatest(ToolSpec t, CancellationToken ct = default)
     {
+        if (!t.Updatable)
+            return (false, $"{t.Name}: its releases are not digitally signed by their publisher, so FreeEDR does not install them from GitHub. A checked version comes with the next FreeEDR update.");
         var rel = await LatestRelease(t.Repo, null, ct);
         if (rel is null) return (false, $"{t.Name}: GitHub is not reachable");
         var asset = rel.Value.Assets.FirstOrDefault(a => Ps.Match(a.Name, t.AssetPattern) && !Ps.Match(a.Name, "live-response|debug|msi"));
@@ -124,20 +142,55 @@ public sealed partial class Tools(EdrPaths paths, Action<string>? log = null)
             return (true, $"{t.Name} {current} is already the latest version");
 
         var target = ExePath(t);
+        var candidate = Path.Combine(paths.DownloadDir, $"{t.Name}-candidate.exe");
         var backup = target + ".old";
         try
         {
+            await FetchExe(t, asset.Name, asset.Url, candidate, asset.Sha256, ct);
+            var signer = PublisherOf(candidate);
+            if (!Ps.Eq(signer, t.Publisher))
+                throw new InvalidDataException(signer is null
+                    ? $"{t.Name} {rel.Value.Tag} is not validly signed; a signature of {t.Publisher} is required"
+                    : $"{t.Name} {rel.Value.Tag} is signed by '{signer}', not by {t.Publisher}");
+            if (VersionOfExe(t, candidate) is null) throw new IOException("the new version does not run");
             if (File.Exists(target)) File.Move(target, backup, true);
-            await InstallAsset(t, asset.Name, asset.Url, expectedExeSha: null, expectedAssetSha: asset.Sha256, ct);
-            if (InstalledVersion(t) is null) throw new IOException("the new version does not run");
+            File.Move(candidate, target, true);
+            if (InstalledVersion(t) is null) throw new IOException("the new version does not run from the install folder");
             JsonFile.TryDelete(backup);
-            return (true, $"{t.Name} updated to {rel.Value.Tag} (SHA256 verified against GitHub's digest)");
+            return (true, $"{t.Name} updated to {rel.Value.Tag} (signed by {t.Publisher}; SHA256 matches GitHub's digest)");
         }
         catch (Exception e) when (e is IOException or HttpRequestException or UnauthorizedAccessException or InvalidDataException or TaskCanceledException)
         {
             if (File.Exists(backup)) { JsonFile.TryDelete(target); File.Move(backup, target, true); }
             return (false, $"{t.Name} update failed, kept the installed version: {e.Message}");
         }
+        finally { JsonFile.TryDelete(candidate); }
+    }
+
+    /// <summary>Authenticode publisher of a file with a valid signature (null when unsigned or invalid). Replaced only by tests.</summary>
+    internal static Func<string, string?> PublisherOf { get; set; } = f => new Native.AuthenticodeSigners().SignerOf(f);
+
+    /// <summary>Downloads one release asset (an .exe or .exe.gz) to <paramref name="file"/>, checking GitHub's SHA256 digest.</summary>
+    private async Task FetchExe(ToolSpec t, string assetName, string url, string file, string expectedAssetSha, CancellationToken ct)
+    {
+        Directory.CreateDirectory(paths.DownloadDir);
+        var dl = Path.Combine(paths.DownloadDir, Path.GetFileName(assetName));
+        try
+        {
+            Log($"Downloading {t.Name}: {assetName}");
+            await Download(url, dl, ct);
+            if (Sha256Of(dl) != expectedAssetSha) throw new InvalidDataException($"{t.Name}: download does not match GitHub's SHA256 digest");
+            if (dl.EndsWith(".gz", StringComparison.OrdinalIgnoreCase))
+            {
+                await using var input = File.OpenRead(dl);
+                await using var gz = new GZipStream(input, CompressionMode.Decompress);
+                await using var output = File.Create(file);
+                await gz.CopyToAsync(output, ct);
+            }
+            else if (dl.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) File.Copy(dl, file, true);
+            else throw new InvalidDataException($"{t.Name}: {assetName} is not an .exe or .exe.gz");
+        }
+        finally { JsonFile.TryDelete(dl); }
     }
 
     private async Task InstallAsset(ToolSpec t, string assetName, string url, string? expectedExeSha, string? expectedAssetSha, CancellationToken ct)
@@ -186,7 +239,19 @@ public sealed partial class Tools(EdrPaths paths, Action<string>? log = null)
         finally { JsonFile.TryDelete(dl); }
     }
 
-    private static void CopyTree(string from, string to)
+    /// <summary>Deletes a folder tree, read-only files included (a git checkout has them); nothing when it is missing.
+    /// Links inside are removed, never followed.</summary>
+    public static void DeleteTree(string dir)
+    {
+        var d = new DirectoryInfo(dir);
+        if (!d.Exists) return;
+        if ((d.Attributes & FileAttributes.ReparsePoint) == 0)
+            foreach (var f in d.EnumerateFileSystemInfos("*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = true }))
+                if ((f.Attributes & FileAttributes.ReadOnly) != 0) f.Attributes &= ~FileAttributes.ReadOnly;
+        d.Delete(true);
+    }
+
+    public static void CopyTree(string from, string to)
     {
         foreach (var d in Directory.GetDirectories(from, "*", SearchOption.AllDirectories)) Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(from, d)));
         Directory.CreateDirectory(to);

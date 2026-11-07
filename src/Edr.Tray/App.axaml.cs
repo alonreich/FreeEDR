@@ -22,6 +22,8 @@ public partial class App : Application
     private DispatcherTimer? _timer;
     private bool _exiting;
     private bool _inTick;
+    private bool _tickAgain;   // a refresh was requested while one was running
+    private readonly CancellationTokenSource _pipeStop = new();
     private string _menuKey = "";
 
     public static App? Instance { get; private set; }
@@ -43,17 +45,22 @@ public partial class App : Application
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;   // the tray lives on with the dashboard closed
             var state = new TrayState(_context.Paths);
             _c = new Controller(state);
+            ApplyTheme(_c.Prefs.Theme);
+            ActualThemeVariantChanged += (_, _) => { Palette.Apply(ActualThemeVariant == Avalonia.Styling.ThemeVariant.Light); _window?.RefreshAll(); };
             var icon = Path.Combine(_context.Paths.LocalDir, "freeedr.png");
             ShieldIcon.SavePng(ShieldState.Protected, 128, icon);
             _c.Notifier = new Notifier(state, _c.Prefs, args => Dispatcher.UIThread.Post(() => _ = _c.Activated(args, ShowDashboard)));
             _c.Notifier.Register(icon);
             _c.Changed = () => _window?.RefreshAll();
+            _c.RefreshRequested = () => Dispatcher.UIThread.Post(Tick);
             _tray = new TrayIcon { Icon = ShieldIcon.Create(ShieldState.Protected), ToolTipText = "FreeEDR", IsVisible = true };
             _tray.Clicked += (_, _) => ShowDashboard("home", null);
             TrayIcon.SetIcons(this, [_tray]);
             _context.Instance.Listen(onShow: () => Dispatcher.UIThread.Post(() => ShowDashboard(null, null)), onExit: () => Dispatcher.UIThread.Post(Exit));
             Tick();
-            _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            // The engine pushes "changed" over its pipe, so the dashboard updates at once; the timer is only the safety net
+            _ = EnginePipe.SubscribeAsync(() => Dispatcher.UIThread.Post(Tick), null, _pipeStop.Token);
+            _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             _timer.Tick += (_, _) => Tick();
             _timer.Start();
             if (_context.Options.ToastTitle is { Length: > 0 } tt) _c.Notifier.Show(tt, _context.Options.ToastText ?? "", "page|home", [("Open FreeEDR", "page|home")]);
@@ -64,13 +71,19 @@ public partial class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
-    private void Tick()
+    /// <summary>Every 2 s (and after a change): files are read and the model is built on a worker thread
+    /// (<see cref="Services.TrayState.RefreshAsync"/>); only the cheap updates of notifications, tray icon and the
+    /// visible page run here on the UI thread.</summary>
+    private async void Tick()
     {
-        if (_inTick || _c is null) return;
+        if (_c is null) return;
+        if (_inTick) { _tickAgain = true; return; }
         _inTick = true;
+        _tickAgain = false;
         try
         {
-            var rebuilt = _c.State.Refresh();
+            var rebuilt = await _c.State.RefreshAsync();   // resumes on the UI thread
+            if (_exiting) return;
             foreach (var e in _c.State.NewEvents) _c.Notifier?.Consider(e);
             _c.Notifier?.Tick();
             _c.Winget.Tick();
@@ -79,7 +92,11 @@ public partial class App : Application
             if (rebuilt && _window is { IsVisible: true }) _window.RefreshAll();
         }
         catch (Exception e) { _context?.Log.Write($"Tick failed: {e.GetType().Name}: {e.Message}"); }
-        finally { _inTick = false; }
+        finally
+        {
+            _inTick = false;
+            if (_tickAgain && !_exiting) Dispatcher.UIThread.Post(Tick);
+        }
     }
 
     /// <summary>The learning-week wrap-up (once, after 7 days) and the weekly summary notification (every 7 days).</summary>
@@ -133,7 +150,7 @@ public partial class App : Application
         }
         menu.Items.Add(Item("Settings", () => ShowDashboard("settings", null)));
         menu.Items.Add(new NativeMenuItemSeparator());
-        menu.Items.Add(Item("Hide the tray icon (protection keeps running)", Exit));
+        menu.Items.Add(Item("Hide the tray icon (protection keeps running)", () => _ = ExitAsked()));
         _tray.Menu = menu;
     }
 
@@ -157,9 +174,9 @@ public partial class App : Application
                 e.Cancel = true;   // closing the dashboard only hides it
                 _window.Hide();
             };
-            _c.Snack = (text, error) => Dispatcher.UIThread.Post(() =>
+            _c.Snack = (text, error, label, action) => Dispatcher.UIThread.Post(() =>
             {
-                if (_window is { IsVisible: true }) _window.Snack(text, error);
+                if (_window is { IsVisible: true }) _window.Snack(text, error, label, action);
                 else _c.Notifier?.Show(error ? "FreeEDR: not done" : "FreeEDR", text, "page|home", []);
             });
         }
@@ -170,19 +187,50 @@ public partial class App : Application
         if (page is not null || select is not null) _window.Navigate(page ?? "home", select);
     }
 
+    /// <summary>"dark", "light" or "system" (Settings ▸ Appearance): the XAML styles follow through their dynamic
+    /// resources, the code-built views through <see cref="Palette"/>; a change applies at once.</summary>
+    public void ApplyTheme(string theme)
+    {
+        RequestedThemeVariant = theme switch
+        {
+            "light" => Avalonia.Styling.ThemeVariant.Light,
+            "system" => Avalonia.Styling.ThemeVariant.Default,
+            _ => Avalonia.Styling.ThemeVariant.Dark,
+        };
+        Palette.Apply(ActualThemeVariant == Avalonia.Styling.ThemeVariant.Light);
+        _window?.RefreshAll();
+    }
+
+    private WelcomeWindow? _welcome;
+
+    /// <summary>The welcome tour: one window at a time (a second request brings it to the front), in front of the
+    /// dashboard and modal to it when the dashboard is open; afterwards the dashboard shows the page it showed before.</summary>
     public async void ShowWelcome()
     {
         if (_c is null) return;
-        var w = new WelcomeWindow(_c.State.IsProfileOn, _c.Prefs.NotifyLevel);
-        var tcs = new TaskCompletionSource();
-        w.Closed += (_, _) => tcs.TrySetResult();
-        w.Show();
-        await tcs.Task;
+        if (_welcome is { } open) { open.Activate(); return; }
+        var w = _welcome = new WelcomeWindow(_c.State.IsProfileOn, _c.Prefs.NotifyLevel);
+        var back = _window is { IsVisible: true } dash ? dash.CurrentPage : null;
+        try
+        {
+            if (_window is { IsVisible: true } owner) await w.ShowDialog(owner);
+            else
+            {
+                var tcs = new TaskCompletionSource();
+                w.Closed += (_, _) => tcs.TrySetResult();
+                w.Show();
+                w.Activate();
+                await tcs.Task;
+            }
+        }
+        finally { _welcome = null; }
+        // Skipped (button or the window's X): the tour does not come back at every sign-in; the current choices stay
+        if (w.Skipped) { _c.Prefs.WelcomeDone = true; return; }
         if (!w.Finished) return;
         _c.Prefs.NotifyLevel = w.NotifyLevel;
         _c.Prefs.WelcomeDone = true;
         if (w.ProfileChoice.Any(kv => kv.Value != _c.State.IsProfileOn(kv.Key))) await _c.SetProfiles(w.ProfileChoice);
-        ShowDashboard("home", null);
+        ShowDashboard(back ?? "home", null);
     }
 
     /// <summary>--screenshot &lt;folder&gt;: renders every page (and the welcome) to PNG, then exits. Development only.</summary>
@@ -202,7 +250,17 @@ public partial class App : Application
             _window.Navigate(page, pick);
             await Task.Delay(700);
             Render(_window, Path.Combine(dir, page + ".png"));
+            if (page == "settings") _window.RenderSettings(Path.Combine(dir, "settings-full.png"));
         }
+        // The smallest window the dashboard allows: the list keeps room for its titles, Home's buttons stay on screen
+        _window.Width = _window.MinWidth; _window.Height = _window.MinHeight;
+        foreach (var page in new[] { "home", "activity", "network" })
+        {
+            _window.Navigate(page, page == "activity" ? _c!.State.Model?.Sec["malware"].Rows[0].FirstOrDefault()?.Ev?.S("id") : null);
+            await Task.Delay(700);
+            Render(_window, Path.Combine(dir, page + "-min.png"));
+        }
+        _window.Width = 1360; _window.Height = 880;
         _window.ExerciseAllViews();
         await Task.Delay(300);
         var w = new WelcomeWindow(_c!.State.IsProfileOn, "important");
@@ -221,11 +279,27 @@ public partial class App : Application
         bmp.Save(file, Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
     }
 
+    /// <summary>The user hides the tray: unsaved Settings changes are offered for saving first (an exit the installer
+    /// asks for cannot wait for an answer).</summary>
+    private async Task ExitAsked()
+    {
+        if (_window is { SettingsUnsaved: true } w)
+        {
+            ShowDashboard("settings", null);
+            var choice = await Dialogs.Choose("Unsaved settings", "Your changes on the Settings page are not saved yet. Save them before FreeEDR's dashboard closes?",
+                                              ["Save and close", "Close without saving", "Cancel"]);
+            if (choice is 2 or -1) return;
+            if (choice == 0 && !await w.SaveSettingsNow()) return;   // not saved (declined, refused): stay open
+        }
+        Exit();
+    }
+
     private void Exit()
     {
         if (_exiting) return;
         _exiting = true;
         _timer?.Stop();
+        _pipeStop.Cancel();
         if (_tray is not null) _tray.IsVisible = false;
         _window?.Close();
         (ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();

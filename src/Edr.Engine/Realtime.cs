@@ -102,35 +102,97 @@ internal sealed class Realtime : IDisposable
     {
         foreach (var job in _yaraQueue.GetConsumingEnumerable(_stop.Token).AsEnumerableSafe())
         {
-            var blade = job.Blade; var sev = job.Severity; var title = job.Title;
+            var blade = job.Blade; var sev = job.Severity; var title = job.Title; var detail = job.Detail;
             try
             {
-                var hit = ScanFile(job.Image);
-                if (hit is not null) { blade = "yara"; sev = "Critical"; title = $"YARA match: {hit}"; job.Extra["yaraRule"] = hit; }
+                var r = ScanFile(job.Image);
+                if (r.Hit is not null) { blade = "yara"; sev = "Critical"; title = $"YARA match: {r.Hit}"; job.Extra["yaraRule"] = r.Hit; }
+                else if (r.NotScanned is not null) NotScanned(job, r.NotScanned, ref detail);
             }
-            catch (Exception e) { _ctx.Log.Warn($"YARA scan failed: {e.Message}"); }
-            _ctx.Event(blade, sev, title, job.Image, job.Detail, job.Extra);
+            catch (Exception e)
+            {
+                _ctx.Log.Warn($"YARA scan failed: {e.Message}");
+                NotScanned(job, $"the scan failed ({e.GetType().Name})", ref detail);
+            }
+            _ctx.Event(blade, sev, title, job.Image, detail, job.Extra);
         }
     }
 
-    private string? ScanFile(string image)
+    private long _yaraNotScanned, _yaraNotScannedReported;
+    private DateTime _yaraNotScannedAlert = DateTime.MinValue;
+
+    /// <summary>Files YARA could not check (unreadable, too large, timed out, sandbox down) since the engine started.</summary>
+    public long YaraNotScanned => Interlocked.Read(ref _yaraNotScanned);
+
+    /// <summary>A file YARA could not check is never reported or cached as clean: the alert says so, and it is counted.</summary>
+    private void NotScanned(YaraJob job, string why, ref string detail)
+    {
+        job.Extra["yaraNotScanned"] = why;
+        detail = (detail.Length > 0 ? detail + "\n" : "") + $"YARA could not check this file: {why}.";
+        Interlocked.Increment(ref _yaraNotScanned);
+    }
+
+    /// <summary>Every minute (main loop): at most once an hour, one health alert for the files YARA could not check.</summary>
+    public void ReportYaraNotScanned()
+    {
+        var n = YaraNotScanned;
+        if (n == _yaraNotScannedReported || DateTime.Now - _yaraNotScannedAlert < TimeSpan.FromHours(1)) return;
+        var count = n - _yaraNotScannedReported;
+        _yaraNotScannedReported = n;
+        _yaraNotScannedAlert = DateTime.Now;
+        _ctx.Event("system", "Medium", $"YARA could not check {count} file{(count == 1 ? "" : "s")}",
+                   detail: "The program behind these alerts was not scanned by YARA (unreadable, larger than 50 MB, a scan that timed out, or the sandbox could not start). " +
+                           "Each alert says why. Scan such a file with Microsoft Defender.",
+                   extra: new() { ["kind"] = "health", ["count"] = count });
+    }
+
+    private bool _sandboxWarned;
+    public const long YaraMaxBytes = 50L * 1024 * 1024;
+
+    internal readonly record struct YaraResult(string? Hit, string? NotScanned);
+
+    /// <summary>
+    /// One file: Hit = the first matching rule; NotScanned = why it could not be checked (never treated as clean).
+    /// Results are cached by <see cref="Win32.FileChangeStamp"/> (volume + file index + change-journal number), which the
+    /// file's owner cannot set back the way they can a timestamp; without a stamp the file is scanned every time.
+    /// </summary>
+    internal YaraResult ScanFile(string image)
     {
         var fi = new FileInfo(image);
-        if (!fi.Exists || fi.Length > 50L * 1024 * 1024) return null;
-        var key = $"{image}|{fi.LastWriteTimeUtc.Ticks}";
-        if (_yaraCache.TryGetValue(key, out var cached)) return cached;
+        if (!fi.Exists) return new(null, "the file no longer exists");
+        if (fi.Length > YaraMaxBytes) return new(null, "larger than 50 MB");
+        var key = Win32.FileChangeStamp(image);
+        if (key is not null && _yaraCache.TryGetValue(key, out var cached)) return new(cached, null);
         string[] args = File.Exists(_ctx.Paths.CompiledYara) ? ["-C", _ctx.Paths.CompiledYara, image] : [.. _yaraRuleFiles, image];
-        string? hit = null;
-        if (File.Exists(_ctx.Paths.YaraExe) && args.Length > 1)
+        if (!File.Exists(_ctx.Paths.YaraExe) || args.Length <= 1) return new(null, "YARA or its rules are not installed");
+        // YARA parses files any user can drop: it runs at low integrity with no privileges, in a one-process job
+        var run = Sandbox.RunCapture(_ctx.Paths.YaraExe, args, timeoutSeconds: 60, memoryMb: 1024);
+        if (!run.Started)
         {
-            var (_, output) = Tools.RunCapture(_ctx.Paths.YaraExe, args, timeoutSeconds: 60);
-            var first = output.Split('\n').FirstOrDefault(l => l.Trim().Length > 0 && !l.StartsWith("error", StringComparison.OrdinalIgnoreCase) && !l.StartsWith("warning", StringComparison.OrdinalIgnoreCase));
-            hit = first?.Split(' ')[0].Trim();
-            if (string.IsNullOrEmpty(hit)) hit = null;
+            if (!_sandboxWarned) { _ctx.Log.Error($"YARA sandbox could not start, file not scanned: {run.Error}"); _sandboxWarned = true; }
+            return new(null, "the YARA sandbox could not start");   // never fall back to running the parser with the engine's SYSTEM rights
         }
-        if (_yaraCache.Count > 1000) _yaraCache.Clear();
-        _yaraCache[key] = hit;
-        return hit;
+        var r = ParseYaraOutput(run.Exit, run.Output, run.Error);
+        if (r.NotScanned is null && key is not null)
+        {
+            if (_yaraCache.Count > 1000) _yaraCache.Clear();
+            _yaraCache[key] = r.Hit;
+        }
+        return r;
+    }
+
+    /// <summary>yara64 output: "RuleName path" per match, "error ..." when it could not scan; a timeout or a non-zero exit
+    /// without a match is a failed scan, never a clean one.</summary>
+    internal static YaraResult ParseYaraOutput(int exit, string output, string error)
+    {
+        if (error.Length > 0) return new(null, error == "timeout" ? "the scan timed out" : error);
+        var lines = output.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+        var err = lines.FirstOrDefault(l => l.StartsWith("error", StringComparison.OrdinalIgnoreCase));
+        var hit = lines.FirstOrDefault(l => !l.StartsWith("error", StringComparison.OrdinalIgnoreCase) && !l.StartsWith("warning", StringComparison.OrdinalIgnoreCase))?.Split(' ')[0].Trim();
+        if (!string.IsNullOrEmpty(hit)) return new(hit, null);
+        if (err is not null) return new(null, err.Length > 200 ? err[..200] : err);
+        if (exit != 0) return new(null, $"YARA ended with exit code {exit}");
+        return new(null, null);
     }
 
     // ---- process chain ---------------------------------------------------------------------------------
@@ -243,8 +305,10 @@ internal sealed class Realtime : IDisposable
     }
 }
 
-/// <summary>Publisher lookups are slow, so they are cached per file identity; files in user-writable folders are always
-/// verified live (a user process could swap the file between lookups).</summary>
+/// <summary>Publisher lookups are slow, so they are cached per file change stamp (volume + file index + NTFS change-journal
+/// number, <see cref="Win32.FileChangeStamp"/>): any rewrite of the file gives a new key, even when its size and
+/// timestamps are put back. Files without a stamp (no change journal) and files in the usual user-writable folders are
+/// always verified live.</summary>
 internal sealed class SignerCache : ISignerLookup
 {
     private readonly Edr.Core.Native.AuthenticodeSigners _inner = new();
@@ -254,7 +318,7 @@ internal sealed class SignerCache : ISignerLookup
     {
         if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
         if (IsUserWritable(path)) return _inner.SignerOf(path);
-        var k = Win32.FileIdentity(path);
+        var k = Win32.FileChangeStamp(path);
         if (k is null) return _inner.SignerOf(path);
         lock (_cache)
         {

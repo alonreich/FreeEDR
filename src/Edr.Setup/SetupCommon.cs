@@ -5,11 +5,14 @@ using Microsoft.Win32;
 
 namespace Edr.Setup;
 
-/// <summary>Console + install.log output in the installer's "== step / OK / WARN" style.</summary>
+/// <summary>install.log in the installer's "== step / OK / WARN" style; every line is also raised as <see cref="Line"/>
+/// for the setup window (kind: S step, O ok, W warn, I info, E error, R result).</summary>
 internal sealed class SetupLog : IDisposable
 {
     private readonly StreamWriter? _file;
+    private readonly Lock _gate = new();
     public int Warnings { get; private set; }
+    public event Action<char, string>? Line;
 
     public SetupLog(string? path)
     {
@@ -22,21 +25,18 @@ internal sealed class SetupLog : IDisposable
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
-    private void Write(string text, ConsoleColor color)
+    private void Write(char kind, string text, string raw)
     {
-        var old = Console.ForegroundColor;
-        Console.ForegroundColor = color;
-        Console.WriteLine(text);
-        Console.ForegroundColor = old;
-        _file?.WriteLine($"{DateTime.Now:HH:mm:ss} {text}");
+        lock (_gate) _file?.WriteLine($"{DateTime.Now:HH:mm:ss} {text}");
+        Line?.Invoke(kind, raw);
     }
 
-    public void Step(string t) => Write($"\n== {t}", ConsoleColor.Cyan);
-    public void Ok(string t) => Write($"   OK   {t}", ConsoleColor.Green);
-    public void Warn(string t) { Warnings++; Write($"   WARN {t}", ConsoleColor.Yellow); }
-    public void Info(string t) => Write($"   {t}", ConsoleColor.Gray);
-    public void Error(string t) => Write($"\nERROR: {t}", ConsoleColor.Red);
-    public void Result(string label, string result, bool good) => Write($"\n{label}: {result}", good ? ConsoleColor.Green : ConsoleColor.Red);
+    public void Step(string t) => Write('S', $"\n== {t}", t);
+    public void Ok(string t) => Write('O', $"   OK   {t}", t);
+    public void Warn(string t) { Warnings++; Write('W', $"   WARN {t}", t); }
+    public void Info(string t) => Write('I', $"   {t}", t);
+    public void Error(string t) => Write('E', $"\nERROR: {t}", t);
+    public void Result(string label, string result, bool good) => Write('R', $"\n{label}: {result}", result);
 
     /// <summary>Lines from shared helpers ("OK ..." / "WARN ...").</summary>
     public void Note(string n)

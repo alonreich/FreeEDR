@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Edr.Core;
 
 namespace EdrBuild;
 
@@ -101,7 +102,8 @@ internal static class Program
             File.Copy(Path.Combine(root, f), to);
             n++;
         }
-        if (!Gates.Sign(Directory.GetFiles(Path.Combine(staging, "bin"), "*.exe", SearchOption.AllDirectories), log)) return false;
+        if (!Gates.Sign(Directory.GetFiles(Path.Combine(staging, "bin"), "FreeEDR-*.exe", SearchOption.AllDirectories), log)) return false;
+        if (!EmbedTools(root, staging, log)) return false;
         log.Success($"[Staging] {n} files -> {staging}");
 
         log.Banner("5. Building the installer (Inno Setup)...");
@@ -131,6 +133,78 @@ internal static class Program
             log.Success($"[Installer] {SetupName}  {new FileInfo(output).Length / 1024.0 / 1024.0:0.0} MB  SHA256 {Convert.ToHexString(SHA256.HashData(fs))}");
         Directory.Delete(staging, true);
         return true;
+    }
+
+    /// <summary>
+    /// The baseline ships inside Setup: the pinned tools (Hayabusa with its rules, YARA, OSV-Scanner, Velociraptor), each
+    /// checked against its pinned SHA256, plus a seed of the malware hash list. The installer then copies them instead of
+    /// downloading; afterwards only updates are downloaded (dashboard "Update tool", the scan's rule and IOC updates).
+    /// Downloads are cached in obj\tools-cache, so only the first build (or a new pin) needs the network.
+    /// Sysmon is not embedded: Microsoft's Sysinternals license does not allow redistributing it, so the installer still
+    /// downloads it from Microsoft (signature checked) when it is not installed yet.
+    /// </summary>
+    private static bool EmbedTools(string root, string staging, BuildLog log)
+    {
+        var cache = Path.Combine(root, "obj", "tools-cache");
+        var cachePaths = new EdrPaths(cache, Path.Combine(cache, "user"));
+        var tools = new Tools(cachePaths, s => log.Info("[Tools] " + s));
+        var bin = Path.Combine(staging, "bin");
+        var notices = new List<string>
+        {
+            "Third-party tools shipped with FreeEDR (unchanged release binaries, SHA256-checked against the pinned values):", "",
+        };
+        foreach (var t in Tools.Pinned)
+        {
+            try { tools.EnsurePinned(t).GetAwaiter().GetResult(); }
+            catch (Exception e) when (e is IOException or InvalidDataException or HttpRequestException)
+            {
+                log.Error($"[Tools] {t.Name} {t.Tag}: {e.Message} (needed once to fill obj\tools-cache)");
+                return false;
+            }
+            var exe = tools.ExePath(t);
+            if (!File.Exists(exe) || !string.Equals(Tools.Sha256Of(exe), t.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                log.Error($"[Tools] {t.Name}: {exe} does not match the pinned SHA256 - delete obj\tools-cache and build again");
+                return false;
+            }
+            if (t.Name == "Hayabusa") CopyTree(cachePaths.HayabusaDir, Path.Combine(bin, "hayabusa"));
+            else File.Copy(exe, Path.Combine(bin, Path.GetFileName(exe)), true);
+            if (t.Name == "YARA" && File.Exists(cachePaths.YaracExe)) File.Copy(cachePaths.YaracExe, Path.Combine(bin, "yarac64.exe"), true);
+            notices.Add($"{t.Name} {t.Tag}  https://github.com/{t.Repo}  ({License(t.Name)})");
+            log.Success($"[Tools] {t.Name} {t.Tag} embedded (SHA256 {t.Sha256[..12]}...)");
+        }
+        notices.AddRange(["", "Source code and license texts: the project pages above (each release includes its LICENSE).",
+                          "Microsoft Sysinternals Sysmon is not included; Setup downloads it from Microsoft."]);
+        File.WriteAllLines(Path.Combine(staging, "docs", "THIRD_PARTY_NOTICES.txt"), notices);
+
+        // Seed of the malware hash list (abuse.ch MalwareBazaar, CC0): used only when the PC has none yet
+        var seed = Path.Combine(cache, "ioc_sha256.txt");
+        try
+        {
+            if (!File.Exists(seed) || File.GetLastWriteTimeUtc(seed) < DateTime.UtcNow.AddDays(-1))
+                tools.Download(new EdrConfig().IocFeedUrl, seed).GetAwaiter().GetResult();
+        }
+        catch (Exception e) when (e is IOException or HttpRequestException or TaskCanceledException) { log.Warn($"[Tools] malware hash seed not refreshed: {e.Message}"); }
+        if (File.Exists(seed) && new FileInfo(seed).Length >= 1000)
+        {
+            Directory.CreateDirectory(Path.Combine(staging, "seed"));
+            File.Copy(seed, Path.Combine(staging, "seed", "ioc_sha256.txt"), true);
+            log.Success($"[Tools] malware hash seed embedded ({new FileInfo(seed).Length / 1024} KB, {File.GetLastWriteTime(seed):yyyy-MM-dd})");
+        }
+        else log.Warn("[Tools] no malware hash seed: the installer downloads it, the first scan retries");
+        return true;
+    }
+
+    private static string License(string tool) => tool switch
+    {
+        "Hayabusa" => "AGPL-3.0; detection rules: DRL 1.1 / Sigma", "YARA" => "BSD-3-Clause", "OSV-Scanner" => "Apache-2.0", "Velociraptor" => "AGPL-3.0", _ => "see project",
+    };
+
+    private static void CopyTree(string from, string to)
+    {
+        Directory.CreateDirectory(to);
+        foreach (var d in Directory.GetDirectories(from, "*", SearchOption.AllDirectories)) Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(from, d)));
+        foreach (var f in Directory.GetFiles(from, "*", SearchOption.AllDirectories)) File.Copy(f, Path.Combine(to, Path.GetRelativePath(from, f)), true);
     }
 
     /// <summary>.\compiled holds exactly one file: the installer. Anything else is removed and fails the build.</summary>

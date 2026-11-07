@@ -31,6 +31,28 @@ public sealed class EdrInputs
 
     public static Dictionary<string, List<Rec>> EmptyExclusions() => Catalog.ExclusionLists.ToDictionary(l => l.List, _ => new List<Rec>());
 
+    /// <summary>A copy of every collection (the records themselves are shared and never changed), so the tray can
+    /// build the model on a worker thread while the working inputs keep changing.</summary>
+    public EdrInputs Snapshot()
+    {
+        var x = new EdrInputs
+        {
+            Claude = Claude, Status = Status, Cve = Cve, ScanResult = ScanResult, PatchChecked = PatchChecked,
+            Exclusions = Exclusions.ToDictionary(kv => kv.Key, kv => kv.Value.ToList(), StringComparer.Ordinal),
+            Blocks = [.. Blocks], History = [.. History],
+        };
+        x.Events.AddRange(Events);
+        foreach (var (k, v) in EvictedCounts) x.EvictedCounts[k] = v;
+        foreach (var (k, v) in LastBans) x.LastBans[k] = v;
+        foreach (var (k, v) in EvictedPinned) x.EvictedPinned[k] = v;
+        x.Reviewed.UnionWith(Reviewed);
+        x.Ignored.AddRange(Ignored);
+        x.RuleNames.UnionWith(RuleNames);
+        x.BuiltIn.AddRange(BuiltIn);
+        x.PatchEvents.AddRange(PatchEvents);
+        return x;
+    }
+
     public void RecordEvicted(Rec e)
     {
         var b = e.S("blade");
