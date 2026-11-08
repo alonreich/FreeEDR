@@ -88,7 +88,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/CHANGELOG.md
           git diff --cached --quiet
-          if ($LASTEXITCODE) { git commit -m "Release $env:VERSION: changelog"; "PROMOTED=1" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV }
+          if ($LASTEXITCODE) { git commit -m "Release ${env:VERSION}: changelog"; "PROMOTED=1" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV }
           "TARGET=$(git rev-parse HEAD)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
       - name: Import the code-signing certificate (when configured)
