@@ -13,6 +13,12 @@ tag and "Unreleased" is empty):
 ## Unreleased
 
 ### What's new for you
+
+### Technical
+
+## 2026.11.8 - 2026-11-08
+
+### What's new for you
 - FreeEDR now tells you when a new version is out. Settings > FreeEDR updates shows your version and the latest one, checks quietly once a day (you can turn that off), and installs an update with one click after checking that the download is genuine. You can also skip a version or check by hand.
 - After an update, FreeEDR shows a short "What's new" once, so you know what changed.
 - If an update does not pass its checks, FreeEDR now puts back everything as it was: the programs, your settings, the detection rules, the tools and the version number Windows shows.
