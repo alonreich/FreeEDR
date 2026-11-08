@@ -27,6 +27,7 @@ public class PipeTests
     [Fact]
     public async Task A_pipe_created_by_a_normal_account_is_not_trusted()
     {
+        Assert.SkipWhen(TestAccount.Elevated, "elevated test session: its pipe is owned by Administrators, which the engine's owner rule trusts by design (run the tests unelevated to check a normal account)");
         var (s, _, _) = NewServer();
         try
         {
@@ -41,7 +42,7 @@ public class PipeTests
     {
         var me = WindowsIdentity.GetCurrent();
         var accept = EnginePipe.AcceptOwner;
-        EnginePipe.AcceptOwner = o => o == me.User;
+        EnginePipe.AcceptOwner = TestAccount.OwnsTestPipes(me);
         var (s, _, _) = NewServer();
         try
         {
@@ -70,7 +71,7 @@ public class PipeTests
     {
         var me = WindowsIdentity.GetCurrent();
         var accept = EnginePipe.AcceptOwner;
-        EnginePipe.AcceptOwner = o => o == me.User;
+        EnginePipe.AcceptOwner = TestAccount.OwnsTestPipes(me);
         var (s, ctx, _) = NewServer();
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         try
@@ -94,7 +95,7 @@ public class PipeTests
     {
         var me = WindowsIdentity.GetCurrent();
         var accept = EnginePipe.AcceptOwner;
-        EnginePipe.AcceptOwner = o => o == me.User;
+        EnginePipe.AcceptOwner = TestAccount.OwnsTestPipes(me);
         var (s, _, _) = NewServer();
         try
         {
@@ -117,7 +118,7 @@ public class PipeTests
     {
         var me = WindowsIdentity.GetCurrent();
         var accept = EnginePipe.AcceptOwner;
-        EnginePipe.AcceptOwner = o => o == me.User;
+        EnginePipe.AcceptOwner = TestAccount.OwnsTestPipes(me);
         var (s, _, _) = NewServer();
         try
         {
@@ -157,7 +158,7 @@ public class PipeTests
     {
         var me = WindowsIdentity.GetCurrent();
         var accept = EnginePipe.AcceptOwner;
-        EnginePipe.AcceptOwner = o => o == me.User;
+        EnginePipe.AcceptOwner = TestAccount.OwnsTestPipes(me);
         var (s, _, _) = NewServer();
         var ct = TestContext.Current.CancellationToken;
         var held = new List<System.IO.Pipes.NamedPipeClientStream>();
@@ -226,7 +227,8 @@ public class PipeTests
         var target = Path.Combine(dir, "out.txt");
         var r = Sandbox.RunCapture(Path.Combine(EdrPaths.System32, "cmd.exe"), ["/c", "type", "nul", ">", target], 30, workDir: dir, env: new Dictionary<string, string> { ["TEMP"] = dir }, ct: TestContext.Current.CancellationToken);
         Assert.True(r.Started, r.Error);
-        Assert.True(File.Exists(target), "the sandbox could not write its own work folder");
+        if (!File.Exists(target)) TestAccount.SkipIfSandboxCannotStartHere(Sandbox.RunCapture(Path.Combine(EdrPaths.System32, "whoami.exe"), ["/groups"], 30, ct: TestContext.Current.CancellationToken));
+        Assert.True(File.Exists(target), $"the sandbox could not write its own work folder (exit {r.Exit}{(r.Error.Length > 0 ? ", " + r.Error : "")})");
         Directory.Delete(dir, true);
     }
 

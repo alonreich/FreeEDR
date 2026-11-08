@@ -47,6 +47,7 @@ public class HardeningTests
         var whoami = Path.Combine(EdrPaths.System32, "whoami.exe");
         var r = Sandbox.RunCapture(whoami, ["/groups"], timeoutSeconds: 30, ct: TestContext.Current.CancellationToken);
         Assert.True(r.Started, r.Error);
+        TestAccount.SkipIfSandboxCannotStartHere(r);
         Assert.Contains("S-1-16-4096", r.Output);
     }
 

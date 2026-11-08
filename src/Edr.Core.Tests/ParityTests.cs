@@ -24,7 +24,14 @@ public class GoldenModelTests(ITestOutputHelper output)
         var expected = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "model.json")))!;
         var now = DateTime.ParseExact(expected["now"]!.GetValue<string>(), "yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
         var inputs = EdrInputs.Load(new EdrPaths(Path.Combine(dir, "inputs"), Path.Combine(dir, "inputs", "local")));
-        var model = new ModelBuilder(inputs, new Native.AuthenticodeSigners()).Build();
+        var record = Environment.GetEnvironmentVariable("FREEEDR_RECORD_SIGNERS") == "1";
+        var signers = new FixtureSigners(dir, record);
+        var model = new ModelBuilder(inputs, signers).Build();
+        if (record)
+        {
+            var src = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Fixtures", fixture));
+            if (Directory.Exists(src)) signers.Save(src);
+        }
         var overall = ModelBuilder.GetOverall(model, inputs.Status, now);
         var actual = ModelDump.ToJson(model, overall, now);
         foreach (var line in ModelDump.Summary(model, overall)) output.WriteLine(line);

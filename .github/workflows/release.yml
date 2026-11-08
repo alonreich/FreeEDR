@@ -113,7 +113,11 @@ jobs:
         shell: cmd
         run: call build.cmd --skip-live
 
-      - name: Test bundle (01-Sanity, 02-Unit, 03-FalsePositive, 04-PenTest); only the live checks may be skipped
+      - name: Test bundle (01-Sanity, 02-Unit, 03-FalsePositive, 04-PenTest); only known runner-related skips are allowed
+        env:
+          # Skips that only mean "this hosted runner is not a FreeEDR PC": live checks off, elevated session, no NTFS
+          # change journal, tool cache not filled yet. Any other skip stops the release.
+          ALLOWED_SKIPS: "SkipLive|elevated|change journal|tools-cache"
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\Run-Tests.ps1 -SkipLive
           $rc = $LASTEXITCODE
@@ -123,8 +127,9 @@ jobs:
           Get-Content tests/results/last-run.txt
           if ($rc) { throw "the test bundle has a FAIL: nothing is published" }
           $results = @($run.results)
-          $badSkips = @($results | Where-Object { $_.Result -eq 'SKIP' -and $_.Detail -notmatch 'SkipLive' })
-          if ($badSkips.Count) { throw "tests were skipped for a reason other than -SkipLive, so they did not check this release: $(($badSkips | ForEach-Object { "[$($_.Suite)] $($_.Name): $($_.Detail)" }) -join '; ')" }
+          foreach ($s in $results | Where-Object { $_.Result -eq 'SKIP' -and $_.Detail -match $env:ALLOWED_SKIPS }) { Write-Host "Allowed skip: [$($s.Suite)] $($s.Name): $($s.Detail)" }
+          $badSkips = @($results | Where-Object { $_.Result -eq 'SKIP' -and $_.Detail -notmatch $env:ALLOWED_SKIPS })
+          if ($badSkips.Count) { throw "tests were skipped for a reason that is not a known runner limitation, so they did not check this release: $(($badSkips | ForEach-Object { "[$($_.Suite)] $($_.Name): $($_.Detail)" }) -join '; ')" }
           foreach ($s in 'Sanity', 'Unit', 'FalsePositive', 'PenTest') {
             if (-not @($results | Where-Object { $_.Suite -eq $s -and $_.Result -eq 'PASS' }).Count) { throw "suite $s passed no test: nothing is published" }
           }

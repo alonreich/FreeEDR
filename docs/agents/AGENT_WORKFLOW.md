@@ -43,6 +43,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\Run-Tests.ps1
 Options of `Run-Tests.ps1`: `-Suite <pattern>`, `-SkipLive` (repository only), `-NoAttack`. Exit code 0 = no FAIL.
 Results: `tests\results\` (git-ignored: paths and user names). C# tests alone: `cd src; dotnet test --project Edr.Core.Tests -c Release`.
 After an intended change of the dashboard model, refresh the golden files: `FREEEDR_UPDATE_GOLDEN=1` and run the C# tests once.
+The golden tests never read real signatures: each fixture's `signers.json` holds the signers of its program paths, so the
+result is the same on any PC (and on the release runner). A new fixture or new paths: run the golden tests once with
+`FREEEDR_RECORD_SIGNERS=1` on a PC that has those programs, then check the recorded file.
+
+The tests run unelevated on a PC; the release workflow runs them elevated on a hosted runner. There the pipe tests accept
+the Administrators owner an elevated process gives its pipes (`TestAccount.OwnsTestPipes`), the "normal account" pipe
+test and the sandbox tests that cannot start a low-integrity child from an elevated non-SYSTEM session are skipped with
+the reason, and the release gate allows only skips whose reason is a known runner limitation (`ALLOWED_SKIPS`).
 
 Add tests with every feature (`src\Edr.Core.Tests`), and everyday / attack command lines to `tests\data\process-corpus.json`
 for detection changes (attack samples base64-encoded so antivirus does not flag the file).
