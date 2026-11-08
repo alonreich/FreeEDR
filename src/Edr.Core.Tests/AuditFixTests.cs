@@ -277,6 +277,7 @@ public class AuditFixTests
             if (File.Exists(Path.Combine(d.FullName, "project_structure.txt"))) { bin = Path.Combine(d.FullName, "obj", "tools-cache"); break; }
         Assert.SkipUnless(bin is not null && File.Exists(Path.Combine(bin, "bin", "yara64.exe")), "obj\\tools-cache not filled yet (dev_build.cmd fills it)");
         var tools = new Tools(new EdrPaths(bin));
+        TestAccount.SkipIfSandboxCannotStartHere(Native.Sandbox.RunCapture(Path.Combine(EdrPaths.System32, "whoami.exe"), ["/groups"], 30, ct: TestContext.Current.CancellationToken));
         foreach (var t in Tools.Pinned)
             if (File.Exists(tools.ExePath(t)))
                 Assert.Equal(Tools.VersionOf(t.Tag), tools.InstalledVersion(t));

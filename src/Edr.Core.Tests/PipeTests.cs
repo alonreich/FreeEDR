@@ -240,6 +240,7 @@ public class PipeTests
                           "obj\\tools-cache not filled yet (dev_build.cmd fills it)");
         var haya = Sandbox.RunCapture(Path.Combine(bin!, "hayabusa", "hayabusa.exe"), ["help"], 60, 1024, Path.Combine(bin!, "hayabusa"), ct: TestContext.Current.CancellationToken);
         Assert.True(haya.Started, haya.Error);
+        TestAccount.SkipIfSandboxCannotStartHere(haya);
         Assert.Contains("dfir-timeline", haya.Output);
         var osv = Sandbox.RunCapture(Path.Combine(bin!, "osv-scanner.exe"), ["--version"], 60, 1024, ct: TestContext.Current.CancellationToken);
         Assert.True(osv.Started, osv.Error);

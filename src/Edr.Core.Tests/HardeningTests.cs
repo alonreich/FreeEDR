@@ -59,6 +59,7 @@ public class HardeningTests
         var cmd = Path.Combine(EdrPaths.System32, "cmd.exe");
         var r = Sandbox.RunCapture(cmd, ["/c", "type", "nul", ">", target], timeoutSeconds: 30, workDir: dir, ct: TestContext.Current.CancellationToken);
         Assert.True(r.Started, r.Error);
+        TestAccount.SkipIfSandboxCannotStartHere(r);
         Assert.False(File.Exists(target), "a low-integrity process wrote into a medium-integrity folder");
         Directory.Delete(dir, true);
     }
