@@ -4,12 +4,9 @@ using Edr.Core;
 
 namespace Edr.Engine;
 
-/// <summary>data\state.json: pauses, scan bookkeeping and the "already reported" sets. Fail-closed: a state that could
-/// not be read is never written back empty over the damaged file. Thread-safe: the engine loop and the background
-/// scan both read pauses (an expired pause is cleared and saved on read), so every access holds one lock.</summary>
 internal sealed class EngineState(Context ctx)
 {
-    private readonly Lock _gate = new();   // re-entrant: IsPaused -> Active -> Save
+    private readonly Lock _gate = new();
     private JsonObject _s = new();
     private bool _corrupted;
 
@@ -68,7 +65,6 @@ internal sealed class EngineState(Context ctx)
 
     public string PausedUntil(string blade) { lock (_gate) return _s.Str(blade + "PausedUntil"); }
 
-    /// <summary>Is this part paused? An expired pause is cleared here and reported as "resumed automatically".</summary>
     public bool IsPaused(string blade)
     {
         lock (_gate)
@@ -94,7 +90,6 @@ internal sealed class EngineState(Context ctx)
     public string State(string blade) => IsPaused(blade) ? "paused" : "on";
 }
 
-/// <summary>config\exclusions.json: the allow lists (realtimePath, realtime, ioc, yara, sigma, wail2ban, cve, defender).</summary>
 internal sealed class ExclusionStore(Context ctx)
 {
     public static readonly string[] Lists = ["realtimePath", "realtime", "ioc", "yara", "sigma", "wail2ban", "cve", "defender"];
@@ -168,7 +163,6 @@ internal sealed class ExclusionStore(Context ctx)
         _stamp = t;
     }
 
-    /// <summary>Same entry already allowed (e.g. a profile switched on twice)? Tags an untagged twin with the profile.</summary>
     public bool Exists(string list, JsonObject f, string[] keys)
     {
         foreach (var x in this[list])
@@ -219,8 +213,6 @@ internal sealed class ExclusionStore(Context ctx)
     }
 }
 
-/// <summary>config\blocklist.json: what the user flagged as a threat, and permanent IP bans. Nothing here stops a
-/// program: FreeEDR only detects. A legacy quarantined file is restored when its entry is removed.</summary>
 internal sealed class Blocklist(Context ctx)
 {
     public List<JsonObject> Items { get; private set; } = [];

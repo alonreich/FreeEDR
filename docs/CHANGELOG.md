@@ -1,0 +1,41 @@
+# FreeEDR changelog
+
+Read for: every code change (add your entry under "Unreleased" in the same change) and every release (the release
+workflow turns "Unreleased" into the version's notes, which the GitHub release and the dashboard's "What's new" show).
+
+How to write an entry (agents and people alike; `build\EdrBuild` fails a build when code changed since the last release
+tag and "Unreleased" is empty):
+* **What's new for you**: one plain-English line per change a user can notice: what changed and why it matters to them.
+  No file names, class names or jargon. Leave out changes nobody can notice.
+* **Technical**: one line per meaningful technical change, with the files or areas, for engineers.
+* Never edit a released section; fix a mistake with a new entry. Do not add headings other than the two below.
+
+## Unreleased
+
+### What's new for you
+- FreeEDR now tells you when a new version is out. Settings > FreeEDR updates shows your version and the latest one, checks quietly once a day (you can turn that off), and installs an update with one click after checking that the download is genuine. You can also skip a version or check by hand.
+- After an update, FreeEDR shows a short "What's new" once, so you know what changed.
+- If an update does not pass its checks, FreeEDR now puts back everything as it was: the programs, your settings, the detection rules, the tools and the version number Windows shows.
+- Setup no longer installs an older FreeEDR over a newer one by accident: it asks first.
+- Removing FreeEDR can no longer lose the record of the Windows settings it has to put back. If something cannot be restored, the record is kept and Settings > Apps offers "FreeEDR (finish removal)" to try again.
+- A Velociraptor update you installed from the dashboard is no longer undone by the next FreeEDR update.
+- Settings > Apps now shows FreeEDR's real size on disk.
+- If an update stops with an error, the dashboard now always comes back by itself and tells you that your previous version was put back.
+- If the PC restarts in the middle of an update, FreeEDR notices next time, tells you, and offers to run Setup again: it finishes the update or puts your previous version back.
+- If you skipped a few versions, the update prompt and "What's new" now list what changed in every version since yours, not only the newest.
+- Updates from the dashboard are much smaller to download, and the downloaded installer is deleted once it is installed.
+- FreeEDR now checks the full identity of the publisher who signed an update, so an update signed by someone with a similar name is refused.
+- A version built at home no longer blocks the official update from being offered.
+
+### Technical
+- New `Edr.Core\AppRelease.cs`: `AppVersion` (parse / downgrade / release format), `Changelog` (sections, user part, promotion) and `AppRelease` (GitHub latest-release check of `alonreich/FreeEDR`, resumable download into `user\<SID>\update\` with disk-space check, stall timeout and three retries, SHA256 against GitHub's asset digest, signer must match the installed engine's signer). Tray: `Services\AppUpdater.cs`, Settings card, tray menu entry, one notification per version, "What's new" once per upgrade (`docs\CHANGELOG.md` is now installed).
+- `Installer.cs`: backup before `--clean`, backup and roll-back now cover `config\`, `rules\*.yar`, `docs\`, `version.txt`, README and the tools the upgrade replaces; downgrade refused without `--allow-downgrade`; `EstimatedSize` written to the Settings > Apps entry.
+- `Tools.KeepInstalled`: a tool is kept when it matches its pin, or (Velociraptor) when it is signed by the pinned publisher and not older than the pin; an unsigned tool that differs from its pin is now replaced by the pinned one on upgrade.
+- `FreeEDR-Setup.iss`: `InitializeSetup` downgrade check (`/AllowDowngrade=1` for silent installs); `DisplayVersion` re-synced from `version.txt` after a failed or rolled-back upgrade; uninstall runs the helper from `CurUninstallStepChanged` and deletes the folder only when it succeeded (exit 5 keeps the records and registers "FreeEDR (finish removal)"); `[UninstallDelete]` and the fixed `UninstallDisplaySize` removed.
+- `Uninstaller.cs`: when a restore step warns, `preinstall.json`, `managed.json`, the Sysmon backup and `bin\` are kept, exit code 5.
+- `build\EdrBuild`: version from `EDR_VERSION` or the `v<version>` tag (UTC time stamp otherwise, WARN), dev builds `0.yyMM.ddHH.mm` (never above a release), informational version `<version>+<commit>`; changelog gate; release builds must be signed (`EDR_ALLOW_UNSIGNED=1` to override) and must embed the malware hash seed (its SHA256 and date go into `THIRD_PARTY_NOTICES.txt`); `compiled\FreeEDR-Setup.exe.sha256`; `--promote-changelog`.
+- `.github\workflows\release.yml`: manual release (version input): changelog promotion, build, tests 01-04, draft release, asset download and SHA256 check, publish, then keep installers of the five newest releases only (older releases keep tags and notes).
+- Release audit 2026-11-08 (11 findings): `Installer.Run` restarts the trays in `finally` after any outcome once they were stopped, rolls back on any exception, writes `data\upgrade-pending.json` (backup, from/to, pid) and reuses its backup after an interrupted upgrade, deletes it on success / roll-back, purges installed downloads in every `user\<SID>\update\`; `Sys.StopFreeEdrProcesses` spares `user\*\update\` (`IsUpdateDownload`); `Tools.IsPackagedToolFile` shared by installer and build.
+- `AppRelease`: signer rule on the normalized certificate subject (`AuthenticodeSigners.SubjectOf`, `NormalizeSubject`, `TrustedSuccessorSubjects` for a planned certificate change); prefers the `FreeEDR-Update.exe` asset; `NotesSince` combines the notes of every release after the installed one (`releases?per_page=30`); `PurgeDownloads` / `PurgeInstalled`; `PendingUpgrade`; `Check(reinstall)` offers the installed version again after an interrupted update; 404 message names a private repository. Tray: interrupted-update card and notification, multi-version "What's new" (`Changelog.UserPartsBetween`, `Combine`).
+- `build\EdrBuild`: untagged release builds are `0.yyMM.ddHH.mm` "(local release build)" (`AppVersion.LocalNumber`), never above a release; changelog gate checks the Unreleased structure (`Changelog.Problems`), that released sections are unchanged since the last tag (`Changelog.ReleasedKept`) and that no code changed after the last changelog edit (uncommitted: WARN in dev builds, error in release builds; committed: error), before the first tag too; release builds also produce `compiled\FreeEDR-Update.exe` (+ `.sha256`) without bundled tools (`EDR_BUILD_UPDATE=1` in dev builds); `--promote-changelog` writes `Changelog.ReleaseBody` (user part first, technical part in `<details>`); `FreeEDR-Setup.iss` takes `OutputName`.
+- `release.yml`: `dry_run` input; leftover draft / staging branch removed first; release commit pushed to `release-staging/v<v>` and merged into the branch only after both assets are verified, before publishing; test gate fails on SKIPs not caused by `-SkipLive` and on suites without a PASS; `releases/latest` retried for 60 s; retention counts only releases with the workflow's marker; clean-up on failure or cancel removes the draft and staging branch and reverts a pushed changelog commit.

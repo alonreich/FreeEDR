@@ -3,11 +3,6 @@ using System.Text.Json.Nodes;
 
 namespace Edr.Core;
 
-/// <summary>
-/// One JSON record (event, exclusion, block, CVE item, ...) read the way ConvertFrom-Json exposes it to the
-/// PowerShell tray: case-insensitive property names, [string] casts and truthiness. Unknown fields are kept,
-/// so newer engine versions can add fields freely.
-/// </summary>
 public sealed class Rec(JsonObject obj)
 {
     public static readonly JsonNodeOptions NodeOptions = new() { PropertyNameCaseInsensitive = true };
@@ -15,23 +10,18 @@ public sealed class Rec(JsonObject obj)
 
     public JsonObject Obj { get; } = obj;
 
-    /// <summary>Per-record cache for derived values (e.g. the parsed Sigma program and parent).</summary>
     internal SigmaProcess? SigmaCache { get; set; }
 
     public JsonNode? this[string name] => Obj.TryGetPropertyValue(name, out var v) ? v : null;
 
-    /// <summary>[string]$rec.name</summary>
     public string S(string name) => Ps.Str(this[name]);
 
-    /// <summary>[bool]$rec.name (PowerShell truthiness)</summary>
     public bool T(string name) => Ps.Truthy(this[name]);
 
     public int I(string name) => Ps.ToInt(this[name]);
 
-    /// <summary>A nested object, e.g. $status.wail2ban</summary>
     public Rec? Child(string name) => this[name] is JsonObject o ? new Rec(o) : null;
 
-    /// <summary>@($rec.name) as strings, nulls dropped (e.g. ancestors, aliases)</summary>
     public IReadOnlyList<string> Strings(string name) => this[name] switch
     {
         null => [],
@@ -39,7 +29,6 @@ public sealed class Rec(JsonObject obj)
         var v => [Ps.Str(v)],
     };
 
-    /// <summary>@($rec.name) as records, non-objects dropped</summary>
     public IReadOnlyList<Rec> Recs(string name) => this[name] switch
     {
         JsonArray a => a.OfType<JsonObject>().Select(o => new Rec(o)).ToList(),
@@ -47,8 +36,6 @@ public sealed class Rec(JsonObject obj)
         _ => [],
     };
 
-    /// <summary>Parses and fully materializes the record: JsonNode builds its children lazily on first access, which is
-    /// not thread-safe, and the tray reads the same records on the UI thread and on its refresh worker.</summary>
     public static Rec? Parse(string json)
     {
         try { return JsonNode.Parse(json, NodeOptions, DocOptions) is JsonObject o ? new Rec(Materialize(o)) : null; }

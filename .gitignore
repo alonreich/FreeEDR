@@ -1,9 +1,7 @@
-# Build output (build\env.cmd keeps temp files, NuGet caches and the .NET CLI home in .\obj)
 obj/
 bin/
 build.log
 TestResults/
-# Test bundle output (paths, user names, live data)
 tests/results/
 *.user
 .vs/
@@ -11,5 +9,5 @@ tests/results/
 __pycache__/
 *.pyc
 
-# Build output: dev_build.cmd / build.cmd write the installer here (over GitHub's 100 MB file limit)
 compiled/*.exe
+compiled/*.sha256

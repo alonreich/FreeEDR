@@ -4,7 +4,6 @@ using Xunit;
 
 namespace Edr.Core.Tests;
 
-/// <summary>The single validation gate for allows and commands (elevated helper + engine).</summary>
 public class PatternRulesTests
 {
     [Theory]
@@ -101,7 +100,7 @@ public class IpTests
     public void Cidr_and_private_ranges()
     {
         Assert.True(Ip.InCidr("10.0.0.15", "10.0.0.0/24"));
-        Assert.False(Ip.InCidr("10.0.0.15", "10.0.0.1"));   // W1: exact, not a prefix match
+        Assert.False(Ip.InCidr("10.0.0.15", "10.0.0.1"));
         Assert.True(Ip.IsPrivate("192.168.1.1"));
         Assert.True(Ip.IsPrivate("100.64.0.1"));
         Assert.False(Ip.IsPrivate("8.8.8.8"));

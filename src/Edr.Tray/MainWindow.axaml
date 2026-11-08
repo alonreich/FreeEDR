@@ -5,5 +5,4 @@
         Width="1280" Height="820" MinWidth="980" MinHeight="620"
         WindowStartupLocation="CenterScreen"
         ExtendClientAreaToDecorationsHint="False">
-  <!-- The content (sidebar, pages, messages) is built in MainWindow.axaml.cs -->
 </Window>

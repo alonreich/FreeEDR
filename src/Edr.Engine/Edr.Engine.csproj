@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- FreeEDR-Engine.exe: the SYSTEM Windows service "FreeEDR" (detection, Wail2Ban, scans, health). NativeAOT, no runtime needed. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>Edr.Engine</RootNamespace>

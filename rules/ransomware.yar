@@ -1,7 +1,3 @@
-/*
-  EDR ransomware rules (replaces the old ransomware.yar, which contained "404: Not Found").
-  Applied by the engine to the executable behind every real-time alert. Programs under C:\Windows are skipped.
-*/
 
 rule EDR_Ransomware_Backup_Destruction
 {

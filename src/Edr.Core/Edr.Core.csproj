@@ -1,10 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- No UI: paths, models, file readers, the model builder and action building. Tested without a window. -->
   <PropertyGroup>
     <RootNamespace>Edr.Core</RootNamespace>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>   <!-- LibraryImport source-generated P/Invoke (Native\) -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="Edr.Core.Tests" />   <!-- EnginePipe test hooks (pipe name, accepted owner) -->
+    <InternalsVisibleTo Include="Edr.Core.Tests" />
   </ItemGroup>
 </Project>

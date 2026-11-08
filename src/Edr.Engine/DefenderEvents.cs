@@ -4,7 +4,6 @@ using Edr.Core.Native;
 
 namespace Edr.Engine;
 
-/// <summary>Microsoft Defender's own detections and attack-surface-reduction / Controlled folder access reports.</summary>
 internal sealed class DefenderEvents(Context ctx)
 {
     public JsonObject? Status { get; private set; }
@@ -23,7 +22,6 @@ internal sealed class DefenderEvents(Context ctx)
                 var sev = Ps.Match(sevName, "Severe") ? "Critical" : Ps.Match(sevName, "High") ? "High" : "Medium";
                 ctx.Event("defender", sev, $"Defender detected malware: {r["Threat Name"]}", proc, path,
                           new() { ["kind"] = "malware", ["threat"] = r["Threat Name"], ["threatId"] = threatId });
-                // Remembered so the Sigma scan does not report the same detection again
                 var seen = ctx.State.Seen("defSeen");
                 seen.Add($"{r["Threat Name"]}|{r.Time:yyyy-MM-dd HH:mm}");
                 ctx.State.SetSeen("defSeen", seen, 2000);
@@ -39,7 +37,7 @@ internal sealed class DefenderEvents(Context ctx)
             case 1123:
                 ctx.Event("defender", "Medium", "Controlled folder access blocked a write", proc, $"Tried to change: {path}", new() { ["kind"] = "cfa", ["path"] = path });
                 break;
-            case 1122:   // audit mode: what Defender would have blocked (Low: listed, never a notification)
+            case 1122:
             {
                 var id = r["ID"].ToLowerInvariant();
                 if (Defender.AlwaysAudit.Contains(id)) return;

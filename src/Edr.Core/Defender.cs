@@ -4,11 +4,6 @@ using Edr.Core.Native;
 
 namespace Edr.Core;
 
-/// <summary>
-/// Microsoft Defender settings FreeEDR manages. FreeEDR never makes Defender block more: attack-surface-reduction
-/// rules and Controlled folder access run in audit mode (reported, never blocked), and a setting that was stronger
-/// before the first install is never lowered. With defenderMode = "untouched" nothing is changed at all.
-/// </summary>
 [SupportedOSPlatform("windows")]
 public static class Defender
 {
@@ -22,7 +17,6 @@ public static class Defender
         "01443614-cd74-433a-b99e-2ecdc07bfc25", "d1e49aac-8f56-4280-b9ba-993a6d77406c",
     ];
 
-    /// <summary>Audit-only by design: they would report every new or self-built program, so their audit events are not listed.</summary>
     public static readonly string[] AlwaysAudit = ["01443614-cd74-433a-b99e-2ecdc07bfc25", "d1e49aac-8f56-4280-b9ba-993a6d77406c"];
 
     public static readonly Dictionary<string, string> AsrNames = new(StringComparer.OrdinalIgnoreCase)
@@ -50,7 +44,6 @@ public static class Defender
     private static readonly Dictionary<int, string> CfaName = new() { [0] = "Disabled", [1] = "Enabled", [2] = "AuditMode", [3] = "BlockDiskModificationOnly", [4] = "AuditDiskModificationOnly" };
     private static readonly Dictionary<int, int> CfaRank = new() { [0] = 0, [2] = 1, [4] = 1, [3] = 2, [1] = 3 };
 
-    /// <summary>Games allowed through Controlled folder access (Epic / Fortnite / Easy Anti-Cheat).</summary>
     public static IEnumerable<string> GameExes()
     {
         var pf = EdrPaths.ProgramFiles;
@@ -59,7 +52,6 @@ public static class Defender
             .SelectMany(PathGlob.Expand).Where(File.Exists);
     }
 
-    /// <summary>Current preferences: asr [{id, action}], cfa, cfaApps, asrExclusions, threatIds. Null when Defender cannot be read.</summary>
     public static JsonObject? ReadPreferences()
     {
         var r = PowerShellRunner.Run("""
@@ -74,7 +66,6 @@ public static class Defender
         return r.ExitCode == 0 ? JsonFile.Parse(r.Output.Trim()) as JsonObject : null;
     }
 
-    /// <summary>Status for the dashboard (status.json "defender").</summary>
     public static JsonObject? Status()
     {
         var r = PowerShellRunner.Run("""
@@ -88,7 +79,6 @@ public static class Defender
         return r.ExitCode == 0 ? JsonFile.Parse(r.Output.Trim()) as JsonObject : null;
     }
 
-    /// <summary>ASR rules + Controlled folder access in audit mode, never below what <paramref name="baseline"/> recorded.</summary>
     public static List<string> ApplyAudit(JsonObject? baseline, IEnumerable<string> gameExes)
     {
         var notes = new List<string>();
@@ -133,7 +123,6 @@ public static class Defender
         return notes;
     }
 
-    /// <summary>Puts ASR rules, Controlled folder access and FreeEDR's allows back as the baseline recorded (Windows defaults otherwise).</summary>
     public static List<string> Restore(JsonObject? baseline, JsonObject? managed, IEnumerable<JsonObject> dashboardAllows)
     {
         var notes = new List<string>();
@@ -198,7 +187,6 @@ public static class Defender
         return notes;
     }
 
-    /// <summary>Adds one Defender allow made from the dashboard (kind cfa | threat | asr).</summary>
     public static (bool Ok, string Error) AddAllow(string kind, string path) => Allow("Add", kind, path);
 
     public static (bool Ok, string Error) RemoveAllow(string kind, string path) => Allow("Remove", kind, path);

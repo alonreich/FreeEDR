@@ -5,10 +5,8 @@ using Avalonia.Media.Imaging;
 
 namespace Edr.Tray;
 
-/// <summary>Shield states: protected (green check), attention (amber !), paused (grey pause), broken (red X).</summary>
 public enum ShieldState { Protected, Attention, Paused, Broken }
 
-/// <summary>Draws the shield at runtime (no image files to ship): a soft gradient shield with a white glyph.</summary>
 public static class ShieldIcon
 {
     private static readonly Geometry Shield = Geometry.Parse("M16,1.5 L28.5,6 L28.5,15 C28.5,22.8 23,28 16,30.5 C9,28 3.5,22.8 3.5,15 L3.5,6 Z");

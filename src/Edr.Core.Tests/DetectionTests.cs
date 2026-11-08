@@ -6,7 +6,6 @@ using Xunit;
 
 namespace Edr.Core.Tests;
 
-/// <summary>The Sysmon process rules against everyday (must stay quiet) and attack (must alert) command lines.</summary>
 public class SysmonRuleTests
 {
     private static readonly XmlDocument Config = Load();
@@ -18,7 +17,6 @@ public class SysmonRuleTests
         return d;
     }
 
-    /// <summary>Sysmon's conditions (case-insensitive) as used by the template.</summary>
     public static bool Cond(string value, string cond, string pattern)
     {
         var v = value.ToLowerInvariant();
@@ -116,7 +114,6 @@ public class SysmonRuleTests
     public void Template_never_uses_end_with_any() => Assert.Empty(Config.SelectNodes("//*[@condition='end with any']")!.OfType<XmlElement>());
 }
 
-/// <summary>The engine's allow decisions and its own-process trust.</summary>
 public class EngineDecisionTests
 {
     private sealed class FakeSigners(Dictionary<string, string> map) : ISignerLookup
@@ -185,17 +182,14 @@ public class EngineDecisionTests
     [Fact]
     public void Unelevated_children_and_copies_elsewhere_are_not_trusted()
     {
-        // A medium-integrity child of the engine's path cannot be the engine's own work
         Assert.NotEqual(OwnProcess.Verdict.Own, OwnProcess.Check(new Dictionary<string, string>
         {
             ["Image"] = @"C:\Windows\System32\cmd.exe", ["ParentImage"] = $@"{Root}\bin\FreeEDR-Engine.exe", ["IntegrityLevel"] = "Medium",
         }, Root));
-        // The tray may start Explorer, never PowerShell directly
         Assert.NotEqual(OwnProcess.Verdict.Own, OwnProcess.Check(new Dictionary<string, string>
         {
             ["Image"] = @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", ["ParentImage"] = $@"{Root}\bin\tray\FreeEDR-Tray.exe",
         }, Root));
-        // A copy of the engine in a user folder is somebody else
         Assert.Equal(OwnProcess.Verdict.NearMiss, OwnProcess.Check(new Dictionary<string, string>
         {
             ["Image"] = @"C:\Users\x\Downloads\FreeEDR-Engine.exe", ["CommandLine"] = @"C:\Users\x\Downloads\FreeEDR-Engine.exe --console",

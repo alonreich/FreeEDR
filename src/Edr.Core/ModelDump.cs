@@ -4,10 +4,6 @@ using System.Text.Json.Nodes;
 
 namespace Edr.Core;
 
-/// <summary>
-/// The model as JSON, in the shape of the golden files (model.json; first written by the PowerShell tray),
-/// so the two trays can be compared.
-/// </summary>
 public static class ModelDump
 {
     public static JsonObject ToJson(TrayModel m, Overall overall, DateTime now)
@@ -46,7 +42,6 @@ public static class ModelDump
         return Encoding.UTF8.GetString(ms.ToArray());
     }
 
-    /// <summary>The text summary of -SelfTest (without the per-section status lines, which come with the dashboard).</summary>
     public static IEnumerable<string> Summary(TrayModel m, Overall overall)
     {
         yield return $"Overall : {overall.Text} - {overall.Sub}";

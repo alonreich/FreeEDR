@@ -4,13 +4,10 @@ using System.Runtime.Versioning;
 
 namespace Edr.Core.Native;
 
-/// <summary>Small Win32 helpers (LibraryImport source-generated P/Invoke, NativeAOT-safe).</summary>
 [SupportedOSPlatform("windows")]
 public static partial class Win32
 {
-    // ---- command lines -------------------------------------------------------------------------------
 
-    /// <summary>CommandLineToArgvW: how Windows programs split their command line.</summary>
     public static string[] SplitCommandLine(string? commandLine)
     {
         if (string.IsNullOrWhiteSpace(commandLine)) return [];
@@ -31,18 +28,11 @@ public static partial class Win32
     [LibraryImport("kernel32.dll")]
     private static partial nint LocalFree(nint hMem);
 
-    // ---- crash recovery ------------------------------------------------------------------------------
-
-    /// <summary>Windows restarts this program (with <paramref name="args"/>) when it crashes or hangs after running at
-    /// least 60 s (Windows Error Reporting). A clean exit, or being stopped by the installer, does not restart it.</summary>
-    public static bool RegisterRestart(string args) => RegisterApplicationRestart(args, 4 | 8) == 0;   // RESTART_NO_PATCH | RESTART_NO_REBOOT
+    public static bool RegisterRestart(string args) => RegisterApplicationRestart(args, 4 | 8) == 0;
 
     [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
     private static partial int RegisterApplicationRestart(string pwzCommandline, uint dwFlags);
 
-    // ---- file identity -------------------------------------------------------------------------------
-
-    /// <summary>Volume serial + file index + size + last write: a cache key that changes when the file is replaced.</summary>
     public static string? FileIdentity(string path)
     {
         try
@@ -60,8 +50,6 @@ public static partial class Win32
         return null;
     }
 
-    /// <summary>Volume serial + file index of an open file: which file this is, whatever its name, size or timestamps
-    /// (unlike the creation time, which "tunneling" carries over to a file re-created under the same name). Null if unknown.</summary>
     public static string? FileIdOf(Microsoft.Win32.SafeHandles.SafeFileHandle h) =>
         GetFileInformationByHandle(h.DangerousGetHandle(), out var fi) ? $"{fi.VolumeSerialNumber:X8}:{fi.FileIndexHigh:X8}{fi.FileIndexLow:X8}" : null;
 
@@ -78,12 +66,6 @@ public static partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool GetFileInformationByHandle(nint hFile, out ByHandleFileInformation info);
 
-    /// <summary>
-    /// A cache key that changes whenever the file's content or attributes change and that the file's owner cannot set
-    /// back: volume + file index + the file's last NTFS change-journal number (USN, FSCTL_READ_FILE_USN_DATA). Size and
-    /// timestamps are not enough (SetFileTime can restore them after an in-place rewrite). Null when the volume keeps no
-    /// change journal (USN 0) or the file cannot be opened: the caller must then check the file live.
-    /// </summary>
     public static unsafe string? FileChangeStamp(string path)
     {
         try
@@ -92,9 +74,9 @@ public static partial class Win32
             var h = fs.SafeFileHandle.DangerousGetHandle();
             if (!GetFileInformationByHandle(h, out var fi)) return null;
             var buf = stackalloc byte[1024];
-            if (!DeviceIoControl(h, 0x000900EB, null, 0, buf, 1024, out var got, 0) || got < 8) return null;   // FSCTL_READ_FILE_USN_DATA
+            if (!DeviceIoControl(h, 0x000900EB, null, 0, buf, 1024, out var got, 0) || got < 8) return null;
             var major = *(ushort*)(buf + 4);
-            var usnOffset = major switch { 2 => 24, 3 => 40, _ => -1 };   // USN_RECORD_V2 / V3 (ReFS)
+            var usnOffset = major switch { 2 => 24, 3 => 40, _ => -1 };
             if (usnOffset < 0 || got < usnOffset + 8) return null;
             var usn = *(long*)(buf + usnOffset);
             if (usn <= 0) return null;
@@ -108,15 +90,12 @@ public static partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     private static unsafe partial bool DeviceIoControl(nint hDevice, uint code, void* inBuf, uint inSize, void* outBuf, uint outSize, out uint returned, nint overlapped);
 
-    // ---- processes -----------------------------------------------------------------------------------
-
     public sealed record ProcInfo(int Pid, int ParentPid, string Path, DateTime Created);
 
-    /// <summary>One snapshot of every process: id, parent id, full image path (when readable) and start time.</summary>
     public static Dictionary<int, ProcInfo> ProcessSnapshot()
     {
         var map = new Dictionary<int, ProcInfo>();
-        var snap = CreateToolhelp32Snapshot(0x2, 0);   // TH32CS_SNAPPROCESS
+        var snap = CreateToolhelp32Snapshot(0x2, 0);
         if (snap == -1) return map;
         try
         {
@@ -136,7 +115,7 @@ public static partial class Win32
 
     public static (string Path, DateTime Created) ImageAndStart(int pid)
     {
-        var h = OpenProcess(0x1000, false, (uint)pid);   // PROCESS_QUERY_LIMITED_INFORMATION
+        var h = OpenProcess(0x1000, false, (uint)pid);
         if (h == 0) return ("", DateTime.MinValue);
         try
         {
@@ -149,19 +128,14 @@ public static partial class Win32
         finally { CloseHandle(h); }
     }
 
-    /// <summary>
-    /// Who is on the other end of a named pipe, from the client process's own token (no data needs to be read first):
-    /// "SID|elevated" or "SID|user", or null when it cannot be told (the caller then treats it as one shared, untrusted
-    /// client). Used to cap connections per account; requests are still authorized by impersonation.
-    /// </summary>
     public static string? PipeClientKey(Microsoft.Win32.SafeHandles.SafePipeHandle pipe)
     {
         if (!GetNamedPipeClientProcessId(pipe, out var pid) || pid == 0) return null;
-        var h = OpenProcess(0x1000, false, pid);   // PROCESS_QUERY_LIMITED_INFORMATION
+        var h = OpenProcess(0x1000, false, pid);
         if (h == 0) return null;
         try
         {
-            if (!OpenProcessToken(h, 0x0008 | 0x0002, out var tok)) return null;   // TOKEN_QUERY | TOKEN_DUPLICATE
+            if (!OpenProcessToken(h, 0x0008 | 0x0002, out var tok)) return null;
             try
             {
                 using var id = new System.Security.Principal.WindowsIdentity(tok);
@@ -182,7 +156,6 @@ public static partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool OpenProcessToken(nint process, uint access, out nint token);
 
-    /// <summary>The command line of another process (Windows 8.1+, ProcessCommandLineInformation), or "".</summary>
     public static string CommandLineOf(int pid)
     {
         var h = OpenProcess(0x1000, false, (uint)pid);
@@ -197,7 +170,7 @@ public static partial class Win32
             {
                 if (NtQueryInformationProcess(h, 60, buf, size, ref size) != 0) return "";
                 var length = (ushort)Marshal.ReadInt16(buf);
-                var str = Marshal.ReadIntPtr(buf, IntPtr.Size);   // UNICODE_STRING.Buffer (after Length, MaximumLength + padding)
+                var str = Marshal.ReadIntPtr(buf, IntPtr.Size);
                 return str == 0 ? "" : Marshal.PtrToStringUni(str, length / 2) ?? "";
             }
             finally { Marshal.FreeHGlobal(buf); }
@@ -205,7 +178,6 @@ public static partial class Win32
         finally { CloseHandle(h); }
     }
 
-    /// <summary>Terminates a process (installer/uninstaller only: stopping FreeEDR's own processes).</summary>
     public static void Kill(int pid)
     {
         try { using var p = System.Diagnostics.Process.GetProcessById(pid); p.Kill(true); p.WaitForExit(5000); }
@@ -252,9 +224,6 @@ public static partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool CloseHandle(nint h);
 
-    // ---- Application event log ("wail2ban" source) ---------------------------------------------------
-
-    /// <summary>Writes one entry to the Application log (types: 4 information, 2 warning, 1 error). Never throws.</summary>
     public static void WriteAppEvent(string source, string text, int id, ushort type = 4)
     {
         var h = RegisterEventSourceW(null, source);
@@ -283,8 +252,6 @@ public static partial class Win32
     [LibraryImport("advapi32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool DeregisterEventSource(nint h);
-
-    // ---- identity ------------------------------------------------------------------------------------
 
     public static bool IsAdministrator()
     {

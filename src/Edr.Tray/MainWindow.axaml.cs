@@ -9,7 +9,6 @@ using Edr.Tray.Views;
 
 namespace Edr.Tray;
 
-/// <summary>The dashboard: sidebar navigation (Home, Activity, Network, Updates, Allowed &amp; trusted, Settings) and pages.</summary>
 public partial class MainWindow : Window
 {
     private readonly Controller _c;
@@ -35,25 +34,21 @@ public partial class MainWindow : Window
     private PixelPoint? _normalPos;
     private Size? _normalSize;
 
-    /// <summary>The window's top-left area (40 x 40 px) lies on one of the screens now attached.</summary>
     private bool OnAScreen(PixelPoint p)
     {
         try { return Screens.All.Any(sc => sc.WorkingArea.Intersects(new PixelRect(p.X, p.Y, 40, 40))); }
         catch (Exception e) when (e is InvalidOperationException or NullReferenceException) { return false; }
     }
 
-    /// <summary>The Settings page has edits that are not saved (asked about before the tray exits).</summary>
     public bool SettingsUnsaved => _settings.HasUnsaved;
 
-    /// <summary>The page on screen ("home", "settings", ...).</summary>
     public string CurrentPage => _page;
 
-    /// <summary>--screenshot: the whole Settings page as one image.</summary>
     public void RenderSettings(string file) => _settings.RenderFull(file);
 
     public Task<bool> SaveSettingsNow() => _settings.SaveFromOutside();
 
-    public MainWindow() : this(null!) { }   // XAML loader
+    public MainWindow() : this(null!) { }
 
     public MainWindow(Controller c)
     {
@@ -82,8 +77,6 @@ public partial class MainWindow : Window
         ]);
         _allowed = new AllowedPage(c);
         _settings = new SettingsPage(c);
-        // The countdown waits while the pointer is on the bar or keyboard focus is in it (WCAG 2.2.1), and starts again
-        // when they leave, so an Undo is never taken away from someone still reaching for it
         _snackTimer.Tick += (_, _) => { if (SnackHeld) _snackTimer.Stop(); else HideSnack(); };
         _snack = new Border
         {
@@ -93,7 +86,6 @@ public partial class MainWindow : Window
         };
         ((StackPanel)_snack.Child!).Children.Add(_snackAction);
         ((StackPanel)_snack.Child!).Children.Add(_snackClose);
-        // Messages are announced by screen readers; errors stay until dismissed
         AutomationProperties.SetLiveSetting(_snack, AutomationLiveSetting.Assertive);
         AutomationProperties.SetName(_snackClose, "Dismiss message");
         ToolTip.SetTip(_snackClose, "Dismiss");
@@ -101,7 +93,7 @@ public partial class MainWindow : Window
         _snack.PointerEntered += (_, _) => _snackTimer.Stop();
         _snack.PointerExited += (_, _) => RestartSnackTimer();
         _snack.GotFocus += (_, _) => _snackTimer.Stop();
-        _snack.LostFocus += (_, _) => Dispatcher.UIThread.Post(RestartSnackTimer);   // after focus moved: inside the bar or out
+        _snack.LostFocus += (_, _) => Dispatcher.UIThread.Post(RestartSnackTimer);
         _snackAction.Click += (_, _) => { var a = _snackDo; HideSnack(); a?.Invoke(); };
         _settings.UnsavedChanged += RefreshSettingsBadge;
         Content = BuildLayout();
@@ -110,7 +102,6 @@ public partial class MainWindow : Window
         {
             Width = Math.Max(MinWidth, w.W); Height = Math.Max(MinHeight, w.H);
             _normalSize = new Size(Width, Height);
-            // Only where a screen still is (an unplugged monitor would put the window out of reach): otherwise centred
             if (w.X > -10000 && OnAScreen(new PixelPoint(w.X, w.Y)))
             {
                 Position = new PixelPoint(w.X, w.Y);
@@ -119,7 +110,6 @@ public partial class MainWindow : Window
             }
             if (w.Max) WindowState = WindowState.Maximized;
         }
-        // The size and place to come back to are the last ones the window had while it was neither maximized nor minimized
         PositionChanged += (_, e) => { if (WindowState == WindowState.Normal) _normalPos = e.Point; };
         SizeChanged += (_, e) => { if (WindowState == WindowState.Normal) _normalSize = e.NewSize; };
         Closing += (_, _) =>
@@ -129,7 +119,6 @@ public partial class MainWindow : Window
             c.Prefs.Window = (size.Width, size.Height, pos.X, pos.Y, WindowState == WindowState.Maximized);
             if (_page == "settings") _settings.RememberScroll();
         };
-        // The last page again (Settings too: it opens where it was scrolled to; unsaved edits never outlive the tray)
         Navigate(c.Prefs.LastPage is { Length: > 0 } lp ? lp : "home", null);
     }
 
@@ -180,12 +169,10 @@ public partial class MainWindow : Window
 
     public void Navigate(string page, string? selectId)
     {
-        // "activity:edr" = Activity filtered to one part (a Home tile)
         string? part = null;
         if (page.IndexOf(':') is var colon and > 0) { part = page[(colon + 1)..]; page = page[..colon]; }
         if (!_nav.ContainsKey(page)) page = "home";
         if (page == "activity" && part is not null) _activity.ShowPart(part);
-        // Unsaved settings are kept (Settings shows them again), but say so when the user walks away from them
         if (_page == "settings" && page != "settings") _settings.RememberScroll();
         if (_page == "settings" && page != "settings" && _settings.HasUnsaved)
             Snack("Your settings changes are not saved yet. They wait in Settings until you save or discard them.", false, "Back to Settings", () => Navigate("settings", null));
@@ -197,7 +184,6 @@ public partial class MainWindow : Window
             "activity" => _activity, "network" => _network, "updates" => _updates, "allowed" => _allowed, "settings" => _settings, _ => _home,
         };
         _host.Content = view;
-        // On Settings the message bar sits above the pinned save bar, never over its buttons
         _snack.Margin = new Thickness(0, 0, 0, page == "settings" ? 84 : 24);
         RefreshPage();
         if (selectId is not null)
@@ -207,8 +193,6 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>--screenshot: open every page and every tab twice, refreshing each, so a view that reuses a control
-    /// (a control can have only one parent) fails here instead of in the user's tray.</summary>
     public void ExerciseAllViews()
     {
         foreach (var page in _nav.Keys.ToList())
@@ -224,7 +208,6 @@ public partial class MainWindow : Window
         Navigate("home", null);
     }
 
-    /// <summary>The model changed: redraw the visible page, the badges and the logo.</summary>
     public void RefreshAll()
     {
         var m = _c.State.Model;
@@ -241,7 +224,6 @@ public partial class MainWindow : Window
         }
         if (m is not null)
         {
-            // The badge shows the same number as the page's first tab (every open item); red when one of them is serious
             var att = m.Sec["malware"].Attention + m.Sec["edr"].Attention + m.Sec["sigma"].Attention;
             Badge("activity", m.Sec["malware"].Count + m.Sec["edr"].Count + m.Sec["sigma"].Count, att > 0 ? Palette.Danger : Palette.BadgeNeutral, att > 0 ? "to review" : "open");
             var w2b = m.Sec["wail2ban"];
@@ -259,7 +241,6 @@ public partial class MainWindow : Window
         "home" => "Home", "activity" => "Activity", "network" => "Network", "updates" => "Updates", "allowed" => "Allowed & trusted", _ => "Settings",
     };
 
-    /// <summary>Settings with unsaved changes: an "Unsaved" badge on the Settings button.</summary>
     private void RefreshSettingsBadge()
     {
         var unsaved = _settings.HasUnsaved;
@@ -300,8 +281,6 @@ public partial class MainWindow : Window
         await _c.SaveSettings(new System.Text.Json.Nodes.JsonObject { ["wail2ban"] = new System.Text.Json.Nodes.JsonObject { ["block"] = block } });
     }
 
-    /// <summary>The message bar at the bottom: information hides after a few seconds, errors stay until dismissed;
-    /// an optional button (Undo, Show in folder, ...) runs <paramref name="action"/>.</summary>
     public void Snack(string text, bool error, string? actionLabel = null, Action? action = null)
     {
         Dispatcher.UIThread.Post(() =>
@@ -325,7 +304,6 @@ public partial class MainWindow : Window
 
     private bool _snackTimed;
 
-    /// <summary>The pointer is on the message bar or keyboard focus is in it.</summary>
     private bool SnackHeld => _snack.IsPointerOver || _snack.IsKeyboardFocusWithin;
 
     private void RestartSnackTimer()

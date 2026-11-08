@@ -7,11 +7,6 @@ using Edr.Core;
 
 namespace Edr.Tray.Views;
 
-/// <summary>
-/// Colors of the theme (same values as Theme.axaml's Dark / Light dictionaries) for code-built views. The brushes are
-/// changed in place by <see cref="Apply"/>, so every control that uses one follows a theme switch at once; tinted
-/// copies (<see cref="Tint"/>) are rebuilt with the next refresh of the page.
-/// </summary>
 public static class Palette
 {
     public static bool IsLight { get; private set; }
@@ -33,24 +28,20 @@ public static class Palette
     public static readonly SolidColorBrush Line = Themed("#2D3F66", "#D0D9E8");
     public static readonly SolidColorBrush Text = Themed("#EAF0FB", "#142033");
     public static readonly SolidColorBrush Text2 = Themed("#AEBBD3", "#384867");
-    public static readonly SolidColorBrush Muted = Themed("#95A3BD", "#56647E");   // >= 4.5:1 on Surface, SurfaceHi and the selected row (both themes)
+    public static readonly SolidColorBrush Muted = Themed("#95A3BD", "#56647E");
     public static readonly SolidColorBrush Accent = Themed("#4F8EFF", "#2563D9");
     public static readonly SolidColorBrush Ok = Themed("#2FBF71", "#1B8048");
     public static readonly SolidColorBrush Warn = Themed("#F5A524", "#9A5B00");
     public static readonly SolidColorBrush Danger = Themed("#F0505F", "#C42F3D");
-    /// <summary>Error text on cards (inline field errors): >= 4.5:1 in both themes, unlike <see cref="Danger"/> in dark.</summary>
     public static readonly SolidColorBrush ErrorText = Themed("#FF8A95", "#B42634");
     public static readonly SolidColorBrush Paused = Themed("#8C99B1", "#66728A");
     public static readonly SolidColorBrush Info = Themed("#3AB8E8", "#1874A3");
-    /// <summary>Count badges that are not alarms (white text on it in both themes).</summary>
     public static readonly SolidColorBrush BadgeNeutral = Themed("#3B5487", "#4A5F8C");
-    /// <summary>The "Unsaved" badge (white text on it in both themes).</summary>
     public static readonly SolidColorBrush BadgeWarn = Themed("#8A5A12", "#8A5000");
     public static readonly SolidColorBrush OkButtonText = Themed("#7FD6AA", "#146B3A");
     public static readonly SolidColorBrush DangerButtonText = Themed("#F09AA4", "#A3202E");
     public static readonly SolidColorBrush PrimaryButtonText = Themed("#FFFFFF", "#FFFFFF");
 
-    /// <summary>Switches every themed brush to the dark or light value.</summary>
     public static void Apply(bool light)
     {
         IsLight = light;
@@ -68,7 +59,6 @@ public static class Palette
 
     public static IBrush ForState(string key) => key switch { "ok" => Ok, "attention" => Warn, "paused" => Paused, _ => Danger };
 
-    /// <summary>One calm color per module, so the tag tells at a glance which part caught an alert.</summary>
     public static IBrush ForModule(string? blade) => (blade ?? "").ToLowerInvariant() switch
     {
         "realtime" => Brush("#6E9BF0"), "ioc" or "yara" => Brush("#B48CF0"), "defender" => Brush("#5CB3E6"),
@@ -76,7 +66,6 @@ public static class Palette
     };
 }
 
-/// <summary>Small factory helpers so the code-built views stay readable.</summary>
 public static class Ui
 {
     public const string IconFont = "Segoe Fluent Icons, Segoe MDL2 Assets";
@@ -103,7 +92,6 @@ public static class Ui
         foreach (var c in classes.Split(' ', StringSplitOptions.RemoveEmptyEntries)) b.Classes.Add(c);
         if (icon is not null && content is StackPanel sp && sp.Children[0] is TextBlock ic) ic.Foreground = classes.Contains("primary") ? Palette.PrimaryButtonText : classes.Contains("ok") ? Palette.OkButtonText : classes.Contains("danger") ? Palette.DangerButtonText : Palette.Text2;
         b.Click += (_, _) => onClick();
-        // With an icon the content is a panel, which screen readers cannot name: give the button its label
         Avalonia.Automation.AutomationProperties.SetName(b, label);
         if (tip is not null) ToolTip.SetTip(b, tip);
         return b;
@@ -127,7 +115,6 @@ public static class Ui
         VerticalAlignment = VerticalAlignment.Center,
     };
 
-    /// <summary>Small uppercase tag naming the module that raised an alert ("REAL-TIME", "EVENT-LOG SCAN", ...).</summary>
     public static Border ModuleTag(string? blade)
     {
         var color = Palette.ForModule(blade);
@@ -169,7 +156,6 @@ public static class Ui
         return t;
     }
 
-    /// <summary>"ddd dd/MM HH:mm" relative to today ("Today 14:02", "Yesterday 09:10").</summary>
     public static string When(string time)
     {
         if (Ps.ToDate(time) is not { } d) return time;
@@ -179,11 +165,6 @@ public static class Ui
 
     public static string Plural(int n, string word) => $"{n} {word}{(n == 1 ? "" : "s")}";
 
-    /// <summary>
-    /// What a view tree shows (types, texts, colors, visibility, enabled, checked, selected, classes). Two builds with the
-    /// same fingerprint look the same, so a periodic refresh keeps the live controls - and with them keyboard focus,
-    /// scroll position, open menus and anything the user is typing.
-    /// </summary>
     public static string Fingerprint(object? root)
     {
         var sb = new System.Text.StringBuilder();
@@ -217,7 +198,6 @@ public static class Ui
     }
 }
 
-/// <summary>A list row with display text derived from the model row.</summary>
 public sealed class RowItem(Row row)
 {
     public Row Row { get; } = row;
@@ -258,7 +238,6 @@ public sealed class RowItem(Row row)
                 case "sys": return Row.Cols.ElementAtOrDefault(2) ?? "";
             }
             if (e is null) return "";
-            // One short fact: the module is shown by its tag, the rest is in the details pane
             if (Ps.Eq(e.S("blade"), "wail2ban")) return $"{e.S("ip")}  ·  {Ip.NetLabel(e.S("ip"))}".Trim(' ', '·');
             var proc = Ps.Eq(e.S("blade"), "sigma") ? SigmaProcess.Of(e).Image : e.S("process");
             var par = ActionBuilder.ParentOf(e);
@@ -271,7 +250,6 @@ public sealed class RowItem(Row row)
     public string Severity => Row.Kind is "cve" or "event" or "defender" or "sys" ? (Row.Ev?.S("severity") is { Length: > 0 } s ? s : Row.Sev) : Row.Sev;
 }
 
-/// <summary>The visual of one list row; updates itself when a recycled container gets a new item (no reflection bindings).</summary>
 public sealed class RowView : Border
 {
     private readonly Border _bar = new() { Width = 3, CornerRadius = new CornerRadius(8, 0, 0, 8) };
@@ -281,7 +259,7 @@ public sealed class RowView : Border
     private readonly TextBlock _time = new() { FontSize = 11, Foreground = Palette.Muted, TextWrapping = TextWrapping.NoWrap, HorizontalAlignment = HorizontalAlignment.Right };
     private readonly StackPanel _badges = new() { Orientation = Orientation.Horizontal, Spacing = 4, HorizontalAlignment = HorizontalAlignment.Right };
 
-    protected override Type StyleKeyOverride => typeof(Border);   // themed as a Border ("Border.row")
+    protected override Type StyleKeyOverride => typeof(Border);
 
     public RowView()
     {
@@ -322,7 +300,6 @@ public sealed class RowView : Border
         if (it.Row.Muted && it.Row.Kind is "event" or "fail") _badges.Children.Add(Ui.Pill("Reviewed", Palette.Muted));
         if (it.Row.Kind == "excl" && it.Row.Entry?.T("profile") == true) _badges.Children.Add(Ui.Pill("Trusted app", Palette.Ok));
         if (it.Row.Kind == "ban") _badges.Children.Add(Ui.Pill(it.Row.Entry is not null ? "Permanent" : "Blocked", Palette.Danger));
-        // Reviewed rows: calmer (no bold, darker card), but every text keeps its full contrast (no opacity)
         if (it.Row.Muted) Classes.Add("muted"); else Classes.Remove("muted");
         _title.FontWeight = it.Row.Muted ? FontWeight.Normal : FontWeight.SemiBold;
         _title.Foreground = it.Row.Muted ? Palette.Text2 : Palette.Text;

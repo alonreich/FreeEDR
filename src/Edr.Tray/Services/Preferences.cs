@@ -3,7 +3,6 @@ using Edr.Core;
 
 namespace Edr.Tray.Services;
 
-/// <summary>This account's tray preferences (user\&lt;SID&gt;\preferences.json): notifications, window, first run.</summary>
 public sealed class Preferences
 {
     private readonly string _path;
@@ -16,20 +15,20 @@ public sealed class Preferences
         if (_o["quietProcesses"] is JsonArray q) _quiet = q.Select(Ps.Str).Where(x => x.Length > 0).ToList().AsReadOnly();
     }
 
-    /// <summary>"critical" (only critical alerts), "important" (default), "all".</summary>
     public string NotifyLevel { get => _o.Str("notifyLevel") is "critical" or "important" or "all" ? _o.Str("notifyLevel") : "important"; set { _o["notifyLevel"] = value; Save(); } }
     public bool WelcomeDone { get => _o.Truthy("welcomeDone"); set { _o["welcomeDone"] = value; Save(); } }
     public bool LearningSummaryShown { get => _o.Truthy("learningSummaryShown"); set { _o["learningSummaryShown"] = value; Save(); } }
     public string LastWeeklySummary { get => _o.Str("lastWeeklySummary"); set { _o["lastWeeklySummary"] = value; Save(); } }
     public string LastPage { get => _o.Str("lastPage"); set { _o["lastPage"] = value; Save(); } }
-    /// <summary>"system" (default: follows Windows' app mode), "dark" or "light". A choice made before is kept.</summary>
+    public bool UpdateCheck { get => _o["updateCheck"] is not JsonValue v || !v.TryGetValue<bool>(out var b) || b; set { _o["updateCheck"] = value; Save(); } }
+    public string SkippedVersion { get => _o.Str("skippedVersion"); set { _o["skippedVersion"] = value; Save(); } }
+    public string NotifiedVersion { get => _o.Str("notifiedVersion"); set { _o["notifiedVersion"] = value; Save(); } }
+    public string LastSeenVersion { get => _o.Str("lastSeenVersion"); set { _o["lastSeenVersion"] = value; Save(); } }
+    public string LastUpdateCheck { get => _o.Str("lastUpdateCheck"); set { _o["lastUpdateCheck"] = value; Save(); } }
     public string Theme { get => _o.Str("theme") is "dark" or "light" or "system" ? _o.Str("theme") : "system"; set { _o["theme"] = value; Save(); } }
 
     private IReadOnlyList<string>? _quiet;
 
-    /// <summary>Quiet mode for this account: program names (wildcards) that hold back pop-ups while they run. Null = not
-    /// chosen yet (the PC's starting list in edr-config.json applies). Read by the notifier off the UI thread: the list
-    /// is replaced, never changed in place.</summary>
     public IReadOnlyList<string>? QuietProcesses
     {
         get => _quiet;
@@ -41,10 +40,8 @@ public sealed class Preferences
         }
     }
 
-    /// <summary>Where the Settings page was scrolled to (restored when it opens again).</summary>
     public double SettingsScroll { get => _o["settingsScroll"] is JsonValue v && v.TryGetValue<double>(out var d) && d >= 0 ? d : 0; set { _o["settingsScroll"] = Math.Round(value); Save(); } }
 
-    /// <summary>A Settings "Advanced" part was left open (key = the section).</summary>
     public bool AdvancedOpen(string key) => _o["advancedOpen"] is JsonObject a && a.Truthy(key);
 
     public void SetAdvancedOpen(string key, bool open)
@@ -55,7 +52,6 @@ public sealed class Preferences
         Save();
     }
 
-    /// <summary>The last save of this file failed (the account's folder is not writable): shown in Settings.</summary>
     public string SaveError { get; private set; } = "";
 
     public (double W, double H, int X, int Y, bool Max)? Window
@@ -76,10 +72,6 @@ public sealed class Preferences
     }
 }
 
-/// <summary>
-/// Learns from what the user does (user\&lt;SID&gt;\insights.json): how often the same alert was marked reviewed (after the
-/// third time FreeEDR suggests allowing it), and which suggestions were dismissed.
-/// </summary>
 public sealed class Insights
 {
     public const int SuggestAfter = 3;
@@ -106,7 +98,6 @@ public sealed class Insights
         Save();
     }
 
-    /// <summary>Takes back one <see cref="CountReview"/> (the user clicked Undo).</summary>
     public void UncountReview(Rec e)
     {
         var k = KeyOf(e);

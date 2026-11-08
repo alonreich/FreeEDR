@@ -13,46 +13,34 @@ using Edr.Tray.Services;
 
 namespace Edr.Tray.Views;
 
-/// <summary>
-/// Settings. "Just for you" (notifications, quiet mode, theme) applies at once to this account. The PC settings
-/// (Wail2Ban, Defender, scans) are edited in the form and saved together with one administrator prompt from the bar
-/// pinned to the bottom of the page: only the values that were changed are sent, compared with what the settings file
-/// really holds (a value changed elsewhere meanwhile, e.g. the Wail2Ban switch on the Network page, is not overwritten;
-/// the form shows it and keeps the user's own edits). Every field has an ⓘ button with an explanation, a "Default" link
-/// when it differs from the out-of-the-box value and its own error while it is not valid (Save stays off until all are
-/// valid). Expert fields sit in a collapsed "Advanced" part of their section. Ctrl+S saves, Esc discards.
-/// </summary>
 public sealed class SettingsPage : UserControl
 {
     private readonly Controller _c;
     private readonly StackPanel _root = new() { Spacing = 12, Margin = new Thickness(20, 16, 20, 20), MaxWidth = 980 };
-    private readonly StackPanel _dynamic = new() { Spacing = 12 };   // everything below "Just for you": rebuilt when it changes
+    private readonly StackPanel _dynamic = new() { Spacing = 12 };
     private readonly ScrollViewer _scroll = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-    private readonly ContentControl _barHost = new();                // the save bar, pinned under the scrolled page
-    private Form? _form;          // the PC settings form on screen
-    private string _shown = "";   // fingerprint of the page on screen
+    private readonly ContentControl _barHost = new();
+    private Form? _form;
+    private string _shown = "";
     private bool _wasUnsaved;
     private bool _restoreScroll = true;
     private DateTime _savedAt = DateTime.MinValue;
-    private string _notice = "";  // "changed elsewhere" while the form keeps the user's edits
+    private string _notice = "";
 
-    // "Just for you": built once, so typing in them is never interrupted by a refresh
     private readonly ComboBox _level = new() { ItemsSource = new[] { "Only critical alerts", "Important alerts (recommended)", "Everything" }, Width = 300 };
     private readonly ComboBox _theme = new() { ItemsSource = new[] { "Same as Windows", "Dark", "Light" }, Width = 200 };
     private readonly TextBox _quiet = new() { PlaceholderText = "FortniteClient*, obs64*", MinWidth = 360, MaxWidth = 560 };
     private readonly TextBlock _learning = Ui.T("", "muted").Also(t => { t.TextWrapping = Avalonia.Media.TextWrapping.Wrap; t.MaxWidth = 560; });
     private readonly Field _quietField;
 
-    /// <summary>The PC settings in the form differ from the saved ones (they are kept until saved or discarded).</summary>
     public bool HasUnsaved => _form?.Changes().Count > 0;
 
-    /// <summary>Raised when <see cref="HasUnsaved"/> changes (the main window shows a badge on Settings).</summary>
     public event Action? UnsavedChanged;
 
     public SettingsPage(Controller c)
     {
         _c = c;
-        Grid.SetIsSharedSizeScope(_root, true);   // every label column of the page has one width
+        Grid.SetIsSharedSizeScope(_root, true);
         _scroll.Content = _root;
         var dock = new DockPanel();
         DockPanel.SetDock(_barHost, Dock.Bottom);
@@ -70,18 +58,17 @@ public sealed class SettingsPage : UserControl
         _root.Children.Add(Ui.Stack(4, Ui.T("Settings", "h1"),
             Ui.T("\"Just for you\" applies at once and only to your account. The PC settings below apply to everyone: change them, then Save in the bar at the bottom (Windows asks for administrator approval).", "sub")));
         _root.Children.Add(YouSection());
+        _root.Children.Add(new UpdatePanel(c));
         _root.Children.Add(_dynamic);
-        // Ctrl+S saves, Esc discards (asks first): handled before the focused text box sees the keys
         AddHandler(KeyDownEvent, OnKey, RoutingStrategies.Tunnel);
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
-        _restoreScroll = true;   // coming back to Settings: where it was left
+        _restoreScroll = true;
     }
 
-    /// <summary>Keeps the scroll position for the next visit (leaving the page, closing the window).</summary>
     public void RememberScroll()
     {
         if (_root.Children.Count > 0 && _scroll.Extent.Height > 0) _c.Prefs.SettingsScroll = _scroll.Offset.Y;
@@ -102,8 +89,6 @@ public sealed class SettingsPage : UserControl
         }
     }
 
-    // ---- building blocks ------------------------------------------------------------------------------
-
     private static Control Section(string icon, string title, string sub, params Control[] body)
     {
         var s = Ui.Stack(14, Ui.Row(10, Ui.Icon(icon, 18, Palette.Accent), Ui.Stack(2, Ui.T(title, "h2"), Ui.T(sub, "muted"))));
@@ -111,8 +96,6 @@ public sealed class SettingsPage : UserControl
         return Ui.Card(s);
     }
 
-    /// <summary>The ⓘ next to a label: a real button (Tab reaches it, it shows the focus ring), whose explanation opens on
-    /// click, Enter or Space and closes with Esc; the mouse also gets it as a tooltip.</summary>
     private static Button InfoButton(string label, string tip)
     {
         var info = new Button { Classes = { "info" }, Content = Ui.Icon("", 13, Palette.Muted), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(4, 0, 0, 0) };
@@ -124,9 +107,6 @@ public sealed class SettingsPage : UserControl
         return info;
     }
 
-    /// <summary>A labelled row: label with its ⓘ button, the input, and under the input optional controls (a note, a test
-    /// result), the field's error and a "Default" link. The input gets the label as its accessible name. The label column
-    /// is shared by the whole page, so the inputs line up at any text size.</summary>
     private static Control Row(string label, Control input, string tip, Control? extra = null, Field? f = null, params Control[] below)
     {
         AutomationProperties.SetName(input, label);
@@ -148,13 +128,11 @@ public sealed class SettingsPage : UserControl
         return g;
     }
 
-    /// <summary>One setting: whether it is at its default, how to put it back, and its current error.</summary>
     private sealed class Field
     {
         public required Func<bool> IsDefault { get; init; }
         public required Action Reset { get; init; }
         public Func<string> Error { get; init; } = () => "";
-        /// <summary>The "Advanced" part it sits in ("" = always visible).</summary>
         public string Group { get; init; } = "";
         public Button DefaultLink { get; } = new() { Content = "Default", Classes = { "link" }, VerticalAlignment = VerticalAlignment.Center };
         public TextBlock ErrorText { get; } = new() { Foreground = Palette.ErrorText, FontSize = 11.5, IsVisible = false, TextWrapping = Avalonia.Media.TextWrapping.Wrap, MaxWidth = 560 };
@@ -170,14 +148,6 @@ public sealed class SettingsPage : UserControl
         }
     }
 
-    // ---- the page -------------------------------------------------------------------------------------
-
-    /// <summary>
-    /// Shows the settings. The engine refreshes every few seconds: an unchanged page keeps its live controls (focus,
-    /// caret). While the form has unsaved changes it is left alone - unless the settings file was changed elsewhere (a
-    /// reset, an import, the Network page): then the form shows the new values and keeps the user's own edits.
-    /// <paramref name="force"/> (Discard) reloads it.
-    /// </summary>
     public void Refresh() => Refresh(false);
 
     private void Refresh(bool force)
@@ -188,9 +158,9 @@ public sealed class SettingsPage : UserControl
         JsonObject? keep = null;
         if (!force && _form is not null && HasUnsaved)
         {
-            if (JsonNode.DeepEquals(now, _form.FileBaseline)) { FinishRefresh(); return; }       // nothing new in the file
-            if (JsonNode.DeepEquals(now, _form.Loaded)) { _form.FileBaseline = now; FinishRefresh(); return; }   // our own save arrived
-            keep = _form.Changes();   // changed elsewhere: rebuild from the file, then put the user's edits back
+            if (JsonNode.DeepEquals(now, _form.FileBaseline)) { FinishRefresh(); return; }
+            if (JsonNode.DeepEquals(now, _form.Loaded)) { _form.FileBaseline = now; FinishRefresh(); return; }
+            keep = _form.Changes();
             _notice = "These settings were changed elsewhere (a reset, an import or the Network page): the new values are shown, and your own edits are kept.";
         }
         if (force) _notice = "";
@@ -211,7 +181,6 @@ public sealed class SettingsPage : UserControl
         var st = _c.State.Status;
         items.Add(Ui.T($"FreeEDR {ReadVersion()}  -  engine {st?.S("version")}  -  detect-only, Wail2Ban {(cfg.Wail2Ban.Block ? "blocking" : "report-only")}  -  {_c.State.Paths.Root}", "muted"));
 
-        // Unchanged page: keep the live controls (focus, caret, open drop-downs)
         var fp = string.Join("\n", items.Select(Ui.Fingerprint));
         if (keep is null && !force && fp == _shown && _dynamic.Children.Count > 0) { FinishRefresh(); return; }
         var offset = _scroll.Offset;
@@ -226,7 +195,6 @@ public sealed class SettingsPage : UserControl
         OnEdited();
     }
 
-    /// <summary>Every refresh: the save bar's state line, and the scroll position after coming back to the page.</summary>
     private void FinishRefresh()
     {
         if (_form is { } f && !f.HasChanges) _notice = "";
@@ -237,18 +205,14 @@ public sealed class SettingsPage : UserControl
         if (y > 0) Dispatcher.UIThread.Post(() => _scroll.Offset = new Vector(0, Math.Min(y, Math.Max(0, _scroll.Extent.Height - _scroll.Viewport.Height))), DispatcherPriority.Background);
     }
 
-    /// <summary>After a save: "waiting for the engine" until status.json says it runs with the new file, then "active"
-    /// for a few seconds.</summary>
     private string SaveState()
     {
         var since = DateTime.Now - _savedAt;
         if (since > TimeSpan.FromMinutes(2)) return "";
-        if (_c.State.Status?.S("settingsLoaded") is not { Length: > 0 }) return since < TimeSpan.FromSeconds(10) ? "Saved." : "";   // an engine that does not report it
+        if (_c.State.Status?.S("settingsLoaded") is not { Length: > 0 }) return since < TimeSpan.FromSeconds(10) ? "Saved." : "";
         if (!_c.State.SettingsActive) return "Saved - waiting for the engine to pick it up...";
         return since < TimeSpan.FromSeconds(15) ? "Saved and active." : "";
     }
-
-    // ---- just for you ---------------------------------------------------------------------------------
 
     private Control YouSection()
     {
@@ -283,8 +247,6 @@ public sealed class SettingsPage : UserControl
             Row("Theme", _theme, "Dark or light colors for this dashboard. \"Same as Windows\" follows Settings > Personalization > Colors > app mode, and changes with it."));
     }
 
-    /// <summary>Puts this account's saved choices into the "Just for you" controls (they can change elsewhere: the welcome
-    /// tour, another tray window); a box the user is typing in is left alone.</summary>
     private void SyncYou()
     {
         _level.SelectedIndex = _c.Prefs.NotifyLevel switch { "critical" => 0, "all" => 2, _ => 1 };
@@ -297,7 +259,6 @@ public sealed class SettingsPage : UserControl
         _learning.IsVisible = learning;
     }
 
-    /// <summary>Program names: commas, semicolons or new lines separate them (spaces belong to the name).</summary>
     private static List<string> QuietList(string? text) =>
         (text ?? "").Split([',', ';', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -308,9 +269,6 @@ public sealed class SettingsPage : UserControl
         return bad is null ? "" : $"\"{(bad.Length > 40 ? bad[..40] + "..." : bad)}\": use a program name like obs64*, not a folder.";
     }
 
-    // ---- the PC settings form --------------------------------------------------------------------------
-
-    /// <summary>The PC settings: controls, their defaults and checks, and what to send on Save.</summary>
     private sealed class Form
     {
         private static readonly int[] BanPresets = [3600, 86_400, 604_800, 2_592_000, 7_776_000, 31_536_000];
@@ -321,9 +279,7 @@ public sealed class SettingsPage : UserControl
         private readonly JsonObject _defaults = EdrConfig.UserDefaults();
         public List<Control> Sections { get; } = [];
 
-        /// <summary>What a save is compared with: the file's values, then what this form saved.</summary>
         public JsonObject Loaded { get; private set; }
-        /// <summary>The file's values this form was built from (or last saw): a different file = changed elsewhere.</summary>
         public JsonObject FileBaseline { get; set; }
 
         public Border Bar { get; }
@@ -332,7 +288,6 @@ public sealed class SettingsPage : UserControl
         private readonly TextBlock _status = Ui.T("", "", 12.5).Also(t => { t.VerticalAlignment = VerticalAlignment.Center; t.TextWrapping = Avalonia.Media.TextWrapping.Wrap; });
         private readonly List<(string Key, Expander Ex, TextBlock Count)> _groups = [];
 
-        // Controls
         private readonly ToggleSwitch _block, _ipv6;
         private readonly NumericUpDown _fails, _window;
         private readonly ComboBox _defender, _lookback, _maxPub, _maxPriv;
@@ -346,7 +301,6 @@ public sealed class SettingsPage : UserControl
         private readonly TextBlock _feedResult = Ui.T("", "muted").Also(t => { t.TextWrapping = Avalonia.Media.TextWrapping.Wrap; t.IsVisible = false; });
         private readonly TextBlock _ipv6Note = Ui.T("", "muted");
         private readonly TextBlock _windowNote = Ui.T("", "muted").Also(t => t.TextWrapping = Avalonia.Media.TextWrapping.Wrap);
-        // The time window in the file may be in seconds that do not make whole minutes: kept exactly while not edited
         private readonly int _windowExact, _windowShown;
 
         public Form(SettingsPage page, EdrConfig cfg, Preferences prefs)
@@ -358,7 +312,6 @@ public sealed class SettingsPage : UserControl
             var w = cfg.Wail2Ban;
             var d = EdrConfig.FromJson(_defaults);
 
-            // Wail2Ban
             _block = new ToggleSwitch { IsChecked = w.Block, OnContent = "On - block in Windows Firewall", OffContent = "Off - only report" };
             _fails = Number(w.FailCount, EdrConfig.Limits.FailCount.Min, EdrConfig.Limits.FailCount.Max);
             _windowExact = w.WindowSeconds;
@@ -384,13 +337,11 @@ public sealed class SettingsPage : UserControl
                     Row("Longest block, home network", _maxPriv, "The same, for computers inside your own network (other PCs, phones, a family member's laptop). Kept shorter so someone at home who mistyped is not locked out for long.", f: fPriv),
                     Row("Remote Desktop over IPv6", _ipv6, "Wail2Ban cannot count wrong passwords that arrive over IPv6 (the newer kind of internet address). \"Blocked\" closes Remote Desktop to every IPv6 address instead. Leave it allowed if you connect to this PC over IPv6.", f: fIpv6, extra: _ipv6Note))));
 
-            // Defender
             _defender = new ComboBox { ItemsSource = new[] { "Watch & report (recommended)", "Leave Defender alone" }, Width = 300, SelectedIndex = cfg.DefenderMode == "untouched" ? 1 : 0 };
             var fDef = Add("", () => _defender.SelectedIndex == (d.DefenderMode == "untouched" ? 1 : 0), () => _defender.SelectedIndex = d.DefenderMode == "untouched" ? 1 : 0);
             Sections.Add(Section("", "Microsoft Defender", "FreeEDR never makes Defender block more than you had before.",
                 Row("Ransomware & attack rules", _defender, "Microsoft Defender has extra rules against ransomware and common attack tricks (\"attack surface reduction\" and \"Controlled folder access\"). \"Watch & report\" turns them on in audit mode: they watch and FreeEDR lists what they would have blocked, but nothing is blocked. A rule you had already set to block stays blocking. \"Leave Defender alone\" puts Defender's settings back as they were before FreeEDR. The change applies right away when you save.", f: fDef)));
 
-            // Scans
             _times = [.. cfg.ScanTimes];
             var addTime = Ui.Btn("Add", "small", () =>
             {
@@ -404,7 +355,7 @@ public sealed class SettingsPage : UserControl
             Chips();
             var fTimes = Add("", () => _times.SequenceEqual(d.ScanTimes), () => { _times.Clear(); _times.AddRange(d.ScanTimes); Chips(); }, () => _times.Count == 0 ? "Add at least one scan time." : "");
             var lb = cfg.SigmaLookback;
-            if (!_lookbackValues.Contains(lb)) _lookbackValues.Add(lb);   // a value set by hand stays, it is not changed silently
+            if (!_lookbackValues.Contains(lb)) _lookbackValues.Add(lb);
             _lookback = new ComboBox { ItemsSource = _lookbackValues.Select(LookbackLabel).ToArray(), SelectedIndex = _lookbackValues.IndexOf(lb), Width = 200 };
             var fLook = Add("scan", () => Lookback() == d.SigmaLookback, () => _lookback.SelectedIndex = _lookbackValues.IndexOf(d.SigmaLookback));
             _feed = new TextBox { Text = cfg.IocFeedUrl, MinWidth = 360, MaxWidth = 520 };
@@ -426,7 +377,6 @@ public sealed class SettingsPage : UserControl
                 tip: "Puts every PC setting on this page back to its out-of-the-box value in the form. Nothing changes until you Save. Your allows, flagged items and history are not touched.");
             Sections.Add(Ui.Card(Ui.Row(12, restore, Ui.T("Puts the PC settings above back to their out-of-the-box values. You review them, then Save.", "muted").Also(t => { t.VerticalAlignment = VerticalAlignment.Center; t.TextWrapping = Avalonia.Media.TextWrapping.Wrap; t.MaxWidth = 520; }))));
 
-            // Wiring: every edit updates errors, Default links, dependencies and the Save button
             _block.IsCheckedChanged += (_, _) => Edited();
             _ipv6.IsCheckedChanged += (_, _) => Edited();
             foreach (var n in new[] { _fails, _window }) n.ValueChanged += (_, _) => Edited();
@@ -434,7 +384,6 @@ public sealed class SettingsPage : UserControl
             _feed.TextChanged += (_, _) => { _feedResult.Text = ""; _feedResult.IsVisible = false; Edited(); };
             foreach (var f in _fields) { var ff = f; f.DefaultLink.Click += (_, _) => { ff.Reset(); Edited(); }; }
 
-            // The save bar: pinned to the bottom of the page while there is something to save or report
             _save = Ui.Btn("Save settings", "primary big", () => _ = _page.Save(), icon: "", tip: "Ctrl+S");
             _discard = Ui.Btn("Discard changes", "ghost", () => _page.Discard(), tip: "Esc");
             var bar = new DockPanel();
@@ -451,7 +400,6 @@ public sealed class SettingsPage : UserControl
 
         public bool CanSave => HasChanges && _fields.All(f => f.Error().Length == 0);
 
-        /// <summary>Only the values that differ from what the file holds (or this form saved).</summary>
         public JsonObject Changes() => EdrConfig.Changes(Loaded, Pending());
 
         public JsonObject Pending() => new()
@@ -463,13 +411,11 @@ public sealed class SettingsPage : UserControl
             ["wail2ban"] = new JsonObject
             {
                 ["block"] = _block.IsChecked == true, ["blockRdpIpv6"] = _ipv6.IsChecked == true,
-                // An empty number box is an error (Save is off), never a hidden default
                 ["failCount"] = (int)(_fails.Value ?? 0), ["windowSeconds"] = WindowSeconds(),
                 ["maxBanPublicSec"] = Ban(_maxPub, _pubValues), ["maxBanPrivateSec"] = Ban(_maxPriv, _privValues),
             },
         };
 
-        /// <summary>Puts edits (a change set of another form) into the controls: the user's edits survive a rebuild.</summary>
         public void Load(JsonObject edits)
         {
             if (edits["scanTimes"] is JsonArray st) { _times.Clear(); _times.AddRange(st.Select(Ps.Str).Where(EdrConfig.IsTime)); Chips(); }
@@ -492,7 +438,6 @@ public sealed class SettingsPage : UserControl
             Update();
         }
 
-        /// <summary>The values in the form were saved: the form is clean again.</summary>
         public void Saved()
         {
             Loaded = Pending();
@@ -502,12 +447,10 @@ public sealed class SettingsPage : UserControl
         public void Update()
         {
             foreach (var f in _fields) f.Update();
-            // Block lengths and the IPv6 block only exist while Wail2Ban blocks
             var blocking = _block.IsChecked == true;
             _maxPub.IsEnabled = _maxPriv.IsEnabled = _ipv6.IsEnabled = blocking;
             _ipv6Note.Text = blocking ? "" : "Needs \"Block attackers\" on.";
             _windowNote.IsVisible = _windowNote.Text?.Length > 0 && (int?)_window.Value == _windowShown;
-            // Advanced parts: how many fields differ from the default; a field with an error opens its part
             foreach (var (key, ex, count) in _groups)
             {
                 var g = _fields.Where(f => f.Group == key).ToList();
@@ -544,8 +487,6 @@ public sealed class SettingsPage : UserControl
             return f;
         }
 
-        /// <summary>A collapsed part of a section for the fields most people never change; it remembers whether it was left
-        /// open and shows how many of its fields are not at their default.</summary>
         private Expander Advanced(string key, string summary, params Control[] rows)
         {
             var count = Ui.T("", "muted", null, Palette.Warn);
@@ -579,7 +520,6 @@ public sealed class SettingsPage : UserControl
             _feedResult.Foreground = ok ? Palette.Ok : Palette.ErrorText;
         }
 
-        /// <summary>An address with a private part (a key, a password) is shown as dots until the eye button shows it.</summary>
         private void Mask()
         {
             var secret = EdrConfig.FeedHasSecret((_feed.Text ?? "").Trim());
@@ -608,10 +548,8 @@ public sealed class SettingsPage : UserControl
             _ when v.EndsWith('h') => $"{v[..^1]} hours", _ => $"{v.TrimEnd('d')} days",
         };
 
-        /// <summary>The time window in seconds: the file's exact value while the box still shows it, else whole minutes.</summary>
         private int WindowSeconds() => _window.Value is not { } v ? 0 : (int)v == _windowShown ? _windowExact : (int)v * 60;
 
-        /// <summary>A block-length choice: the presets, plus the current value when it is none of them (it is kept exactly).</summary>
         private static (ComboBox, List<int>) BanChoice(int seconds)
         {
             var values = BanPresets.ToList();
@@ -633,7 +571,6 @@ public sealed class SettingsPage : UserControl
             cb.SelectedIndex = values.IndexOf(seconds);
         }
 
-        /// <summary>"1 hour", "7 days", "1 year", "90 minutes" ...</summary>
         private static string Duration(int s) => s switch
         {
             _ when s % 31_536_000 == 0 => Ui.Plural(s / 31_536_000, "year"),
@@ -649,8 +586,6 @@ public sealed class SettingsPage : UserControl
         private static string NumberError(NumericUpDown n) =>
             n.Value is null ? $"Enter a number from {n.Minimum:0} to {n.Maximum:0}." : "";
     }
-
-    // ---- other sections -------------------------------------------------------------------------------
 
     private Control BackupSection() => Section("", "Backup & import", "Your PC settings, your quiet-mode list and the allows in one file - for a new PC or a reinstall.",
         Ui.Wrap(
@@ -682,7 +617,6 @@ public sealed class SettingsPage : UserControl
         return Ui.Card(body, "dangerzone");
     }
 
-    /// <summary>--screenshot: the whole page (not just what fits in the window) as a PNG. Development only.</summary>
     public void RenderFull(string file)
     {
         var size = new PixelSize((int)Math.Ceiling(_root.Bounds.Width + 40), (int)Math.Ceiling(_root.Bounds.Height + 40));
@@ -693,8 +627,6 @@ public sealed class SettingsPage : UserControl
         bmp.Render(_root);
         bmp.Save(file, Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
     }
-
-    // ---- actions ---------------------------------------------------------------------------------------
 
     internal void OnEdited()
     {
@@ -708,7 +640,6 @@ public sealed class SettingsPage : UserControl
         OnEdited();
     }
 
-    /// <summary>Saves from outside the page (the tray's exit question). False = not saved.</summary>
     public async Task<bool> SaveFromOutside() => _form?.CanSave == true ? await Save() : !HasUnsaved;
 
     private string ReadVersion()
@@ -727,7 +658,7 @@ public sealed class SettingsPage : UserControl
         if (!await _c.SaveSettings(changes)) return false;
         _savedAt = DateTime.Now;
         _notice = "";
-        form.Saved();   // what is in the form is now the saved state; the engine's confirmation arrives with the next refresh
+        form.Saved();
         OnEdited();
         return true;
     }
@@ -741,7 +672,7 @@ public sealed class SettingsPage : UserControl
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _c.Say($"The backup was not made: the settings could not be read ({e.Message}).", true); return; }
         if (backup["settings"] is JsonObject settings)
         {
-            settings["quietProcesses"] = _c.QuietList.ToJsonArray();   // this account's list
+            settings["quietProcesses"] = _c.QuietList.ToJsonArray();
             if (EdrConfig.FeedHasSecret(settings.Str("iocFeedUrl")))
             {
                 var choice = await Dialogs.Choose("Back up settings",

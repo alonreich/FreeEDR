@@ -6,18 +6,6 @@ using Edr.Core.Native;
 
 namespace Edr.Control;
 
-/// <summary>
-/// FreeEDR-Control.exe --payload &lt;base64 JSON&gt;: the elevated helper the tray starts through UAC (manifest:
-/// requireAdministrator). It validates the request with the same rules as the engine, then either drops it into the
-/// admin-only control\ folder or (restart-engine, set-config, restore-defaults, update-tool) carries it out itself.
-/// The UAC prompt only names this program, and any unelevated process can start it with its own payload, so before
-/// acting it shows the decoded request in its own elevated confirmation window (UIPI keeps unelevated programs from
-/// clicking it) and always works on the installed folder (EdrPaths.DefaultRoot, admin-only): there is no --root.
-/// The confirmation shows the whole request or the request is refused (exit code 6): no step or value is cut.
-/// Exit codes: 0 done (or queued in control\ for the engine), 2 refused (invalid request), 3 failed, 4 declined in the
-/// confirmation, 5 not elevated, 6 too large to confirm in one window, 7 sent but the engine did not answer in time (it
-/// may still be carried out), 8 valid but the engine could not carry it out (the reason is an event in Activity).
-/// </summary>
 internal static partial class Program
 {
     private static int Main(string[] args)
@@ -62,21 +50,13 @@ internal static partial class Program
         }
     }
 
-    /// <summary>The administrator confirms the decoded request (default: No). A scrolling window that always fits the
-    /// screen (<see cref="ConfirmWindow"/>), so a long request is never shown cut off.</summary>
     private static bool Confirmed(string summary, bool weakens) =>
         ConfirmWindow.Ask("FreeEDR - confirm administrator change", "FreeEDR is about to make this change as administrator:", summary,
                           "Continue only if you started it from the FreeEDR dashboard just now.", weakens);
 
-    /// <summary>
-    /// Engine verbs: over the engine's pipe (the engine identifies this elevated caller and answers). When the engine is
-    /// not running, or answers that it was too busy to start the request before this helper's deadline (it then never
-    /// runs it), the request goes into control\ for the engine's next pass. A request that was sent but not answered in
-    /// time may still run, so it is never queued a second time (exit 7).
-    /// </summary>
     private static int Drop(EdrPaths paths, JsonObject cmd)
     {
-        cmd["user"] = Environment.UserName;   // the administrator who confirmed it, never what the payload claims
+        cmd["user"] = Environment.UserName;
         var r = EnginePipe.SendAsync(cmd, 30_000).GetAwaiter().GetResult();
         var log = new TextLog(paths.EngineLog);
         if (r.Answered)
@@ -95,10 +75,8 @@ internal static partial class Program
         return 0;
     }
 
-    /// <summary>Stops the service and waits until it really has stopped (a command or scan step may take a while).</summary>
     private static bool StopEngine() => Services.Stop(EdrPaths.ServiceName, 90);
 
-    /// <summary>Starts the service; one that is still stopping is waited for and started again.</summary>
     private static bool StartEngine()
     {
         if (Services.Start(EdrPaths.ServiceName, 30)) return true;
@@ -106,7 +84,6 @@ internal static partial class Program
         return Services.Start(EdrPaths.ServiceName, 30);
     }
 
-    /// <summary>True only when the engine stopped and runs again; it is started in every case.</summary>
     private static bool RestartEngine()
     {
         var stopped = StopEngine();
@@ -138,9 +115,6 @@ internal static partial class Program
         return 0;
     }
 
-    /// <summary>Factory reset: settings, allows (the recommended trusted apps again), verdicts, bans, strikes, state, events and every account's tray state.</summary>
-    /// <summary>Only with the engine really stopped (it would write its state back over the reset), and the engine is
-    /// started again whatever happens, so a failed reset never leaves protection off.</summary>
     private static int RestoreDefaults(EdrPaths paths)
     {
         var log = new TextLog(paths.EngineLog);
@@ -179,7 +153,7 @@ internal static partial class Program
         var (ok, msg) = new Tools(paths, log.Info).UpdateToLatest(spec).GetAwaiter().GetResult();
         log.Audit($"Tool update by {Environment.UserName}: {msg}");
         EngineNote.Send(paths, ok ? "Info" : "Medium", ok ? $"Tool updated: {spec.Name}" : $"Tool update failed: {spec.Name}", spec.Name, msg, "tool-update", spec.Name, ok);
-        if (ok && spec.Name == "YARA") RestartEngine();   // recompiles the rules with the new version
+        if (ok && spec.Name == "YARA") RestartEngine();
         return ok ? 0 : 3;
     }
 }

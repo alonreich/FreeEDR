@@ -1,9 +1,6 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <!-- FreeEDR theme: deep blue (not black), soft elevation, clear rounded buttons. Colors are resources so code can reuse them. -->
   <Styles.Resources>
-    <!-- Colors per theme (Settings > Appearance: dark, light or the Windows setting). Styles use DynamicResource, so a
-         change applies at once; code-built views take the same values from Palette (Views\Ui.cs). -->
     <ResourceDictionary>
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
@@ -83,7 +80,6 @@
           <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#16223A" />
           <SolidColorBrush x:Key="TextControlBorderBrush" Color="#33466F" />
           <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#4A608F" />
-          <!-- Settings "Advanced" parts: a calm card inside the card, not the default near-black -->
           <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="#1A2740" />
           <SolidColorBrush x:Key="ExpanderHeaderBackgroundPointerOver" Color="#263859" />
           <SolidColorBrush x:Key="ExpanderHeaderBackgroundPressed" Color="#263859" />
@@ -178,7 +174,6 @@
           <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#FFFFFF" />
           <SolidColorBrush x:Key="TextControlBorderBrush" Color="#B7C4DA" />
           <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#8FA3C4" />
-          <!-- Settings "Advanced" parts -->
           <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="#F6F8FC" />
           <SolidColorBrush x:Key="ExpanderHeaderBackgroundPointerOver" Color="#F0F4FA" />
           <SolidColorBrush x:Key="ExpanderHeaderBackgroundPressed" Color="#F0F4FA" />
@@ -224,7 +219,6 @@
   <Style Selector="TextBlock.label"><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" /><Setter Property="FontSize" Value="10.5" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LetterSpacing" Value="0.6" /></Style>
   <Style Selector="TextBlock.mono"><Setter Property="FontFamily" Value="Cascadia Mono, Consolas, monospace" /><Setter Property="FontSize" Value="11.5" /></Style>
 
-  <!-- Cards -->
   <Style Selector="Border.card">
     <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
@@ -252,7 +246,6 @@
     </Setter>
   </Style>
   <Style Selector="Border.tile:pointerover"><Setter Property="Background" Value="{DynamicResource SurfaceHiBrush}" /></Style>
-  <!-- Keyboard focus on a clickable tile (Home): a visible ring -->
   <Style Selector="Border.tile:focus-visible"><Setter Property="BoxShadow" Value="0 0 0 2 #6CA2FF" /></Style>
   <Style Selector="Button:focus-visible, ToggleButton:focus-visible, ToggleSwitch:focus-visible, ComboBox:focus-visible, CheckBox:focus-visible, RadioButton:focus-visible, NumericUpDown:focus-within, TextBox:focus-within, TimePicker:focus-visible">
     <Setter Property="FocusAdorner">
@@ -261,7 +254,6 @@
       </FocusAdornerTemplate>
     </Setter>
   </Style>
-  <!-- Settings: destructive actions at the bottom, in a red-edged card -->
   <Style Selector="Border.dangerzone">
     <Setter Property="Background" Value="{DynamicResource DangerZoneBg}" />
     <Setter Property="BorderBrush" Value="{DynamicResource DangerZoneLine}" />
@@ -279,7 +271,6 @@
     <Setter Property="BorderThickness" Value="1" />
   </Style>
 
-  <!-- Buttons: one base shape, five intents -->
   <Style Selector="Button">
     <Setter Property="CornerRadius" Value="6" />
     <Setter Property="Padding" Value="12,5" />
@@ -369,7 +360,6 @@
   </Style>
   <Style Selector="Button.small"><Setter Property="MinHeight" Value="26" /><Setter Property="Padding" Value="10,3" /><Setter Property="FontSize" Value="11.5" /></Style>
   <Style Selector="Button.big"><Setter Property="MinHeight" Value="34" /><Setter Property="Padding" Value="16,6" /><Setter Property="FontSize" Value="13" /><Setter Property="CornerRadius" Value="7" /></Style>
-  <!-- Settings: the (i) explanation next to a label (click, Enter or Space opens it; it gets the focus ring above) -->
   <Style Selector="Button.info">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderBrush" Value="Transparent" />
@@ -381,7 +371,6 @@
     <Setter Property="Background" Value="{DynamicResource GhostHoverBg}" />
     <Setter Property="BorderBrush" Value="Transparent" />
   </Style>
-  <!-- Settings: the save bar pinned to the bottom of the page while there is something to save -->
   <Style Selector="Border.savebar">
     <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
@@ -389,7 +378,6 @@
     <Setter Property="Padding" Value="20,10" />
   </Style>
 
-  <!-- Sidebar navigation -->
   <Style Selector="Button.nav">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderBrush" Value="Transparent" />
@@ -414,7 +402,6 @@
     <Setter Property="Foreground" Value="{DynamicResource NavActiveFg}" />
   </Style>
 
-  <!-- Filter chips -->
   <Style Selector="ToggleButton.chip">
     <Setter Property="CornerRadius" Value="999" />
     <Setter Property="Padding" Value="10,3" />
@@ -438,7 +425,6 @@
     <Setter Property="Foreground" Value="{DynamicResource ChipOnFg}" />
   </Style>
 
-  <!-- Lists -->
   <Style Selector="ListBox">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />
@@ -462,7 +448,6 @@
     <Setter Property="Background" Value="{DynamicResource RowSelBg}" />
     <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
   </Style>
-  <!-- Reviewed rows: a darker card instead of transparency, so their text keeps at least 4.5:1 contrast -->
   <Style Selector="Border.row.muted"><Setter Property="Background" Value="{DynamicResource SurfaceLoBrush}" /></Style>
   <Style Selector="ListBoxItem:pointerover Border.row.muted"><Setter Property="Background" Value="{DynamicResource SurfaceBrush}" /></Style>
   <Style Selector="ListBoxItem:selected Border.row.muted"><Setter Property="Background" Value="{DynamicResource RowSelBg}" /></Style>

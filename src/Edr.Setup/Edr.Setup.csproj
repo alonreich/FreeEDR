@@ -1,6 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- FreeEDR-Installer.exe: install / upgrade / repair / uninstall, run by FreeEDR-Setup.exe (Inno Setup) and Settings > Apps.
-       Its window uses Avalonia with the dashboard's theme (Theme.axaml and ShieldIcon.cs are linked from Edr.Tray). -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <RootNamespace>Edr.Setup</RootNamespace>

@@ -2,14 +2,11 @@ using System.Text.Json.Nodes;
 
 namespace Edr.Core;
 
-/// <summary>One allow of a trusted-app profile, with the same fields the engine stores in exclusions.json.</summary>
 public sealed record ProfileEntry(string List, string Rule = "", string Image = "", string Parent = "", string ParentSigner = "",
                                   int Ancestors = 0, string Signer = "", string Detail = "", string Match = "", string Title = "");
 
-/// <summary>A set of allows that lets one app run without alerts, switched on or off as a whole (Trusted apps).</summary>
 public sealed record AllowProfile(string Id, string Name, bool Default, string Category, string What, string[] Detect, ProfileEntry[] Entries);
 
-/// <summary>The trusted-app profiles. Paths use ProfilesRoot / Program Files (never a hard-coded user folder).</summary>
 public static class Profiles
 {
     private static readonly string[] PsLauncherRules = ["Encoded PowerShell command", "PowerShell download or in-memory execution"];
@@ -97,14 +94,11 @@ public static class Profiles
         ];
     }
 
-    /// <summary>Is the app of a profile on this PC? (profiles without detect paths count as present)</summary>
     public static bool IsInstalled(AllowProfile p) => p.Detect.Length == 0 || p.Detect.Any(PathGlob.Exists);
 
-    /// <summary>The first profile that is off and would hide this alert ("Trust the app" action).</summary>
     public static AllowProfile? FindFor(Rec e, Func<string, bool> isOn, ISignerLookup signers) =>
         All.FirstOrDefault(p => !isOn(p.Id) && p.Entries.Any(en => EntryMatches(en, e, signers)));
 
-    /// <summary>Would this one profile entry hide the event? (the same matching as the engine)</summary>
     public static bool EntryMatches(ProfileEntry x, Rec e, ISignerLookup signers)
     {
         if (x.List == "realtime" && Ps.Eq(e.S("blade"), "realtime"))
@@ -134,7 +128,6 @@ public static class Profiles
         return false;
     }
 
-    /// <summary>The engine "exclude" commands for one profile.</summary>
     public static IEnumerable<JsonObject> Ops(AllowProfile p) => p.Entries.Select(e => ToOp(e, p.Id));
 
     public static JsonObject ToOp(ProfileEntry e, string profile)
@@ -161,7 +154,6 @@ public static class Profiles
     }
 }
 
-/// <summary>Does a wildcard path (wildcards in any segment) match an existing file or folder?</summary>
 public static class PathGlob
 {
     public static bool Exists(string pattern) => Expand(pattern).Any();

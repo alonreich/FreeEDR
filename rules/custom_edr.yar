@@ -1,8 +1,3 @@
-/*
-  EDR custom rules: credential-theft tool strings and shadow-copy deletion inside executables.
-  Strings are hex-encoded so this file and the scripts around it are not flagged by antivirus.
-  Keep this file plain ASCII without a BOM - YARA refuses files that start with a UTF-8 BOM.
-*/
 
 rule Suspicious_Malware_Indicators
 {

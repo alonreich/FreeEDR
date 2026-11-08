@@ -1,9 +1,5 @@
 namespace EdrBuild;
 
-/// <summary>
-/// Console + .\build.log. The log's first line is the verdict (OK / WARN / FAIL), so a glance - or a script -
-/// tells the result without reading the rest.
-/// </summary>
 internal sealed class BuildLog(string path) : IDisposable
 {
     private readonly List<string> _lines = [];
@@ -16,7 +12,6 @@ internal sealed class BuildLog(string path) : IDisposable
     public void Warn(string text) { _warnings++; Write("WARN: " + text, ConsoleColor.Yellow); }
     public void Error(string text) => Write("ERROR: " + text, ConsoleColor.Red);
 
-    /// <summary>Output of a child process: logged, shown dimmed.</summary>
     public void Child(string text) => Write("    " + text, ConsoleColor.DarkGray);
 
     private void Write(string text, ConsoleColor? color)

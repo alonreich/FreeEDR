@@ -1,21 +1,10 @@
-<!--
-  NOTE: do not use condition="end with any" - Sysmon 15.22 crashes on it (0xC0000409). Use "contains any".
-  FreeEDR Sysmon configuration (template). FreeEDR-Installer.exe replaces {ROOT} (C:\Program Files\FreeEDR)
-  and writes config\sysmonconfig.xml.
-  Design: INCLUDE-ONLY rules, so Sysmon logs only suspicious activity (low CPU/disk, game-friendly).
-  Every rule "name" is shown in the FreeEDR dashboard as the alert title and maps to a severity + explanation.
-  Built-in exclusions at the bottom: Epic Games / Fortnite / Easy Anti-Cheat / BattlEye, and the FreeEDR folder itself
-  (admin-only folder). Personal exclusions are added from the dashboard (right-click), not here.
--->
 <Sysmon schemaversion="4.90">
   <HashAlgorithms>sha256</HashAlgorithms>
   <CheckRevocation>False</CheckRevocation>
   <EventFiltering>
 
-    <!-- ===================== Process creation (Event 1) ===================== -->
     <RuleGroup name="ProcessCreateInclude" groupRelation="or">
       <ProcessCreate onmatch="include">
-        <!-- T3: an encoded command cannot be combined with -Command, so " -e " inside a -Command text (rg -e, git messages) is not one -->
         <Rule name="Encoded PowerShell command" groupRelation="and">
           <Image condition="contains any">\powershell.exe;\pwsh.exe;\powershell_ise.exe</Image>
           <CommandLine condition="contains any"> -e ; -en ; -enc ; -enco; -encodedcommand ; -ec ; /e ; /enc ; /encodedcommand </CommandLine>
@@ -58,7 +47,6 @@
           <Image condition="contains any">\wscript.exe;\cscript.exe</Image>
           <CommandLine condition="contains any">\Downloads\;\AppData\Local\Temp\;\Users\Public\;\Windows\Temp\</CommandLine>
         </Rule>
-        <!-- T2/T4: "net user <name> <password> /add" is caught; listing members ("net localgroup administrators") is not -->
         <Rule name="New user or admin group change" groupRelation="and">
           <Image condition="contains any">\net.exe;\net1.exe</Image>
           <CommandLine condition="contains all"> user ; /add</CommandLine>
@@ -86,28 +74,24 @@
       </ProcessCreate>
     </RuleGroup>
 
-    <!-- ===================== Network (Event 3): only Windows tools malware abuses ===================== -->
     <RuleGroup name="NetworkInclude" groupRelation="or">
       <NetworkConnect onmatch="include">
         <Image name="Windows script/LOLBin made a network connection" condition="contains any">\mshta.exe;\regsvr32.exe;\rundll32.exe;\certutil.exe;\bitsadmin.exe;\wscript.exe;\cscript.exe;\msbuild.exe;\installutil.exe;\regasm.exe;\regsvcs.exe;\cmstp.exe</Image>
       </NetworkConnect>
     </RuleGroup>
 
-    <!-- ===================== Driver load (Event 6) ===================== -->
     <RuleGroup name="DriverInclude" groupRelation="or">
       <DriverLoad onmatch="include">
         <Signed name="Unsigned driver loaded" condition="is">false</Signed>
       </DriverLoad>
     </RuleGroup>
 
-    <!-- ===================== Remote thread (Event 8) ===================== -->
     <RuleGroup name="RemoteThreadInclude" groupRelation="or">
       <CreateRemoteThread onmatch="include">
         <TargetImage name="Code injected into LSASS" condition="end with">\lsass.exe</TargetImage>
       </CreateRemoteThread>
     </RuleGroup>
 
-    <!-- ===================== Process access (Event 10): credential theft from LSASS ===================== -->
     <RuleGroup name="ProcessAccessInclude" groupRelation="or">
       <ProcessAccess onmatch="include">
         <Rule name="LSASS memory read (credential theft)" groupRelation="and">
@@ -123,14 +107,12 @@
       </ProcessAccess>
     </RuleGroup>
 
-    <!-- ===================== File creation (Event 11): persistence locations ===================== -->
     <RuleGroup name="FileCreateInclude" groupRelation="or">
       <FileCreate onmatch="include">
         <TargetFilename name="File added to a Startup folder" condition="contains">\Start Menu\Programs\Startup\</TargetFilename>
       </FileCreate>
     </RuleGroup>
 
-    <!-- ===================== Registry (Events 12/13/14): persistence + tampering ===================== -->
     <RuleGroup name="RegistryInclude" groupRelation="or">
       <RegistryEvent onmatch="include">
         <TargetObject name="Startup entry added or changed (Run key)" condition="contains any">\CurrentVersion\Run\;\CurrentVersion\RunOnce\;\CurrentVersion\Policies\Explorer\Run\</TargetObject>
@@ -145,12 +127,10 @@
       </RegistryEvent>
     </RuleGroup>
 
-    <!-- ===================== WMI persistence (Events 19/20/21): log all, they are rare ===================== -->
     <RuleGroup name="WmiAll" groupRelation="or">
       <WmiEvent onmatch="exclude" />
     </RuleGroup>
 
-    <!-- ===================== Everything else: OFF ===================== -->
     <RuleGroup name="Off" groupRelation="or">
       <FileCreateTime onmatch="include" />
       <ProcessTerminate onmatch="include" />
@@ -168,7 +148,6 @@
       <FileExecutableDetected onmatch="include" />
     </RuleGroup>
 
-    <!-- ===================== Built-in exclusions: games, anti-cheat, FreeEDR itself ===================== -->
     <RuleGroup name="BuiltInExclusions" groupRelation="or">
       <ProcessCreate onmatch="exclude">
         <Image condition="begin with">C:\Program Files\Epic Games\</Image>

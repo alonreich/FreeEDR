@@ -3,20 +3,12 @@ using System.Text.RegularExpressions;
 
 namespace Edr.Core;
 
-/// <summary>
-/// The single validation rules for allows and commands (Test-PatternSpecific / Test-EdrCommandOp): no match-all
-/// patterns, no allow of Windows' own publishers, rooted and specific paths. Used by the elevated helper (before a
-/// command is written) and by the engine (before it is executed), so the tray's own checks are only advisory.
-/// </summary>
 public static partial class PatternRules
 {
     public static readonly string[] PauseBlades = ["edr", "realtime", "malware", "sigma", "cve", "wail2ban"];
     public static readonly string[] BatchActions = ["unban", "exclude", "unexclude", "block", "unblock"];
     public static readonly string[] AdminActions = ["pause", "resume", "scan-now", "unban", "exclude", "unexclude", "block", "unblock", "batch", "restart-engine", "set-config", "restore-defaults", "update-tool"];
     public static readonly string[] InboxActions = ["resume", "scan-now"];
-    /// <summary>Verbs FreeEDR's own elevated programs send to the engine; never accepted in a payload to the helper
-    /// (not in <see cref="AdminActions"/>). "note": an event the engine writes for them, so it stays the only writer of
-    /// data\events.jsonl.</summary>
     public static readonly string[] EngineOnlyActions = ["note"];
     public static readonly string[] NoteSeverities = ["Info", "Medium", "High"];
     public static readonly string[] NoteKinds = ["status", "health", "tool-update"];
@@ -76,7 +68,6 @@ public static partial class PatternRules
     private static bool IsDriveRoot(string p) => DriveRx().IsMatch(p.TrimEnd('\\', '/', '*', '?'));
     private static IEnumerable<string> Segments(string p) => p.Split('\\', '/').Where(s => s.Length > 0 && !DriveRx().IsMatch(s));
 
-    /// <summary>Test-EdrCommandOp: may this one operation be executed? (fields as written by the tray)</summary>
     public static bool IsValidOp(JsonObject? op)
     {
         if (op is null) return false;
@@ -139,7 +130,6 @@ public static partial class PatternRules
         }
     }
 
-    /// <summary>Validates a whole request as the elevated helper does (batch: 1-100 batchable ops).</summary>
     public static bool IsValidCommand(JsonObject? cmd, out string reason)
     {
         reason = "";
@@ -159,11 +149,9 @@ public static partial class PatternRules
         return true;
     }
 
-    /// <summary>claude-code\2.1.309\9078b9c1d466\claude.exe -> claude-code\*\*\claude.exe (survives app updates).</summary>
     public static string VersionlessPattern(string path) =>
         string.Join('\\', path.Split('\\').Select(p => VersionSegRx().IsMatch(p) || HexSegRx().IsMatch(p) || p.StartsWith("app-", StringComparison.OrdinalIgnoreCase) && p.Length > 4 && char.IsDigit(p[4]) ? "*" : EscapeWildcards(p)));
 
-    /// <summary>[WildcardPattern]::Escape: the path matches only itself.</summary>
     public static string EscapeWildcards(string s)
     {
         var sb = new System.Text.StringBuilder(s.Length + 4);

@@ -8,11 +8,6 @@ using Edr.Core.Native;
 
 namespace Edr.Engine;
 
-/// <summary>
-/// FreeEDR's engine (Windows service "FreeEDR", SYSTEM): event log subscriptions feed one queue; the main loop drains
-/// it in batches with wall-clock cadence checks so commands, heartbeats and bans are never starved. Every step runs in
-/// <see cref="Safely"/>: one bad event or command can never stop the engine.
-/// </summary>
 internal sealed class Engine : IDisposable
 {
     private sealed record Watch(string Sid, string Channel, string XPath);
@@ -25,7 +20,6 @@ internal sealed class Engine : IDisposable
         new("rt-sysmon", "Microsoft-Windows-Sysmon/Operational", "*[System[(EventID=1 or EventID=3 or EventID=6 or EventID=8 or EventID=10 or EventID=11 or EventID=12 or EventID=13 or EventID=14 or EventID=19 or EventID=20 or EventID=21)]]"),
         new("def", "Microsoft-Windows-Windows Defender/Operational", "*[System[(EventID=1116 or EventID=1121 or EventID=1122 or EventID=1123 or EventID=1124)]]"),
         new("logon-ok", "Security", "*[System[(EventID=4624)] and EventData[Data[@Name='LogonType']='3' or Data[@Name='LogonType']='10']]"),
-        // A Windows log was cleared (whatever tool did it): reported live, the copy in data\archive\ keeps what was there
         new("clear-sec", "Security", "*[System[(EventID=1102)]]"),
         new("clear-sys", "System", "*[System[(EventID=104)]]"),
     ];
@@ -39,12 +33,10 @@ internal sealed class Engine : IDisposable
     private readonly EventArchive _archive;
     private readonly PipeServer _pipe;
     private readonly CommandIntake _intake;
-    // Bounded queue with backpressure: a full queue makes the event log callback wait (the events stay in the Windows
-    // log), so a flood slows intake instead of silently losing events past a bookmark.
     private const int QueueCapacity = 10_000;
     private readonly BlockingCollection<Item> _queue = new(QueueCapacity);
     private CancellationToken _stop;
-    private volatile string? _closingSid;   // StartWatch is closing this subscription: its callback must not wait on the queue
+    private volatile string? _closingSid;
     private long _intakeDropped;
     private long _intakeDroppedReported;
     private readonly Dictionary<string, EventSubscription> _subs = [];
@@ -55,7 +47,6 @@ internal sealed class Engine : IDisposable
     private int _lagSeconds;
     private Mutex? _mutex;
 
-    // Sysmon health
     private bool _sysmonOk = true;
     private string _sysmonMsg = "";
     private string _sysmonSvc = "";
@@ -82,7 +73,6 @@ internal sealed class Engine : IDisposable
         catch (Exception e) { _ctx.Log.Error($"{name} failed: {e.GetType().Name}: {e.Message}"); }
     }
 
-    /// <summary>Single instance (Global\FreeEDR-Engine, ACL: SYSTEM + Administrators).</summary>
     private bool AcquireMutex()
     {
         try
@@ -119,7 +109,7 @@ internal sealed class Engine : IDisposable
         _ctx.State.Load();
         _ctx.Excl.Load();
         _ctx.Blocks.Load();
-        _sysmonOk = _ctx.State.GetBool("sysmonOk") != false;   // remembered, so a problem fixed by a reboot still gets its "healthy again"
+        _sysmonOk = _ctx.State.GetBool("sysmonOk") != false;
 
         Safely("User folders", () => UserFolders.Ensure(_ctx.Paths));
         Safely("Local IPs", _w2b.UpdateSelfIps);
@@ -169,8 +159,6 @@ internal sealed class Engine : IDisposable
                     }
                 }
                 now = DateTime.Now;
-                // Settings saved from the dashboard take effect within seconds (one file-time check every 5 s); the
-                // status is rewritten at once so the dashboard sees the new values and can say they are active
                 if (now >= nextSettings)
                 {
                     nextSettings = now.AddSeconds(5);
@@ -218,7 +206,6 @@ internal sealed class Engine : IDisposable
         return 0;
     }
 
-    /// <summary>A pipe request on the main loop: the caller also gets the command's note and whether it failed.</summary>
     private PipeServer.Outcome RunPipeRequest(JsonObject cmd, bool admin)
     {
         var ok = _commands.Execute(cmd, admin);
@@ -249,8 +236,6 @@ internal sealed class Engine : IDisposable
         }
     }
 
-    /// <summary>Security 1102 / System 104: a Windows event log was cleared. Always reported (also while paused): it is
-    /// how an attacker hides their tracks. A "Was this you?" question in the dashboard.</summary>
     private void LogCleared(EventRecord r)
     {
         var log = r.Id == 1102 ? "Security" : r["Channel"].Length > 0 ? r["Channel"] : "a Windows log";
@@ -264,7 +249,6 @@ internal sealed class Engine : IDisposable
     {
         if (_subs.Remove(w.Sid, out var old))
         {
-            // EvtClose waits for a running callback; that callback may wait for this (the consumer) thread to drain the queue
             _closingSid = w.Sid;
             try { old.Dispose(); } finally { _closingSid = null; }
         }
@@ -292,8 +276,6 @@ internal sealed class Engine : IDisposable
         }
     }
 
-    /// <summary>Runs on the event log's thread: waits while the queue is full (backpressure). An event is dropped only
-    /// when the engine is stopping or re-subscribing, and every drop is counted and reported.</summary>
     private void Enqueue(Item it)
     {
         if (_queue.TryAdd(it)) return;
@@ -320,12 +302,10 @@ internal sealed class Engine : IDisposable
     private long _eventFailuresReported;
     private DateTime _eventFailuresAt = DateTime.MinValue;
 
-    /// <summary>Alerts that could not be written to events.jsonl are never lost silently: engine log, the Application
-    /// log (event 4000, which does not depend on FreeEDR's data folder) and an alert once writing works again.</summary>
     private void ReportEventWriteFailures()
     {
         var n = _ctx.Events.Failures;
-        if (n == _eventFailuresReported || DateTime.Now - _eventFailuresAt < TimeSpan.FromMinutes(10)) return;   // while it lasts: every 10 minutes
+        if (n == _eventFailuresReported || DateTime.Now - _eventFailuresAt < TimeSpan.FromMinutes(10)) return;
         _eventFailuresAt = DateTime.Now;
         var lost = n - _eventFailuresReported;
         _eventFailuresReported = n;
@@ -352,8 +332,6 @@ internal sealed class Engine : IDisposable
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _ctx.Log.Warn($"Failed to save bookmarks: {e.Message}"); }
         _bookmarksSaved = DateTime.Now;
     }
-
-    // ---- health ----------------------------------------------------------------------------------------
 
     private void SysmonHealth()
     {
@@ -440,8 +418,6 @@ internal sealed class Engine : IDisposable
             ["pipe"] = _pipe.Status(),
             ["commandIntake"] = _intake.Status(),
             ["installedAt"] = _ctx.Cfg.InstalledAt,
-            // The settings file version the engine runs with (UTC write time): the dashboard compares it with the file to
-            // say "active" after a save
             ["settingsLoaded"] = _ctx.CfgStamp == DateTime.MinValue ? null : _ctx.CfgStamp.ToString("o", CultureInfo.InvariantCulture),
         };
         JsonFile.WriteAtomic(_ctx.Paths.StatusFile, status);
@@ -465,8 +441,6 @@ internal sealed class Engine : IDisposable
     }
 }
 
-/// <summary>One private folder per account, user\&lt;SID&gt;\ (only that account, admins and SYSTEM). Created by the
-/// installer and the engine, never by users, so no account can create or pre-fill another one's folder.</summary>
 internal static class UserFolders
 {
     public static void Ensure(EdrPaths paths, bool repair = false)

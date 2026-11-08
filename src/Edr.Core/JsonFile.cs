@@ -5,17 +5,11 @@ using System.Text.Json.Nodes;
 
 namespace Edr.Core;
 
-/// <summary>
-/// Durable JSON persistence shared by every FreeEDR process: shared reads (another process may be writing), atomic
-/// writes (temp file, flush to disk, File.Replace keeping a .bak) and fail-closed strict reads that recover from the
-/// .bak and keep the damaged file as .corrupt-&lt;time&gt;. AOT-safe: JsonNode only, no reflection.
-/// </summary>
 public static class JsonFile
 {
     public static readonly UTF8Encoding Utf8NoBom = new(false);
     private static readonly JsonDocumentOptions DocOptions = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
 
-    /// <summary>A damaged file was restored from its .bak (path, reason). Set by the engine to raise an alert.</summary>
     public static Action<string, string>? Recovered { get; set; }
 
     public static JsonNode? Parse(string text)
@@ -24,7 +18,6 @@ public static class JsonFile
         catch (JsonException) { return null; }
     }
 
-    /// <summary>Null when missing, empty or invalid (lenient read).</summary>
     public static JsonNode? Read(string path)
     {
         var text = ReadText(path);
@@ -33,11 +26,6 @@ public static class JsonFile
 
     public static JsonObject? ReadObject(string path) => Read(path) as JsonObject;
 
-    /// <summary>
-    /// Strict read: missing file = null; an unreadable/invalid file is recovered from .bak (the damaged copy is kept
-    /// as .corrupt-&lt;time&gt;), otherwise throws <see cref="InvalidDataException"/> so the caller never overwrites real
-    /// data with defaults.
-    /// </summary>
     public static JsonNode? ReadStrict(string path)
     {
         if (!File.Exists(path)) return null;
@@ -87,7 +75,6 @@ public static class JsonFile
         return null;
     }
 
-    /// <summary>Indented JSON text (relaxed escaping keeps paths and quotes readable).</summary>
     public static string ToText(JsonNode? node, bool indented = true)
     {
         using var ms = new MemoryStream();
@@ -98,7 +85,6 @@ public static class JsonFile
         return Encoding.UTF8.GetString(ms.ToArray());
     }
 
-    /// <summary>Durable atomic write: temp file + Flush(true) + File.Replace (keeps .bak) or Move.</summary>
     public static void WriteAtomic(string path, JsonNode? node) => WriteTextAtomic(path, ToText(node));
 
     public static void WriteTextAtomic(string path, string text)
@@ -142,7 +128,6 @@ public static class JsonFile
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
-    /// <summary>Appends one line (LF), retrying while another process holds the file.</summary>
     public static bool AppendLine(string path, string line)
     {
         for (var i = 0; i < 10; i++)
@@ -159,8 +144,6 @@ public static class JsonFile
         }
         return false;
     }
-
-    // ---- JsonObject helpers (PowerShell-like accessors used by the engine) ---------------------------------
 
     public static string Str(this JsonObject o, string name) => Ps.Str(o.TryGetPropertyValue(name, out var v) ? v : null);
 

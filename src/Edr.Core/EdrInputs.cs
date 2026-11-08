@@ -4,7 +4,6 @@ using System.Xml;
 
 namespace Edr.Core;
 
-/// <summary>Everything the model is built from: the engine's files plus the per-user tray files.</summary>
 public sealed class EdrInputs
 {
     public List<Rec> Events { get; } = [];
@@ -15,24 +14,18 @@ public sealed class EdrInputs
     public Rec? Status { get; set; }
     public Rec? Cve { get; set; }
     public Rec? ScanResult { get; set; }
-    /// <summary>exclusions.json lists in <see cref="Catalog.ExclusionLists"/> order (missing lists are empty).</summary>
     public Dictionary<string, List<Rec>> Exclusions { get; set; } = EmptyExclusions();
     public List<Rec> Blocks { get; set; } = [];
     public List<Rec> History { get; set; } = [];
     public HashSet<string> Reviewed { get; } = new(StringComparer.Ordinal);
-    /// <summary>Hidden winget app IDs, in file order.</summary>
     public List<string> Ignored { get; } = [];
     public HashSet<string> RuleNames { get; } = new(StringComparer.OrdinalIgnoreCase);
-    /// <summary>Built-in Sysmon exclusions (games, anti-cheat, EDR), shown read-only in EDR > Allowed.</summary>
     public List<string> BuiltIn { get; } = [];
-    /// <summary>winget results (phase 4); empty until the first check.</summary>
     public List<Rec> PatchEvents { get; } = [];
     public DateTime? PatchChecked { get; set; }
 
     public static Dictionary<string, List<Rec>> EmptyExclusions() => Catalog.ExclusionLists.ToDictionary(l => l.List, _ => new List<Rec>());
 
-    /// <summary>A copy of every collection (the records themselves are shared and never changed), so the tray can
-    /// build the model on a worker thread while the working inputs keep changing.</summary>
     public EdrInputs Snapshot()
     {
         var x = new EdrInputs
@@ -53,7 +46,6 @@ public sealed class EdrInputs
         return x;
     }
 
-    /// <summary>The event history was deleted (reset): what was kept from evicted events goes too.</summary>
     public void ClearHistory()
     {
         EvictedCounts.Clear();
@@ -132,7 +124,6 @@ public sealed class EdrInputs
         }
     }
 
-    /// <summary>Reads everything once (the tray keeps an <see cref="EventTail"/> for later updates).</summary>
     public static EdrInputs Load(EdrPaths paths)
     {
         var x = new EdrInputs();
@@ -149,7 +140,6 @@ public sealed class EdrInputs
         return x;
     }
 
-    /// <summary>Read-Json: shared read (the engine may be writing), UTF-8, null when missing/empty/invalid.</summary>
     public static Rec? ReadJson(string path)
     {
         for (var i = 0; i < 5; i++)
@@ -202,27 +192,17 @@ public sealed class EdrInputs
     }
 }
 
-/// <summary>
-/// Reads events.jsonl incrementally (Read-NewEvents): only up to the last complete line, from a byte offset;
-/// a shorter file means it was rotated and is read again from the start.
-/// </summary>
 public sealed class EventTail(string path, int? capacity = null, int budget = EventTail.DefaultBudget)
 {
     public const int DefaultCapacity = 10000;
-    public const int DefaultBudget = 2 * 1024 * 1024; // 2 MB
+    public const int DefaultBudget = 2 * 1024 * 1024;
 
     public int Capacity { get; } = capacity ?? (int.TryParse(Environment.GetEnvironmentVariable("EDR_EVENT_CAP"), out var c) ? c : DefaultCapacity);
     public long Offset { get; private set; }
     private string? _fileId;
 
-    /// <summary>The last <see cref="ReadNew"/> found the history deleted (factory reset or clean install) and emptied the list.</summary>
     public bool WasReset { get; private set; }
 
-    /// <summary>
-    /// The events file is gone or shorter than what was read. A rotation always leaves an <c>events-*.jsonl</c> archive
-    /// next to it (the engine keeps 5), so the events read so far stay (trimmed); with no archive the whole history was
-    /// deleted (reset to defaults, clean install), so nothing read before may be shown any more.
-    /// </summary>
     private bool HistoryDeleted()
     {
         var dir = Path.GetDirectoryName(path);
@@ -238,15 +218,13 @@ public sealed class EventTail(string path, int? capacity = null, int budget = Ev
         WasReset = true;
     }
 
-    /// <summary>Appends new events to <paramref name="events"/>; returns them. Trims the list on rotation/cap; empties it
-    /// when the history was deleted (<see cref="WasReset"/>).</summary>
     public IReadOnlyList<Rec> ReadNew(List<Rec> events, EdrInputs? inputs = null, bool drainAll = false)
     {
         WasReset = false;
         if (!File.Exists(path))
         {
             if ((Offset > 0 || events.Count > 0) && HistoryDeleted()) Reset(events, inputs);
-            else Offset = 0;   // rotated, the new file is not written yet: start it from the beginning
+            else Offset = 0;
             return [];
         }
         var added = new List<Rec>();
@@ -258,8 +236,6 @@ public sealed class EventTail(string path, int? capacity = null, int budget = Ev
             using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
                 len = fs.Length;
-                // Another file than the one read so far (rotated, or deleted and written again), even one already longer
-                // than the old read position; or the same file cut shorter
                 var id = OperatingSystem.IsWindows() ? Native.Win32.FileIdOf(fs.SafeFileHandle) : null;
                 var replaced = id is not null && _fileId is not null && id != _fileId;
                 if (id is not null) _fileId = id;

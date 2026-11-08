@@ -6,10 +6,6 @@ using Edr.Core.Native;
 
 namespace Edr.Engine;
 
-/// <summary>
-/// Real-time detection from Sysmon (process starts, risky tools, LSASS access, persistence, drivers, WMI), enriched
-/// with the IOC hash list and a background YARA scan of the program behind the alert. Detect-only: nothing is stopped.
-/// </summary>
 internal sealed class Realtime : IDisposable
 {
     private readonly Context _ctx;
@@ -33,19 +29,12 @@ internal sealed class Realtime : IDisposable
     public int IocCount => _ioc.Count;
     public IReadOnlyList<string> YaraRuleNames => _yaraRuleFiles.Select(Path.GetFileName).Select(s => s ?? "").ToList();
 
-    /// <summary><paramref name="OnlyIfHit"/>: the behaviour alert was allowed, so only a YARA match is reported (no "not
-    /// scanned" alert for an allowed program).</summary>
     private sealed record YaraJob(string Blade, string Severity, string Title, string Image, string Detail, JsonObject Extra, bool OnlyIfHit = false);
 
-    /// <summary>YARA jobs for allowed programs never take more than half the queue: the alerts that were not allowed
-    /// keep their YARA scan under load.</summary>
     public const int AllowedYaraShare = 100;
 
     public Realtime(Context ctx) => _ctx = ctx;
 
-    // ---- rule sets -------------------------------------------------------------------------------------
-
-    /// <summary>Accepts "sha256" or "sha256;comment" lines (signature-base format); md5/sha1 lines are skipped.</summary>
     public void UpdateIocSet()
     {
         var f = _ctx.Paths.IocFile;
@@ -62,7 +51,6 @@ internal sealed class Realtime : IDisposable
         _ctx.Log.Info($"IOC hash list loaded: {_ioc.Count} SHA256 hashes");
     }
 
-    /// <summary>Rule names of the applied Sysmon config: an alert with any other name means the driver still runs an older rule set.</summary>
     public void UpdateRuleNames()
     {
         _ruleNames.Clear();
@@ -121,7 +109,7 @@ internal sealed class Realtime : IDisposable
                 _ctx.Log.Warn($"YARA scan failed: {e.Message}");
                 if (!job.OnlyIfHit) NotScanned(job, $"the scan failed ({e.GetType().Name})", ref detail);
             }
-            if (job.OnlyIfHit && !hit) continue;   // allowed behaviour, no match: nothing to report
+            if (job.OnlyIfHit && !hit) continue;
             _ctx.Event(blade, sev, title, job.Image, detail, job.Extra);
         }
     }
@@ -129,10 +117,8 @@ internal sealed class Realtime : IDisposable
     private long _yaraNotScanned, _yaraNotScannedReported;
     private DateTime _yaraNotScannedAlert = DateTime.MinValue;
 
-    /// <summary>Files YARA could not check (unreadable, too large, timed out, sandbox down) since the engine started.</summary>
     public long YaraNotScanned => Interlocked.Read(ref _yaraNotScanned);
 
-    /// <summary>A file YARA could not check is never reported or cached as clean: the alert says so, and it is counted.</summary>
     private void NotScanned(YaraJob job, string why, ref string detail)
     {
         job.Extra["yaraNotScanned"] = why;
@@ -140,7 +126,6 @@ internal sealed class Realtime : IDisposable
         Interlocked.Increment(ref _yaraNotScanned);
     }
 
-    /// <summary>Every minute (main loop): at most once an hour, one health alert for the files YARA could not check.</summary>
     public void ReportYaraNotScanned()
     {
         var n = YaraNotScanned;
@@ -159,11 +144,6 @@ internal sealed class Realtime : IDisposable
 
     internal readonly record struct YaraResult(string? Hit, string? NotScanned);
 
-    /// <summary>
-    /// One file: Hit = the first matching rule; NotScanned = why it could not be checked (never treated as clean).
-    /// Results are cached by <see cref="Win32.FileChangeStamp"/> (volume + file index + change-journal number), which the
-    /// file's owner cannot set back the way they can a timestamp; without a stamp the file is scanned every time.
-    /// </summary>
     internal YaraResult ScanFile(string image)
     {
         var fi = new FileInfo(image);
@@ -173,12 +153,11 @@ internal sealed class Realtime : IDisposable
         if (key is not null && _yaraCache.TryGetValue(key, out var cached)) return new(cached, null);
         string[] args = File.Exists(_ctx.Paths.CompiledYara) ? ["-C", _ctx.Paths.CompiledYara, image] : [.. _yaraRuleFiles, image];
         if (!File.Exists(_ctx.Paths.YaraExe) || args.Length <= 1) return new(null, "YARA or its rules are not installed");
-        // YARA parses files any user can drop: it runs at low integrity with no privileges, in a one-process job
         var run = Sandbox.RunCapture(_ctx.Paths.YaraExe, args, timeoutSeconds: 60, memoryMb: 1024);
         if (!run.Started)
         {
             if (!_sandboxWarned) { _ctx.Log.Error($"YARA sandbox could not start, file not scanned: {run.Error}"); _sandboxWarned = true; }
-            return new(null, "the YARA sandbox could not start");   // never fall back to running the parser with the engine's SYSTEM rights
+            return new(null, "the YARA sandbox could not start");
         }
         var r = ParseYaraOutput(run.Exit, run.Output, run.Error);
         if (r.NotScanned is null && key is not null)
@@ -189,8 +168,6 @@ internal sealed class Realtime : IDisposable
         return r;
     }
 
-    /// <summary>yara64 output: "RuleName path" per match, "error ..." when it could not scan; a timeout or a non-zero exit
-    /// without a match is a failed scan, never a clean one.</summary>
     internal static YaraResult ParseYaraOutput(int exit, string output, string error)
     {
         if (error.Length > 0) return new(null, error == "timeout" ? "the scan timed out" : error);
@@ -203,15 +180,12 @@ internal sealed class Realtime : IDisposable
         return new(null, null);
     }
 
-    // ---- process chain ---------------------------------------------------------------------------------
-
     private Dictionary<int, Win32.ProcInfo> Snapshot()
     {
         if ((DateTime.Now - _snapshotTime).TotalSeconds >= 2) { _snapshot = Win32.ProcessSnapshot(); _snapshotTime = DateTime.Now; }
         return _snapshot;
     }
 
-    /// <summary>Parent, grandparent, ... (up to 3): each step checks it really is the logged process (same path, started earlier).</summary>
     private List<string> Ancestors(EventRecord r)
     {
         var list = new List<string>();
@@ -229,14 +203,12 @@ internal sealed class Realtime : IDisposable
         return list;
     }
 
-    // ---- the pipeline ----------------------------------------------------------------------------------
-
     public void Handle(EventRecord r)
     {
         if (_ctx.State.IsPaused("realtime")) return;
         var rule = r["RuleName"].Trim();
         if (rule == "-") rule = "";
-        if (rule.Length == 0 && r.Id is 19 or 20 or 21) rule = "WMI persistence";   // WMI is logged without a rule name
+        if (rule.Length == 0 && r.Id is 19 or 20 or 21) rule = "WMI persistence";
         if (rule.Length == 0) return;
 
         switch (OwnProcess.Check(r.Data, _ctx.Paths.Root))
@@ -275,8 +247,6 @@ internal sealed class Realtime : IDisposable
         var hash = r["Hashes"].Length > 0 ? Ps.Rx(",.*$").Replace(Ps.Rx("^.*SHA256=").Replace(r["Hashes"], ""), "") : "";
         if (Detection.RealtimeExcluded(_ctx.Excl["realtimePath"], _ctx.Excl["realtime"], rule, image, parent, detail, AncestorsOf, _signers) is { } allow)
         {
-            // A real-time allow hides the behaviour alert only: a known-malware hash or a YARA match of the program is
-            // still reported (what "Allow everything it starts" promises), unless an IOC / YARA allow covers it
             AllowedMalwareCheck(r, rule, image, parent, detail, hash, allow);
             return;
         }
@@ -288,7 +258,7 @@ internal sealed class Realtime : IDisposable
         if (oldRule) extra["oldRule"] = true;
         if (r.Id == 1)
         {
-            var a = AncestorsOf(Catalog.MaxAncestors).Skip(1).ToList();   // grandparent and up, for "allowed by" in the tray
+            var a = AncestorsOf(Catalog.MaxAncestors).Skip(1).ToList();
             if (a.Count > 0) extra["ancestors"] = a.ToJsonArray();
         }
 
@@ -303,27 +273,20 @@ internal sealed class Realtime : IDisposable
             if (YaraCandidate(image))
             {
                 if (_yaraQueue.TryAdd(new YaraJob(blade, sev, title, image, detail, extra))) return;
-                extra["yaraSkipped"] = true;   // queue overflow under a flood: report without YARA rather than block intake
+                extra["yaraSkipped"] = true;
                 Dropped++;
             }
         }
         _ctx.Event(blade, sev, title, image, detail, extra);
     }
 
-    /// <summary>The IOC name (may be empty) when the hash is known malware and no IOC allow covers it; else null.</summary>
     private string? KnownMalware(string hash) =>
         hash.Length > 0 && _ioc.TryGetValue(hash, out var name) && !_ctx.Excl["ioc"].Any(x => Ps.Eq(x.Str("sha256"), hash)) ? name : null;
 
-    /// <summary>A program YARA checks: outside %SystemRoot%, still there, no YARA allow for it.</summary>
     private bool YaraCandidate(string image) =>
         image.Length > 0 && !image.StartsWith(EdrPaths.SystemRoot + "\\", StringComparison.OrdinalIgnoreCase) && File.Exists(image) &&
         !_ctx.Excl["yara"].Any(x => Ps.Like(image, x.Str("image")));
 
-    /// <summary>
-    /// The behaviour alert was allowed: the program is still checked against the malware hashes (at once) and YARA (in
-    /// the background, at most <see cref="AllowedYaraShare"/> queued, results cached per file version), and only a hit is
-    /// reported, as an "ioc" / "yara" alert that names the allow. Not while Anti-Malware is paused.
-    /// </summary>
     private void AllowedMalwareCheck(EventRecord r, string rule, string image, string parent, string detail, string hash, JsonObject allow)
     {
         if (_ctx.State.IsPaused("malware")) return;
@@ -351,10 +314,6 @@ internal sealed class Realtime : IDisposable
     }
 }
 
-/// <summary>Publisher lookups are slow, so they are cached per file change stamp (volume + file index + NTFS change-journal
-/// number, <see cref="Win32.FileChangeStamp"/>): any rewrite of the file gives a new key, even when its size and
-/// timestamps are put back. Files without a stamp (no change journal) and files in the usual user-writable folders are
-/// always verified live.</summary>
 internal sealed class SignerCache : ISignerLookup
 {
     private readonly Edr.Core.Native.AuthenticodeSigners _inner = new();
@@ -387,7 +346,6 @@ internal sealed class SignerCache : ISignerLookup
 
 internal static class EnumerableExtensions
 {
-    /// <summary>Ends the enumeration quietly when the consuming enumerable is cancelled.</summary>
     public static IEnumerable<T> AsEnumerableSafe<T>(this IEnumerable<T> source)
     {
         using var e = source.GetEnumerator();

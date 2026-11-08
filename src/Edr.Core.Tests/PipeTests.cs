@@ -6,8 +6,6 @@ using Xunit;
 
 namespace Edr.Core.Tests;
 
-/// <summary>The engine's named pipe (EnginePipe / PipeServer) and the sandboxed scanner tools. One class: the pipe hooks
-/// are static, and tests in one class run one after another.</summary>
 public class PipeTests
 {
     private static (PipeServer Server, Context Ctx, string Root) NewServer()
@@ -20,7 +18,6 @@ public class PipeTests
         return (s, ctx, root);
     }
 
-    /// <summary>Runs the server's queue like the engine's main loop does, until <paramref name="until"/> completes.</summary>
     private static async Task<T> Pump<T>(PipeServer s, Task<T> until, Func<JsonObject, bool, bool> execute)
     {
         while (!until.IsCompleted) { s.Drain(execute); await Task.Delay(20); }
@@ -33,7 +30,6 @@ public class PipeTests
         var (s, _, _) = NewServer();
         try
         {
-            // This test process is not SYSTEM: its pipe is owned by the user, exactly like a squatter's would be
             var r = await Pump(s, EnginePipe.SendAsync(new JsonObject { ["action"] = "scan-now" }, 5000), (_, _) => throw new InvalidOperationException("must not run"));
             Assert.False(r.Reached);
         }
@@ -54,12 +50,12 @@ public class PipeTests
             bool Execute(JsonObject cmd, bool admin)
             {
                 seen = cmd; seenAdmin = admin;
-                return admin || PatternRules.InboxActions.Contains(cmd.Str("action"));   // the engine's rule
+                return admin || PatternRules.InboxActions.Contains(cmd.Str("action"));
             }
             var ok = await Pump(s, EnginePipe.SendAsync(new JsonObject { ["action"] = "scan-now", ["user"] = "somebody-else" }, 10_000), Execute);
             Assert.True(ok.Reached, ok.Message);
             Assert.True(ok.Ok, ok.Message);
-            Assert.Equal(me.Name, seen!.Str("user"));   // not the name the request claimed
+            Assert.Equal(me.Name, seen!.Str("user"));
             Assert.Equal(new WindowsPrincipal(me).IsInRole(WindowsBuiltInRole.Administrator), seenAdmin);
 
             var pause = await Pump(s, EnginePipe.SendAsync(new JsonObject { ["action"] = "pause", ["blade"] = "edr", ["minutes"] = 0 }, 10_000), Execute);
@@ -93,8 +89,6 @@ public class PipeTests
         finally { s.Dispose(); EnginePipe.AcceptOwner = accept; EnginePipe.Name = "FreeEDR-Engine"; }
     }
 
-    // ---- QA round 3: a request the engine was too busy for never runs after the caller heard "busy" -----------
-
     [Fact]
     public async Task A_request_the_engine_was_too_busy_for_is_dropped_never_run_later()
     {
@@ -104,16 +98,15 @@ public class PipeTests
         var (s, _, _) = NewServer();
         try
         {
-            // The main loop does not drain (busy): the caller's 3 s deadline is passed to the engine
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var r = await EnginePipe.SendAsync(new JsonObject { ["action"] = "scan-now" }, 3000);
             Assert.True(r.Reached, r.Message);
             Assert.True(r.Busy, r.Message);
             Assert.False(r.Answered);
-            Assert.False(r.Unanswered);   // answered "busy" before the deadline, so the caller may queue it elsewhere
+            Assert.False(r.Unanswered);
             Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), $"answered after {sw.Elapsed}");
             var ran = false;
-            s.Drain((_, _) => ran = true);   // the main loop is free again
+            s.Drain((_, _) => ran = true);
             Assert.False(ran);
         }
         finally { s.Dispose(); EnginePipe.AcceptOwner = accept; EnginePipe.Name = "FreeEDR-Engine"; }
@@ -139,8 +132,6 @@ public class PipeTests
         finally { s.Dispose(); EnginePipe.AcceptOwner = accept; EnginePipe.Name = "FreeEDR-Engine"; }
     }
 
-    // ---- fairness: no account can take the pipe from the others (audit round 2, finding 5) -------------------
-
     [Fact]
     public async Task Line_reader_splits_buffered_lines_and_refuses_an_endless_one()
     {
@@ -156,7 +147,7 @@ public class PipeTests
         var big = new byte[EnginePipe.MaxLine + 10];
         Array.Fill(big, (byte)'x');
         var write = server.WriteAsync(big, ct).AsTask();
-        Assert.Null(await reader.ReadAsync(ct));   // over 64 KB without a line end: the connection ends
+        Assert.Null(await reader.ReadAsync(ct));
         client.Dispose();
         try { await write; } catch (IOException) { }
     }
@@ -172,7 +163,6 @@ public class PipeTests
         var held = new List<System.IO.Pipes.NamedPipeClientStream>();
         try
         {
-            // Its subscriptions are capped ...
             for (var i = 0; i < PipeServer.SubscriptionsPerCaller + 1; i++)
             {
                 var c = new System.IO.Pipes.NamedPipeClientStream(".", EnginePipe.Name, System.IO.Pipes.PipeDirection.InOut, System.IO.Pipes.PipeOptions.Asynchronous);
@@ -180,7 +170,6 @@ public class PipeTests
                 await EnginePipe.WriteLineAsync(c, new JsonObject { ["op"] = "subscribe" }, ct);
                 held.Add(c);
             }
-            // The subscriptions are served in parallel, so any one of them may be the one over the cap: it is closed
             using (var t = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
                 t.CancelAfter(5000);
@@ -192,7 +181,6 @@ public class PipeTests
             }
             Assert.Equal(PipeServer.SubscriptionsPerCaller, s.Subscribers);
             Assert.Equal(1, s.Refused);
-            // ... and a request still gets through
             var r = await Pump(s, EnginePipe.SendAsync(new JsonObject { ["action"] = "scan-now" }, 10_000), (_, _) => true);
             Assert.True(r.Reached, r.Message);
             Assert.True(r.Ok, r.Message);
@@ -223,8 +211,6 @@ public class PipeTests
         finally { s.Dispose(); EnginePipe.Name = "FreeEDR-Engine"; }
     }
 
-    // ---- sandboxed scanner tools -----------------------------------------------------------------------
-
     private static string? ToolsCache()
     {
         for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
@@ -236,7 +222,6 @@ public class PipeTests
     public void A_low_integrity_folder_is_writable_from_the_sandbox()
     {
         var dir = Path.Combine(AppContext.BaseDirectory, "sandbox-work", Guid.NewGuid().ToString("N"));
-        // Labelling needs WRITE_OWNER on the folder: the engine has it as SYSTEM, an unelevated test run may not
         Assert.SkipUnless(Sandbox.LowIntegrityFolder(dir), "cannot label a folder low integrity without WRITE_OWNER (checked live: the engine runs as SYSTEM)");
         var target = Path.Combine(dir, "out.txt");
         var r = Sandbox.RunCapture(Path.Combine(EdrPaths.System32, "cmd.exe"), ["/c", "type", "nul", ">", target], 30, workDir: dir, env: new Dictionary<string, string> { ["TEMP"] = dir }, ct: TestContext.Current.CancellationToken);

@@ -1,6 +1,4 @@
 @echo off
-rem Keeps every file a build writes inside this dev folder (.\obj): temp files, the NuGet package cache,
-rem the .NET CLI home. Called by build.cmd and dev_build.cmd. (nuget.config does the same for plain dotnet commands.)
 set "FREEEDR_DEV=%~dp0.."
 set "TEMP=%FREEEDR_DEV%\obj\tmp"
 set "TMP=%FREEEDR_DEV%\obj\tmp"

@@ -1,24 +1,10 @@
 import sys
 import os
 
-# ══════════════════════════════════════════════════════════════════════════════════════════
-# NO CACHE. BOTH LINES, BEFORE EVERY OTHER IMPORT.
-# Running it directly is safe (Python does not cache the __main__ module), but importing it
-# from anywhere would drop a __pycache__ beside it. `dont_write_bytecode` must sit above the
-# imports because it only governs imports made after it; the env var covers child processes.
-# ══════════════════════════════════════════════════════════════════════════════════════════
 sys.dont_write_bytecode = True
 os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
 
 
-# FreeEDR code exporter (developer tool, never built, packed or installed; not in $ProjectFiles).
-# Packs the repository's text into at most ten .txt files for an online AI GUI.
-# Complete accounting, no deletion, no silent decode failures, and the output folder is always
-# OUTSIDE the repository (default: ~/Downloads/freeedr).
-# Read-only with respect to the repository: nothing under the repo root is created or changed.
-# FreeEDR collects data from THIS PC (events, Wail2Ban attackers, user folders), so besides secrets the
-# export also masks user-profile names, the computer / user / domain names, domain SIDs and public IPs.
-# Docs: project_structure.txt §3
 import argparse
 import codecs
 from collections import Counter
@@ -34,25 +20,16 @@ import subprocess
 import uuid
 from pathlib import Path
 
-MAX_CODE_FILES = 8  # + manifest + inventory = at most ten attachments per export.
+MAX_CODE_FILES = 8
 MIN_PART_BYTES = 500_000
-# A text file larger than this is listed (METADATA) but not read; --max-source-bytes changes it.
 DEFAULT_MAX_SOURCE_BYTES = 8 * 1024 * 1024
 OUTPUT_FOLDER_NAME = 'freeedr'
-# Generated, secret or history folders: always skipped (matched case-insensitively, any depth).
-# obj\ also holds the build's TEMP, NuGet caches and the .NET CLI home (build\env.cmd).
 IGNORED_DIRS = {
     '.git', 'bin', 'obj', '.vs', '.vscode', '.idea', 'node_modules', 'compiled', 'publish',
     'testresults', 'packages', 'artifacts', 'venv', '.venv',
     '.pytest_cache', '__pycache__', '.gemini', '.ssh', '.aws', '.azure',
-    # AI agent folders: local settings, and .claude/worktrees holds whole copies of the repository.
     '.claude', '.cursor', '.codex',
 }
-# Folders whose NAME matches a FreeEDR runtime folder under C:\Program Files\FreeEDR (live events, bans,
-# quarantine, per-user state) or the test results (paths and user names), but which could also be a
-# real source folder (tests\data, the parity fixtures' inputs\data and inputs\local).
-# Their git-TRACKED files are exported (they are source); untracked files inside them never are.
-# Without git they are skipped entirely (the safe side).
 PRIVATE_DATA_DIRS = {
     'data', 'local', 'logs', 'quarantine', 'control', 'inbox', 'user', 'backup', 'download',
     'results', 'reports', 'cache', 'env',
@@ -71,20 +48,15 @@ ASSET_EXTENSIONS = {
     '.ico', '.png', '.jpg', '.jpeg', '.gif', '.ogg', '.mp3', '.wav', '.dll', '.exe', '.sys', '.msi',
     '.bmp', '.webp', '.zip', '.7z', '.pdb', '.cer', '.nupkg',
 }
-# Extra formats accepted ONLY for reports passed explicitly with --test-result
-# (tests\results\last-run.txt / .json, dotnet test .trx, build.log).
 REPORT_EXTENSIONS = {'.log', '.trx', '.txt', '.xml', '.json', '.html', '.htm', '.md'}
 CONFIG_EXTENSIONS = {
     '.json', '.xml', '.csproj', '.sln', '.slnx', '.config', '.props', '.targets', '.ini',
     '.toml', '.ruleset', '.manifest', '.yaml', '.yml',
 }
-# AGENTS.md -> project_structure.txt -> the two docs every editing session reads (project_structure.txt §1, §4).
 START_HERE = ['AGENTS.md', 'project_structure.txt', 'docs/agents/AGENT_WORKFLOW.md', 'docs/history/STATUS.md']
-# Root scripts by role (project_structure.txt §3), used to group related code into the same bundle.
 ENGINE_SCRIPTS = {'edr-common.ps1', 'edr-engine.ps1', 'edr-scan.ps1', 'edr-control.ps1'}
 TRAY_SCRIPTS = {'edr-tray.ps1'}
 INSTALLER_SCRIPTS = {'install-edr.ps1', 'uninstall-edr.ps1'}
-# Verified per-file legacy encodings (repo-relative path -> codec). None are known today.
 LEGACY_ENCODINGS = {}
 MODEL_GUIDANCE = (
     'TARGET: advanced online GUI models with high reasoning settings.\n'
@@ -104,7 +76,6 @@ TOKEN_RE = re.compile(
     r'|AKIA[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]{16,}'
     r'|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})\b'
 )
-# Telegram Bot API token shape: <8-10 digit bot id>:<35 char secret>.
 TELEGRAM_TOKEN_RE = re.compile(r'\b\d{8,10}:[A-Za-z0-9_-]{35}\b')
 PRIVATE_KEY_RE = re.compile(
     r'-----BEGIN (?:[A-Z0-9 ]*PRIVATE KEY)-----.*?'
@@ -115,19 +86,13 @@ ASSIGNMENT_RE = re.compile(
 )
 BEARER_RE = re.compile(r'(?i)\b(Bearer\s+)[A-Za-z0-9._~+/-]{16,}=*')
 URL_AUTH_RE = re.compile(r'(https?://)[^\s/:@]+:[^\s/@]+@', re.IGNORECASE)
-# Organisation sign-in tenants (SSO identity providers) name the organisation; generic, kept from the
-# original exporter in case a URL of this kind ever reaches a doc or fixture.
 IDP_HOST_RE = re.compile(r'(?i)\b([a-z0-9][a-z0-9-]*)(\.(?:okta|oktapreview|okta-emea|onelogin|auth0|pingone|'
                          r'pingidentity|onmicrosoft)\.com)\b')
 IDP_PLACEHOLDER_TENANTS = {
     'example', 'contoso', 'fabrikam', 'yourcompany', 'your-tenant', 'tenant', 'company', 'mycompany', 'acme',
     'www', 'login', 'developer', 'docs', 'support', 'status',
 }
-# Microsoft Entra tenant id in a sign-in URL (login.microsoftonline.com/<tenant guid>/...).
 ENTRA_TENANT_RE = re.compile(r'(?i)(login\.microsoftonline\.com/)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
-# ── Local machine identity (FreeEDR reads this PC's events, so live data names its users) ──────────
-# A user-profile folder (C:\Users\<name>, also with JSON-doubled backslashes or forward slashes).
-# Placeholders used by docs, tests and the anonymised parity fixtures stay readable.
 USER_PROFILE_RE = re.compile(r'(?i)(\b[A-Z]:(?:\\{1,2}|/)(?:Users|Documents and Settings)(?:\\{1,2}|/))'
                              r'([A-Za-z0-9._-]+)(?![A-Za-z0-9._-])')
 PROFILE_PLACEHOLDERS = {
@@ -135,20 +100,8 @@ PROFILE_PLACEHOLDERS = {
     'test', 'testuser', 'someone', 'someuser', 'other', 'otheruser', 'admin', 'administrator', 'name',
     'victim', 'attacker', 'jdoe',
 }
-# One- and two-character names (C:\Users\u, C:\Users\x) are test fixtures, not accounts.
 PROFILE_FIXTURE_MAX_LEN = 2
-# A machine or domain SID: S-1-5-21-<three domain numbers>[-RID]. The RID (500, 1001, ...) is kept
-# because it says which account it is; the domain part identifies the PC. Fixture SIDs (few distinct
-# digits, e.g. 1000000000-1000000000-1000000000, or short numbers such as 1-2-3) stay readable.
 DOMAIN_SID_RE = re.compile(r'\b(S-1-5-21-)(\d+-\d+-\d+)\b')
-# IPv4 addresses: only PUBLIC ones are masked (Wail2Ban attackers, internet logins, the PC's own public
-# address), and only in DATA files (events.jsonl, status/history JSON, logs, test reports) on a line
-# that says it is about an address (IP_CONTEXT_RE). Source code and docs keep theirs: the unit tests use
-# deliberate public edge cases (172.32.0.1 just outside 172.16.0.0/12), and a bare 4-part version such
-# as "2.56.0.4" in the fixtures looks exactly like an address. Private/LAN, loopback, link-local, CGNAT
-# and the RFC 5737 documentation ranges (192.0.2.x, 198.51.100.x, 203.0.113.x) are not global and
-# stay. Addresses ending in .0 / .255 (networks, broadcast, versions) and well-known public resolvers
-# stay too. A dotted run inside a longer word or version (Launcher.1.3.210.0, 1.2.3.4.5) is no IP.
 IP_DATA_EXTENSIONS = {'.json', '.jsonl', '.txt', '.log', '.trx', '.xml', '.csv', ''}
 IP_CONTEXT_RE = re.compile(r'(?i)(?<![a-z])ip(?:v4|address)?(?![a-z])|ip(?![a-z])|address|remote|source|client|peer'
                            r'|host|\bban|logon|login|firewall|attacker')
@@ -157,26 +110,16 @@ IPV4_RE = re.compile(r'(?<![\w.])((?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[
 WELL_KNOWN_PUBLIC_IPS = {
     '1.1.1.1', '1.0.0.1', '8.8.8.8', '8.8.4.4', '9.9.9.9', '149.112.112.112', '208.67.222.222', '208.67.220.220',
 }
-# Environment values that are generic words, not an identity (never added as local terms).
 GENERIC_MACHINE_TERMS = {
     'workgroup', 'user', 'users', 'admin', 'administrator', 'system', 'localhost', 'default', 'public', 'test',
     'freeedr', 'windows', 'desktop', 'laptop', 'home',
 }
-# Organisation email addresses never leave the machine. RFC 2606 / 6761 reserved domains and GitHub
-# no-reply addresses are kept (they are placeholders).
-# The look-behind refuses to start inside an escape such as "\r\nd@w.com" (C# test fixture),
-# so a redaction can never eat the "\n" and corrupt the exported string literal.
 EMAIL_RE = re.compile(r'(?<![\\\w.%+-])([A-Za-z0-9._%+-]+)@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})\b')
 EMAIL_ALLOWED_DOMAIN_RE = re.compile(
     r'(?i)^(?:(?:[a-z0-9-]+\.)*example(?:\.[a-z0-9-]+)*|(?:[a-z0-9-]+\.)*(?:test|invalid|localhost)'
     r'|users\.noreply\.github\.com)$'
 )
-# Test fixtures such as a@x.com / d@w.com: a ONE-character mailbox at a ONE-letter domain. A
-# one-letter domain alone is not enough (x.com is a real domain), so a longer mailbox there is redacted.
 EMAIL_FIXTURE_RE = re.compile(r'(?i)^[a-z0-9]@[a-z]\.[a-z]{2,3}$')
-# Quoted values assigned to a secret-named key are redacted whatever their length or spacing.
-# Only these stay readable: references and placeholders, and well-known NAMES of tokens and headers
-# (code such as `token = "access_token"` refers to the name, not to a secret value).
 SECRET_VALUE_PLACEHOLDERS = {
     'example', 'placeholder', 'your_api_key', 'your-api-key', 'changeme', 'xxx', 'xxxx', '***', 'redacted',
     'none', 'null', 'true', 'false', 'test',
@@ -185,16 +128,10 @@ SECRET_NAME_VALUES = {
     'password', 'passwd', 'token', 'secret', 'api_key', 'apikey', 'access_token', 'refresh_token',
     'id_token', 'bearer', 'basic', 'authorization', 'x-api-key', 'client_secret', 'github_token',
 }
-# ${...} / {{...}} / <...> / %VAR% / $env:VAR / $(...) / $Var (PowerShell variable) are references, not values.
 SECRET_REFERENCE_RE = re.compile(r'^(?:\$\{|\{\{|\[REDACTED|<|%[\w.-]+%$|\$env:|\$\(|\$[A-Za-z_][\w:]*$)')
-# Unquoted `password=value` lines are only secret-shaped in shell/env/ini style files. In C#,
-# AXAML, JSON and Markdown the same shape is CODE (`SavedPassword = Migrate(...)`) and must stay.
 BARE_ASSIGNMENT_EXTENSIONS = {'.cmd', '.bat', '.ps1', '.sh', '.ini', '.toml', '.config', '.yml', '.yaml', '.txt',
                               '.iss', '.log', ''}
-# Extra local words to mask everywhere (whole word, case-insensitive): this PC's computer, user and
-# domain names plus every --redact-term.
 LOCAL_TERMS_RE = None
-# Every placeholder names what it hides, so a reader of a redacted test still sees what the fixture was.
 REDACTIONS = (
     (PRIVATE_KEY_RE, '[REDACTED-PRIVATE-KEY]'),
     (TOKEN_RE, '[REDACTED-API-TOKEN]'),
@@ -252,7 +189,6 @@ def local_machine_terms():
 
 
 def redact_sensitive(text, ext=''):
-    # Defense in depth; cannot prove that arbitrary secrets have been recognized.
     count = 0
     for pattern, placeholder in REDACTIONS:
         text, n = pattern.subn(placeholder, text)
@@ -310,7 +246,6 @@ def redact_sensitive(text, ext=''):
 
     text = ASSIGNMENT_RE.sub(assignment, text)
     if ext.lower() in BARE_ASSIGNMENT_EXTENSIONS:
-        # Literal secrets only: not a $var / %VAR% / $(...) reference.
         text = re.sub(
             r'(?im)((?:^\s*(?:export\s+|set\s+)?|;\s*)(?:[\w.-]*(?:api[_-]?key|password|passwd|secret|access[_-]?token))\s*=\s*)(?![$%]|\[REDACTED)([^\s;"\'<>()]+)',
             bare_assignment, text,
@@ -339,11 +274,8 @@ def is_secret_or_sensitive(path):
     return (name.endswith(('.password.txt', '.pfx', '.p12', '.key.pem', '.key', '.pem', '.pvk',
                            '.crt', '.jks', '.eml', '.xlsx', '.xls', '.csv',
                            '.sqlite', '.db', '.db3', '.dmp', '.mdmp',
-                           # Raw Windows event logs / traces / registry hives: full of this PC's data.
                            '.evtx', '.etl', '.hve'))
             or (name.startswith('.env') and not name.endswith('.example'))
-            # Settings the installer records on THIS PC before changing them (DATA_FILES.md);
-            # they belong in C:\Program Files\FreeEDR only, never in an export.
             or name in {'preinstall.json', 'managed.json'}
             or name in {'credentials', '.netrc', '.npmrc', 'id_rsa', 'id_ed25519',
                         'credentials.json', 'secrets.json', 'cookies', 'login data'})
@@ -356,7 +288,6 @@ def is_link(path):
 
 
 def decode_text(data):
-    # Strict BOM-aware decoding: never silently replace characters.
     for bom, encoding in ((codecs.BOM_UTF32_LE, 'utf-32'), (codecs.BOM_UTF32_BE, 'utf-32'),
                           (codecs.BOM_UTF16_LE, 'utf-16'), (codecs.BOM_UTF16_BE, 'utf-16'),
                           (codecs.BOM_UTF8, 'utf-8-sig')):
@@ -374,7 +305,6 @@ def decode_text(data):
 
 
 def get_group_name(file_path, project_root):
-    # Groups follow project_structure.txt §3 (repository map) so related code lands in the same bundle.
     parts = tuple(p.lower() for p in file_path.relative_to(project_root).parts)
     name = parts[-1]
     ext = file_path.suffix.lower()
@@ -474,7 +404,6 @@ def git_snapshot(root):
     head = git('rev-parse', 'HEAD')
     status = git('status', '--porcelain=v1', '--untracked-files=all')
     tracked = git('-c', 'core.quotepath=off', 'ls-files', '-z')
-    # Untracked files .gitignore marks as local/private; wholly ignored folders come back as 'dir/'.
     ignored = git('-c', 'core.quotepath=off', 'ls-files', '-z', '--others', '--ignored',
                   '--exclude-standard', '--directory')
     return {'commit': head or 'unavailable', 'status': status,
@@ -491,7 +420,7 @@ def collect_entries(root, focus=(), legacy_encoding=None, ignored=frozenset(), t
     for item in tracked or ():
         parts = item.split('/')[:-1]
         tracked_dirs.update('/'.join(parts[:i]) + '/' for i in range(1, len(parts) + 1))
-    restricted = set()  # directories (casefolded rel + '/') inside a PRIVATE_DATA_DIRS folder: tracked files only
+    restricted = set()
 
     def onerror(error):
         try:
@@ -517,7 +446,7 @@ def collect_entries(root, focus=(), legacy_encoding=None, ignored=frozenset(), t
                     if tracked is None:
                         reason = 'private-data folder name and git unavailable; entire subtree skipped'
                     elif key in tracked_dirs:
-                        restricted.add(key)  # Source folder with this name: export its tracked files only.
+                        restricted.add(key)
                     else:
                         reason = 'private-data folder with no git-tracked files; entire subtree skipped'
             except OSError:
@@ -532,11 +461,9 @@ def collect_entries(root, focus=(), legacy_encoding=None, ignored=frozenset(), t
             rel = path.relative_to(root).as_posix()
             group = get_group_name(path, root)
             if name.lower().endswith('.log'):
-                # build.log and other local logs may hold paths, user names or machine data.
                 entries.append(Entry(rel, 'SKIPPED', 'local log (git-ignored); opt in with --test-result'))
                 continue
             if rel.lower() in ignored and not is_secret_or_sensitive(path):
-                # Sensitive names keep their own, more specific reason from read_entry.
                 entries.append(Entry(rel, 'SKIPPED', 'git-ignored (local/private); contents not read'))
                 continue
             if current_key in restricted and rel.casefold() not in tracked:
@@ -726,7 +653,6 @@ def run_aggregator(project_root=None, output_parent=None, focus=(), test_results
     snapshot = git_snapshot(root)
     tracked_set = {p.casefold() for p in snapshot['tracked']} if snapshot['available'] else None
     entries = collect_entries(root, focus, legacy_encoding, snapshot['ignored'], tracked_set, max_source_bytes)
-    # Windows paths are case-insensitive: git's spelling and the folder's spelling may differ in case.
     known = {e.path.casefold() for e in entries}
     skipped_dirs = [e for e in entries if e.path.endswith('/')]
     for tracked in snapshot['tracked']:
@@ -784,7 +710,7 @@ def run_aggregator(project_root=None, output_parent=None, focus=(), test_results
         return None, (2 if error_count else 0)
     output_parent.mkdir(parents=True, exist_ok=True)
     destination = output_parent / (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S_%fZ') + '_' + uuid.uuid4().hex[:8])
-    destination.mkdir(exist_ok=False)  # No deletion, overwrite, or bytecode purge.
+    destination.mkdir(exist_ok=False)
     for name in sorted(payloads, key=lambda n: (n == '00_PROJECT_MANIFEST.txt', n)):
         with (destination / name).open('x', encoding='utf-8', newline='\n') as handle:
             handle.write(payloads[name])
@@ -798,7 +724,7 @@ def run_aggregator(project_root=None, output_parent=None, focus=(), test_results
 def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding='utf-8', errors='replace')  # non-ASCII paths in the report
+            stream.reconfigure(encoding='utf-8', errors='replace')
         except (AttributeError, ValueError):
             pass
     parser = argparse.ArgumentParser(description='Export the FreeEDR repository into <=10 text files for advanced online AI GUIs. '

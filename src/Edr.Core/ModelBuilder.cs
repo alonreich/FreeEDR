@@ -3,18 +3,11 @@ using System.Text.Json.Nodes;
 
 namespace Edr.Core;
 
-/// <summary>
-/// Sorts every event, verdict and scan result into its section and list: originally a port of the PowerShell
-/// tray (Update-Model, Find-Exclusion, Find-Block, Get-Overall); the golden tests keep it stable.
-/// </summary>
 public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
 {
     private readonly EdrInputs _in = inputs;
-    private readonly ISignerLookup _signers = new CachedSigners(signers, int.MaxValue, stamped: false);   // one build: per path
+    private readonly ISignerLookup _signers = new CachedSigners(signers, int.MaxValue, stamped: false);
 
-    // ---- per-event helpers --------------------------------------------------------------------------
-
-    /// <summary>Alerts from a rule no longer in the Sysmon config (old LocalEDR rules) or Hayabusa re-reporting Sysmon.</summary>
     public bool IsRetired(Rec e)
     {
         if (e.T("oldRule")) return true;
@@ -28,7 +21,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
 
     private bool AllReviewed(IEnumerable<Rec> members) => members.All(IsReviewed);
 
-    /// <summary>The parent pattern matches one of the first N ancestors, signed by parentSigner if set (same rule as the engine).</summary>
     public bool ParentMatches(Rec r, IEnumerable<string> chain)
     {
         var n = Math.Max(1, r.I("ancestors"));
@@ -41,7 +33,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         return false;
     }
 
-    /// <summary>Mirrors the engine's exclusion logic; returns the matching exclusion entry.</summary>
     public Rec? FindExclusion(Rec e)
     {
         var x = _in.Exclusions;
@@ -107,7 +98,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         return null;
     }
 
-    /// <summary>Defender audit kinds ("asr-audit") are allowed like their blocking kinds ("asr").</summary>
     private static string AuditKind(string kind) => kind.EndsWith("-audit", StringComparison.OrdinalIgnoreCase) ? kind[..^6] : kind;
 
     public Rec? FindBlock(Rec e)
@@ -186,8 +176,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         _ => "",
     };
 
-    // ---- formatting ---------------------------------------------------------------------------------
-
     public static string Short(string? text, int max = 220)
     {
         var t = Ps.Rx(@"\s+").Replace(text ?? "", " ");
@@ -212,7 +200,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         m.Sec[sec].Rows[list].Add(r);
     }
 
-    /// <summary>Group-Object: groups in order of first appearance, keys compared case-insensitively.</summary>
     private static List<List<T>> GroupBy<T>(IEnumerable<T> items, Func<T, string> key)
     {
         var map = new Dictionary<string, List<T>>(StringComparer.OrdinalIgnoreCase);
@@ -254,8 +241,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         return [FormatSev(rep.S("severity")), rep.S("time"), title, Ps.Leaf(sp.Image), Ps.Leaf(sp.Parent), detail];
     }
 
-    // ---- the model ----------------------------------------------------------------------------------
-
     public TrayModel Build()
     {
         var m = new TrayModel();
@@ -282,7 +267,7 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
                 else if (e.T("ip") && e.T("expires")) banHist.Add(e);
                 continue;
             }
-            if (!IsAny(b, "realtime", "ioc", "yara", "sigma", "defender")) continue;   // cve: the CVE tab shows the latest scan
+            if (!IsAny(b, "realtime", "ioc", "yara", "sigma", "defender")) continue;
             if (claude is null)
             {
                 var par = Ps.Eq(b, "sigma") ? SigmaProcess.Of(e).Parent : e.S("parent");
@@ -293,7 +278,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
                 avSeen.Add($"{e.S("threat")}|{Minute(e.T("eventTime") ? e.S("eventTime") : e.S("time"))}");
             if (Ps.Eq(b, "sigma") && Ps.Match(e.S("title"), Catalog.DefenderSigmaTitles))
             {
-                // Hayabusa repeating a Defender detection: shown once, in Anti-Malware, as blocked by Defender
                 var tm = Ps.Rx(@"Threat: ([^\xA6]+)").Match(e.S("detail"));
                 var threat = tm.Success ? tm.Groups[1].Value.Trim() : e.S("title");
                 var t16 = Minute(e.T("eventTime") ? e.S("eventTime") : e.S("time"));
@@ -308,12 +292,11 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             }
             if (FindBlock(e) is { } bk) { AddTo(blockEv, bk.S("id"), e); continue; }
             if (FindExclusion(e) is { } x) { AddTo(exclEv, x.S("id"), e); continue; }
-            if (Ps.Eq(b, "defender") && !IsAny(e.S("kind"), "asr-audit", "cfa-audit")) { defBlocked.Add(e); continue; }   // Defender already blocked it (audit = only reported: Detected)
+            if (Ps.Eq(b, "defender") && !IsAny(e.S("kind"), "asr-audit", "cfa-audit")) { defBlocked.Add(e); continue; }
             if (Ps.Eq(e.S("kind"), "blocked-start")) continue;
             det[Catalog.BladeSection[b]].Add(e);
         }
 
-        // Any unreviewed pinned events whose group is no longer in the ring buffer
         foreach (var (pid, pe) in _in.EvictedPinned)
         {
             if (_in.Reviewed.Contains(pid)) continue;
@@ -334,7 +317,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             }
         }
 
-        // Detected: identical alerts collapsed into one row (x N)
         foreach (var sec in new[] { "malware", "edr", "sigma" })
         {
             var groups = GroupBy(det[sec], e => Ps.Eq(e.S("blade"), "sigma")
@@ -351,7 +333,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             }
         }
 
-        // Blocked by the user
         foreach (var bk in _in.Blocks)
         {
             var hits = blockEv.TryGetValue(bk.S("id"), out var h) ? ByTime(h) : [];
@@ -371,7 +352,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             Add(m, sec, 1, r);
         }
 
-        // Blocked by Microsoft Defender (already handled; listed so it can be allowed)
         foreach (var g in GroupBy(defBlocked, e => $"{e.S("kind")}|{e.S("path")}|{e.S("process")}|{e.S("threat")}"))
         {
             var members = ByTime(g);
@@ -385,7 +365,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             Add(m, "malware", 1, r);
         }
 
-        // Allowed (exclusions)
         foreach (var (list, sec) in Catalog.ExclusionLists)
         {
             foreach (var x in _in.Exclusions[list])
@@ -414,7 +393,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         BuildWail2Ban(m, fails, logins, banHist);
         BuildCveAndApps(m);
 
-        // Newest first ("Was this you?" on top); the CVE list worst first
         foreach (var s in m.Sec.Values)
         {
             for (var i = 0; i < 3; i++)
@@ -425,7 +403,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             }
         }
 
-        // Counts: the tab shows how many open items; red only for security items that need a decision
         foreach (var s in m.Sec.Values)
         {
             var open = s.Rows[0].Where(r => !r.Muted).ToList();
@@ -481,7 +458,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             r.Muted = AllReviewed(members);
             Add(m, "wail2ban", 0, r);
         }
-        // Successful logins from the internet (one row per address and user)
         foreach (var g in GroupBy(logins, e => $"{e.S("ip")}|{e.S("user")}"))
         {
             var members = ByTime(g);
@@ -515,7 +491,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
 
     private void BuildCveAndApps(TrayModel m)
     {
-        // CVE: the latest scan, only packages with a released fix (the scan drops the rest)
         var scanned = Ps.ToDate(_in.Cve?.S("scanned")) ?? DateTime.MinValue;
         foreach (var v in _in.Cve?.Recs("items") ?? [])
         {
@@ -527,7 +502,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             Add(m, "cve", 0, r);
         }
 
-        // App updates (winget)
         var ignored = new HashSet<string>(_in.Ignored, StringComparer.OrdinalIgnoreCase);
         var checkedAt = _in.PatchChecked ?? DateTime.MinValue;
         foreach (var p in _in.PatchEvents)
@@ -545,7 +519,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             Add(m, "apps", 2, r);
         }
 
-        // Updates started from the dashboard (CVE + apps)
         foreach (var hx in _in.History)
         {
             Row r;
@@ -564,12 +537,9 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         l.Add(e);
     }
 
-    // ---- the Overview sentence ----------------------------------------------------------------------
-
     public static bool EngineAlive(Rec? status, DateTime now) =>
         status is not null && status.T("heartbeat") && Ps.ToDate(status.S("heartbeat")) is { } hb && (now - hb).TotalSeconds < 90;
 
-    /// <summary>Get-PauseState: the blade's state object (engine v1 called the EDR blade "realtime").</summary>
     public static Rec? PauseState(Rec? status, string blade) =>
         status is null ? null : blade == "edr" && !status.T("edr") ? status.Child("realtime") : status.Child(blade);
 
@@ -581,7 +551,6 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         return "until " + (Ps.ToDate(u) is { } d ? d.ToString("HH:mm", CultureInfo.CurrentCulture) : u);
     }
 
-    /// <summary>One sentence that tells the user what matters right now (Get-Overall).</summary>
     public static Overall GetOverall(TrayModel? model, Rec? st, DateTime now)
     {
         if (!EngineAlive(st, now))
@@ -604,13 +573,11 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         var paused = new List<string>();
         if (edr is not null && Ps.Eq(edr.S("state"), "paused")) paused.Add($"EDR is paused {FormatUntil(edr)}");
         else
-            // One part paused on its own also shows as paused (grey shield), not as "You're protected"
             foreach (var (b, label) in Catalog.PauseLabels)
                 if (st!.Child(b) is { } bs && Ps.Eq(bs.S("state"), "paused")) paused.Add($"{label} is paused {FormatUntil(bs)}");
         if (w2b is not null && Ps.Eq(w2b.S("state"), "paused")) paused.Add($"Wail2Ban is paused {FormatUntil(w2b)}");
         if (att > 0)
         {
-            // The same number as Activity's "To review" tab and the sidebar badge: every open item (red because of the serious ones)
             var secs = new[] { "malware", "edr", "sigma" }.Select(s => model!.Sec[s]).ToList();
             var open = secs.Sum(s => s.Count);
             var parts = secs.Where(s => s.Count > 0).Select(s => $"{s.Info.Name}: {s.Count}");

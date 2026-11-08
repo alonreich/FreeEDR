@@ -8,15 +8,6 @@ using Edr.Core.Native;
 
 namespace Edr.Engine;
 
-/// <summary>
-/// Tamper-resistant copy of the Windows event logs that matter for an investigation, kept under the admin-only
-/// data\archive\ folder: clearing a Windows log (wevtutil cl, Event Viewer) does not erase what was already copied.
-/// Own subscriptions (bookmarked, so nothing is skipped across restarts) feed a bounded queue; one below-normal-priority
-/// thread writes batches every few seconds as gzip members appended to data\archive\yyyy-MM-dd\&lt;log&gt;.xml.gz (one
-/// event XML per line). Not urgent and never in the detection path: a full queue makes the archive's own callback wait
-/// (the events stay in the Windows log). Retention: 90 days and 1 GB, oldest days first; paused when the disk has less
-/// than 2 GB free.
-/// </summary>
 internal sealed class EventArchive(Context ctx) : IDisposable
 {
     public sealed record Source(string Key, string Channel, string XPath);
@@ -35,9 +26,9 @@ internal sealed class EventArchive(Context ctx) : IDisposable
         new("wmi", "Microsoft-Windows-WMI-Activity/Operational", Ids(5857, 5860, 5861)),
     ];
 
-    public const long MaxBytes = 1L << 30;           // 1 GB
+    public const long MaxBytes = 1L << 30;
     public const int KeepDays = 90;
-    public const long MinFreeBytes = 2L << 30;       // pause below 2 GB free
+    public const long MinFreeBytes = 2L << 30;
     private const int QueueCapacity = 5_000;
     private const int BatchMax = 1_000;
     private static readonly TimeSpan FlushEvery = TimeSpan.FromSeconds(5);
@@ -70,7 +61,6 @@ internal sealed class EventArchive(Context ctx) : IDisposable
         ctx.Log.Info($"Event archive: {_subs.Count} of {Sources.Length} logs copied to {Dir}");
     }
 
-    /// <summary>Retries logs that could not be opened (e.g. a channel that appears later). Called every 5 minutes.</summary>
     public void RetryMissing()
     {
         foreach (var s in Sources.Where(s => !_subs.ContainsKey(s.Key))) Subscribe(s);
@@ -85,13 +75,12 @@ internal sealed class EventArchive(Context ctx) : IDisposable
             try { _subs[s.Key] = EventSubscription.Start(s.Channel, s.XPath, _bookmarks.GetValueOrDefault(s.Key), OnEvent, OnError); }
             catch (InvalidDataException)
             {
-                // The bookmarked record is gone (log cleared or wrapped): carry on from now; the gap is in the engine log
                 ctx.Log.Warn($"Event archive: bookmark for {s.Key} no longer valid (log cleared or wrapped) - continuing from now");
                 _bookmarks.TryRemove(s.Key, out _);
                 _subs[s.Key] = EventSubscription.Start(s.Channel, s.XPath, null, OnEvent, OnError);
             }
         }
-        catch (IOException) { /* channel missing or not readable: RetryMissing tries again */ }
+        catch (IOException) { }
     }
 
     private void Enqueue(Item it)
@@ -127,13 +116,11 @@ internal sealed class EventArchive(Context ctx) : IDisposable
             catch (OperationCanceledException) { break; }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _error = e.Message; Thread.Sleep(5000); }
         }
-        // Stopping: write what is queued
         batch.Clear();
         while (_queue.TryTake(out var rest)) batch.Add(rest);
         if (batch.Count > 0) try { Write(batch); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
-    /// <summary>Writes one record now (tests).</summary>
     internal void Append(string key, string xml, DateTime time) => Write([new Item(key, xml, null, time)]);
 
     private void Write(List<Item> batch)
@@ -152,7 +139,7 @@ internal sealed class EventArchive(Context ctx) : IDisposable
             var file = Path.Combine(day, g.Key.Key + ".xml.gz");
             var before = File.Exists(file) ? new FileInfo(file).Length : 0;
             using (var fs = new FileStream(file, FileMode.Append, FileAccess.Write, FileShare.Read))
-            using (var gz = new GZipStream(fs, CompressionLevel.Fastest))   // one gzip member per batch (concatenated members are valid gzip)
+            using (var gz = new GZipStream(fs, CompressionLevel.Fastest))
             using (var w = new StreamWriter(gz, JsonFile.Utf8NoBom))
                 foreach (var it in g) w.Write(OneLine(it.Xml) + "\n");
             _bytes += new FileInfo(file).Length - before;
@@ -166,10 +153,8 @@ internal sealed class EventArchive(Context ctx) : IDisposable
         if (_error.StartsWith("paused", StringComparison.Ordinal)) _error = "";
     }
 
-    /// <summary>One event per line: line breaks inside the XML become character references.</summary>
     public static string OneLine(string xml) => xml.Replace("\r", "&#13;", StringComparison.Ordinal).Replace("\n", "&#10;", StringComparison.Ordinal);
 
-    /// <summary>Oldest days go first: anything older than 90 days, then until the archive is under 1 GB (today is kept).</summary>
     private void Retention()
     {
         var days = new DirectoryInfo(Dir).GetDirectories().Where(d => DateTime.TryParseExact(d.Name, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
@@ -200,7 +185,6 @@ internal sealed class EventArchive(Context ctx) : IDisposable
         catch (Exception e) when (e is IOException or ArgumentException or UnauthorizedAccessException) { return null; }
     }
 
-    /// <summary>For status.json: what the archive holds and whether it keeps up.</summary>
     public JsonObject Status() => new()
     {
         ["logs"] = _subs.Count, ["of"] = Sources.Length, ["written"] = Interlocked.Read(ref _written), ["dropped"] = Interlocked.Read(ref _dropped),
@@ -208,7 +192,6 @@ internal sealed class EventArchive(Context ctx) : IDisposable
         ["lastWrite"] = _lastWrite == default ? null : _lastWrite.ToString("s", CultureInfo.InvariantCulture), ["error"] = _error.Length > 0 ? _error : null,
     };
 
-    /// <summary>Reads one archive file back (concatenated gzip members), one event XML per line. For tests and exports.</summary>
     public static IEnumerable<string> ReadFile(string file)
     {
         using var fs = File.OpenRead(file);

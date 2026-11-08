@@ -1,19 +1,5 @@
-﻿# Run-Tests.ps1 - the FreeEDR test bundle. MANDATORY after every code change (see AGENTS.md / CLAUDE.md):
-#     powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\Run-Tests.ps1            (unelevated: the live
-#                                                                                           permission pen tests need it)
-#     options: -Suite <name pattern>   only matching suites (e.g. -Suite PenTest)
-#              -SkipLive               only the repository checks (no reads of C:\Program Files\FreeEDR)
-#              -NoAttack               live pen tests without the inbox injection (it drops one forbidden request)
-# Suites (tests\NN-*.Tests.ps1): Sanity (files, encodings, Sysmon template, installer <-> uninstaller symmetry, docs),
-# Unit (the C# core: rules, settings, JSON files, actions, golden dashboard models, engine internals), FalsePositive
-# (Sysmon rules + allow decisions against everyday and attack command lines), PenTest (own-process trust spoofing,
-# command channel, CVE-update injection, permissions of the live install), Live (health of the installed FreeEDR).
-# The C# tests (src\Edr.Core.Tests) are built and run once; each one is reported in the suite that owns it.
-# Result: one line per check, a summary, tests\results\last-run.txt + .json. Exit code 0 = no FAIL, 1 = FAIL.
-# Investigate every FAIL and WARN before declaring a change done; a SKIP says what was not covered.
-param([string]$Suite = '*', [switch]$SkipLive, [switch]$NoAttack)
+﻿param([string]$Suite = '*', [switch]$SkipLive, [switch]$NoAttack)
 
-# FreeEDR targets Windows PowerShell 5.1; the tests run there too
 if ($PSVersionTable.PSVersion.Major -ge 6) {
     $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Suite', $Suite)
     if ($SkipLive) { $a += '-SkipLive' }; if ($NoAttack) { $a += '-NoAttack' }

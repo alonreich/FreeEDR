@@ -7,12 +7,6 @@ using Edr.Tray;
 
 namespace Edr.Setup;
 
-/// <summary>
-/// The setup window (code-built, no reflection bindings): choose → progress → result, in the dashboard's theme.
-/// Install asks upgrade vs clean install when FreeEDR is already there, and whether to replace a foreign Sysmon
-/// configuration; uninstall goes straight to progress. The work runs on a worker thread; log lines are posted here.
-/// The window cannot be closed while it works.
-/// </summary>
 internal sealed class SetupWindow : Window
 {
     private static readonly IBrush Text2 = Brush("#AEBBD3"), Muted = Brush("#7E8DA9"), Ok = Brush("#2FBF71"), Warn = Brush("#F5A524"),
@@ -22,7 +16,7 @@ internal sealed class SetupWindow : Window
     private readonly SetupContext _c;
     private readonly ContentControl _page = new();
     private bool _working, _done;
-    private int _exit = 4;   // closed before starting = cancelled
+    private int _exit = 4;
 
     public event Action<int>? Finished;
 
@@ -52,7 +46,6 @@ internal sealed class SetupWindow : Window
         if (c.Mode == SetupMode.Install) ShowChoose(); else Start(c.Options);
     }
 
-    /// <summary>Development: renders the three pages to PNG with sample lines and exits. Runs no install step.</summary>
     private async Task Screenshots(string dir)
     {
         Directory.CreateDirectory(dir);
@@ -77,8 +70,6 @@ internal sealed class SetupWindow : Window
         _done = true;
         Finished?.Invoke(0);
     }
-
-    // ---- page 1: what will happen ---------------------------------------------------------------------
 
     private void ShowChoose()
     {
@@ -135,8 +126,6 @@ internal sealed class SetupWindow : Window
         card.PointerPressed += (_, _) => rb.IsChecked = true;
         return (card, rb);
     }
-
-    // ---- page 2: progress -----------------------------------------------------------------------------
 
     private readonly StackPanel _steps = new() { Spacing = 2 };
     private readonly ScrollViewer _stepsScroll = new();
@@ -205,8 +194,6 @@ internal sealed class SetupWindow : Window
 
     private static void Mark(TextBlock icon, string glyph, IBrush color) { icon.Text = glyph; icon.Foreground = color; }
 
-    // ---- page 3: result -------------------------------------------------------------------------------
-
     private void ShowResult(int rc)
     {
         _working = false;
@@ -221,6 +208,7 @@ internal sealed class SetupWindow : Window
             (true, 3) => ("", Warn, "The previous version was restored", "The new version did not pass its checks, so the earlier one is running again. Details are in install.log."),
             (true, _) => ("", Danger, "Installation failed", "Nothing was left half-done that the uninstaller cannot remove. Details are in install.log."),
             (false, 0) => ("", Ok, "FreeEDR was removed", "The Windows settings it changed were put back."),
+            (false, Uninstaller.RestoreIncomplete) => ("", Danger, "Removal not finished", "Some Windows settings could not be put back, so FreeEDR kept the record of the original settings. Fix what is marked above (or restart the PC), then run Settings > Apps > \"FreeEDR (finish removal)\"."),
             _ => ("", Warn, "FreeEDR was removed, with warnings", "Some steps need a look: see the list above and FreeEDR-uninstall.log in %TEMP%."),
         };
         var banner = new Border
@@ -245,15 +233,12 @@ internal sealed class SetupWindow : Window
         }
     }
 
-    // ---- small helpers (theme classes from Theme.axaml) ------------------------------------------------
-
     private static DockPanel Layout(Control top, Control fill)
     {
         var d = new DockPanel();
         if (top is not ScrollViewer) { DockPanel.SetDock(top, Dock.Top); d.Children.Add(top); d.Children.Add(fill); }
         else
         {
-            // choose page: content fills, footer docked at the bottom
             DockPanel.SetDock(fill, Dock.Bottom);
             d.Children.Add(fill);
             d.Children.Add(top);

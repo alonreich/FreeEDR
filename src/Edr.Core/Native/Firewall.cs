@@ -4,7 +4,6 @@ using Microsoft.Win32;
 
 namespace Edr.Core.Native;
 
-/// <summary>An inbound block rule of Wail2Ban: "a a a wail2ban block IP: &lt;ip&gt;", description "Expire: &lt;time|never&gt;".</summary>
 public sealed record BanRule(string Ip, string Description)
 {
     public bool Permanent => Description.Trim().EndsWith("never", StringComparison.OrdinalIgnoreCase);
@@ -19,16 +18,11 @@ public sealed record BanRule(string Ip, string Description)
     }
 }
 
-/// <summary>
-/// Windows Firewall access for Wail2Ban: rules are read from the firewall's own registry store (fast, no COM) and
-/// added/removed with netsh (the address is validated before it reaches the command line).
-/// </summary>
 [SupportedOSPlatform("windows")]
 public static class Firewall
 {
     private const string RulesKey = @"SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules";
 
-    /// <summary>Every rule's fields (Name, Desc, Action, Dir, RA4, ...) from the local store.</summary>
     public static IEnumerable<Dictionary<string, string>> AllRules()
     {
         using var k = Registry.LocalMachine.OpenSubKey(RulesKey);
@@ -61,9 +55,6 @@ public static class Firewall
         if (rc != 0) throw new IOException($"netsh could not add the block rule for {n} (exit {rc})");
     }
 
-    /// <summary>A user ban: an existing block for the address becomes permanent in place (its description is changed;
-    /// the rule is never removed first, so a refused change leaves it blocked as before); without one a permanent block
-    /// is added. Throws <see cref="IOException"/> when the firewall refuses.</summary>
     public static void MakePermanent(string ip)
     {
         var n = Ip.Normalize(ip) ?? throw new ArgumentException("invalid address", nameof(ip));
@@ -79,7 +70,6 @@ public static class Firewall
         return Netsh($"advfirewall firewall delete rule name=\"{EdrPaths.FwRulePrefix} {n}\"") == 0;
     }
 
-    /// <summary>Removes every Wail2Ban block rule (factory reset, uninstall). Returns how many addresses were unblocked.</summary>
     public static int RemoveAllBans()
     {
         var n = 0;
@@ -104,11 +94,8 @@ public static class Firewall
 
     public const int NetshTimeoutMs = 30_000;
 
-    /// <summary>Runs netsh.exe; -1 when it did not finish within <see cref="NetshTimeoutMs"/> (it is then killed).</summary>
     private static int Netsh(string args) => RunBounded(Path.Combine(EdrPaths.System32, "netsh.exe"), args, NetshTimeoutMs);
 
-    /// <summary>Starts a console program and waits at most <paramref name="timeoutMs"/>: both output streams are drained
-    /// in the background, so neither a hung program nor a full pipe can block the caller (the engine's main loop).</summary>
     internal static int RunBounded(string exe, string args, int timeoutMs)
     {
         var psi = new ProcessStartInfo(exe, args)
@@ -127,8 +114,6 @@ public static class Firewall
     }
 }
 
-/// <summary>Runs Windows PowerShell for the few settings only its cmdlets expose (Defender preferences, firewall rule by id).
-/// Values reach the script through environment variables, never through the script text.</summary>
 [SupportedOSPlatform("windows")]
 public static class PowerShellRunner
 {
@@ -144,7 +129,7 @@ public static class PowerShellRunner
         foreach (var a in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
                                   "[Console]::OutputEncoding = [Text.Encoding]::UTF8; $ErrorActionPreference = 'Stop'; " + script })
             psi.ArgumentList.Add(a);
-        psi.Environment.Remove("PSModulePath");   // Windows PowerShell 5.1 must use its own module path
+        psi.Environment.Remove("PSModulePath");
         if (env is not null) foreach (var (k, v) in env) psi.Environment[k] = v;
         using var p = Process.Start(psi)!;
         var outTask = p.StandardOutput.ReadToEndAsync();

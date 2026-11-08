@@ -74,7 +74,10 @@ id/added]}}`; import turns it into `set-config` + `exclude` requests (`SettingsB
 `reviewed.txt` (one event id per line), `ignored-apps.txt` (hidden winget ids), `history.json` (updates started from the
 dashboard), `preferences.json` (notification level, theme (`system` (default) / `dark` / `light`), quiet-mode list
 (`quietProcesses`; missing = the PC's starting list), window (normal size and position, maximized), welcome done, learning
-summary shown, last weekly summary, last page, Settings scroll position, which Settings *Advanced* parts are open), `insights.json` (how often each alert was marked reviewed, dismissed suggestions), `winget.txt`,
+summary shown, last weekly summary, last page, Settings scroll position, which Settings *Advanced* parts are open,
+update check on/off `updateCheck`, `lastUpdateCheck`, `notifiedVersion`, `skippedVersion`, `lastSeenVersion` for *What's
+new*), `update\FreeEDR-Update-<version>.exe` or `update\FreeEDR-Setup-<version>.exe` (+ `.part` while downloading; verified
+FreeEDR update; removed once that version is installed; Setup never stops a process started from `user\*\update\`), `insights.json` (how often each alert was marked reviewed, dismissed suggestions), `winget.txt`,
 `freeedr.png` (notification icon), `tray.log`.
 
 ## 5. JSON helpers (`JsonFile`)

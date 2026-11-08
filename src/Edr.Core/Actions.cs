@@ -2,7 +2,6 @@ using System.Text.Json.Nodes;
 
 namespace Edr.Core;
 
-/// <summary>What a button does. The UI runs it; <see cref="ActionBuilder"/> decides which ones a selection offers.</summary>
 public enum ActionKind
 {
     Flag, ItWasMe, Allow, AllowRule, AllowParent, AllowSigner, AllowParentEverywhere, AllowSubnet, TrustApp, MarkReviewed, MarkUnreviewed,
@@ -12,11 +11,6 @@ public enum ActionKind
 
 public sealed record TrayAction(ActionKind Kind, string Label, bool Primary = false, bool Enabled = true, string? Arg = null, string Style = "");
 
-/// <summary>
-/// The actions for the selected rows (port of Get-Actions): the first primary one is the usual choice. The same list
-/// feeds the buttons and the right-click menu. FreeEDR only detects, so "Flag as threat" records a verdict and the
-/// follow-up actions hand the file to Microsoft Defender or VirusTotal.
-/// </summary>
 public static class ActionBuilder
 {
     public static List<TrayAction> For(IReadOnlyList<Row> rows, Func<string, string?> signerOf, Func<Rec, AllowProfile?> profileFor,
@@ -122,7 +116,6 @@ public static class ActionBuilder
 
     public static string ParentOf(Rec e) => Ps.Eq(e.S("blade"), "sigma") ? SigmaProcess.Of(e).Parent : e.S("parent");
 
-    /// <summary>Public advisory page: NVD for a CVE id, OSV for the rest (GHSA, PYSEC, ...).</summary>
     public static string AdvisoryUrl(Rec v)
     {
         var cve = v.S("cve");
@@ -133,8 +126,6 @@ public static class ActionBuilder
 
     private static string Short(string s, int max) => s.Length > max ? s[..(max - 3)] + "..." : s;
     private static bool IsAny(string v, params string[] o) => o.Any(x => Ps.Eq(v, x));
-
-    // ---- engine operations (port of Get-BlockOp / Get-AllowOp / ...) ------------------------------------
 
     public static JsonObject? FlagOp(Rec? e)
     {
@@ -201,7 +192,6 @@ public static class ActionBuilder
         _ => null,
     };
 
-    /// <summary>Both allows for "everything started by this program" (real-time and Sigma), tied to its signature.</summary>
     public static JsonObject[] ParentEverywhereOps(string parent, Func<string, string?> signerOf)
     {
         var pat = PatternRules.VersionlessPattern(parent);
@@ -215,11 +205,8 @@ public static class ActionBuilder
 
     private static string SafeSigner(string? s) => s is not null && !PatternRules.IsUnsafeSigner(s) ? s : "";
 
-    // ---- CVE updates ------------------------------------------------------------------------------------
-
     public sealed record PipCommand(string FilePath, string[] Arguments, string Display);
 
-    /// <summary>A python path the tray may run: "py", a Store alias (python3.11), or a rooted python.exe without shell metacharacters.</summary>
     public static string SafePython(string? py)
     {
         if (string.IsNullOrWhiteSpace(py)) return "py";
@@ -234,7 +221,6 @@ public static class ActionBuilder
         return p;
     }
 
-    /// <summary>The account may update this package: it owns the Python (scan recorded its SID) or it is in an admin-only folder.</summary>
     public static bool OwnsCve(Rec v, string currentSid, string userProfile)
     {
         var owner = v.S("owner");

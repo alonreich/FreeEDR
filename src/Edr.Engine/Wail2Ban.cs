@@ -6,12 +6,6 @@ using Edr.Core.Native;
 
 namespace Edr.Engine;
 
-/// <summary>
-/// Wail2Ban: failed network sign-ins (Security 4625, RdpCoreTS 140) per address; after failCount failures within the
-/// window the address is blocked in Windows Firewall (5^strike minutes, capped at 90 days public / 7 days private).
-/// This is the only part of FreeEDR that enforces; with wail2ban.block = false it only reports.
-/// Also reports successful sign-ins from the internet (4624 type 3/10) as "Was this you?".
-/// </summary>
 internal sealed class Wail2Ban(Context ctx)
 {
     private sealed record Attempt(DateTime Time, string Source);
@@ -47,8 +41,6 @@ internal sealed class Wail2Ban(Context ctx)
 
     public string? Whitelisted(string ip) => ctx.Excl["wail2ban"].FirstOrDefault(w => Ip.InCidr(ip, w.Str("cidr")))?.Str("cidr");
 
-    // ---- strikes file ("ip strikes epoch" per line, the original Wail2Ban format) -------------------------
-
     public void ReadStrikes()
     {
         _strikes.Clear();
@@ -79,7 +71,6 @@ internal sealed class Wail2Ban(Context ctx)
 
     public int StrikesOf(string ip) => _strikes.TryGetValue(ip, out var s) ? s.Count : 0;
 
-    /// <summary>Escalating ban: 5^strike minutes; one strike decays per clean 24 h; capped lower for private addresses (W7).</summary>
     public (double Seconds, int Strike) BanDuration(string ip)
     {
         var now = Epoch();
@@ -96,8 +87,6 @@ internal sealed class Wail2Ban(Context ctx)
         var cap = Ip.IsPrivate(ip) ? ctx.Cfg.Wail2Ban.MaxBanPrivateSec : ctx.Cfg.Wail2Ban.MaxBanPublicSec;
         return (Math.Min(Math.Pow(5, count) * 60, cap), count);
     }
-
-    // ---- failures, bans ---------------------------------------------------------------------------------
 
     public void AddFailure(string rawIp, string source, DateTime when, bool replay)
     {
@@ -124,7 +113,6 @@ internal sealed class Wail2Ban(Context ctx)
             _attempts[ip] = list = [];
             _order.Enqueue(ip);
         }
-        // One RDP failure is logged by both 4625 and RdpCoreTS 140: count it once
         if (list.Any(a => Math.Abs((a.Time - when).TotalSeconds) <= 3)) return;
         list.Add(new Attempt(when, source));
         var limit = ctx.Cfg.Wail2Ban.FailCount;
@@ -171,7 +159,6 @@ internal sealed class Wail2Ban(Context ctx)
         }
     }
 
-    /// <summary>W8: a successful network/RDP sign-in from a public address means someone outside the LAN has a valid password.</summary>
     public void LogonSuccess(EventRecord r)
     {
         if (ctx.State.IsPaused("wail2ban")) return;
@@ -179,7 +166,7 @@ internal sealed class Wail2Ban(Context ctx)
         if (ip is null || _selfIps.Contains(ip) || Ip.IsPrivate(ip) || Whitelisted(ip) is not null) return;
         var user = $"{r["TargetDomainName"]}\\{r["TargetUserName"]}".Trim('\\');
         var key = $"{ip}|{user}";
-        if (_loginSeen.TryGetValue(key, out var seen) && (DateTime.Now - seen).TotalMinutes < 30) return;   // one SMB session logs many 4624s
+        if (_loginSeen.TryGetValue(key, out var seen) && (DateTime.Now - seen).TotalMinutes < 30) return;
         _loginSeen[key] = DateTime.Now;
         var how = r["LogonType"] == "10" ? "Remote Desktop" : "network logon (file sharing, or Remote Desktop with NLA)";
         var proc = r["ProcessName"] is { Length: > 0 } pn && pn != "-" ? pn : "";
@@ -193,7 +180,7 @@ internal sealed class Wail2Ban(Context ctx)
     {
         foreach (var k in new[] { "IpAddress", "IPString", "ClientIP", "ClientAddress", "Address" })
             if (Ip.Normalize(r[k]) is { } n) return n;
-        if (!fallback) return null;   // 4625 without a source address is a local logon: never guess
+        if (!fallback) return null;
         foreach (var v in r.Data.Values)
         {
             var m = Ps.Rx(@"(\d{1,3}(\.\d{1,3}){3})").Match(v);
@@ -202,14 +189,11 @@ internal sealed class Wail2Ban(Context ctx)
         return null;
     }
 
-    /// <summary>Engine start: the last window of 4625 refills the counter only (no events, nothing before the last ban).</summary>
     public void SyncRecentFailures()
     {
         foreach (var r in EventSubscription.Query("Security", "(EventID=4625)", TimeSpan.FromSeconds(ctx.Cfg.Wail2Ban.WindowSeconds)))
             if (IpFrom(r, fallback: false) is { } ip) AddFailure(ip, "Security", r.Time, replay: true);
     }
-
-    // ---- housekeeping (every 60 s) ---------------------------------------------------------------------
 
     public void Housekeeping()
     {
@@ -237,7 +221,6 @@ internal sealed class Wail2Ban(Context ctx)
         if (_strikesDirty) SaveStrikes(force: true);
     }
 
-    /// <summary>W4: expired bans are removed every 60 s; the current list goes to status.json.</summary>
     public void RemoveExpiredBans()
     {
         var list = new JsonArray();
@@ -262,7 +245,6 @@ internal sealed class Wail2Ban(Context ctx)
         Banned = list;
     }
 
-    /// <summary>Permanent bans made by the user come back if someone removes the firewall rule by hand.</summary>
     public void RepairPermanentBans()
     {
         if (!ctx.Cfg.Wail2Ban.Block) return;
@@ -274,7 +256,6 @@ internal sealed class Wail2Ban(Context ctx)
         }
     }
 
-    /// <summary>IPv6 Remote Desktop block rules follow the wail2ban.blockRdpIpv6 setting (off by default).</summary>
     public void ApplyRdpIpv6Setting()
     {
         try

@@ -5,14 +5,6 @@ using Edr.Core.Native;
 
 namespace Edr.Engine;
 
-/// <summary>
-/// The drop folders (control\: admin-only; inbox\: every account may write) are read by one worker thread each, never by
-/// the engine's main loop: a file in inbox\ is controlled by an unprivileged account, so nothing about it (its size, a
-/// lock, an oplock, a link) may delay detection. Each file is taken with <see cref="DropFile.Take"/> (bounded, not
-/// followed, removed before use) and the parsed request is queued; the main loop runs the queue
-/// (<see cref="Commands.RunQueued"/>), so command handling stays single-threaded. A worker that is stuck on a file
-/// longer than a minute is reported (<see cref="CheckStalls"/>); the other folder and detection carry on.
-/// </summary>
 internal sealed class CommandIntake : IDisposable
 {
     public sealed record Request(JsonObject Cmd, bool Trusted, string File);
@@ -22,7 +14,7 @@ internal sealed class CommandIntake : IDisposable
         public readonly string Dir = dir;
         public readonly bool Trusted = trusted;
         public Thread? Thread;
-        public long BusySince;          // DateTime ticks while a file operation runs, else 0
+        public long BusySince;
         public string BusyFile = "";
         public bool StallReported;
         public readonly Dictionary<string, (DateTime First, DateTime Retry, bool Logged)> Waiting = new(StringComparer.OrdinalIgnoreCase);
@@ -60,7 +52,6 @@ internal sealed class CommandIntake : IDisposable
 
     public bool TryDequeue(out Request r) => _ready.TryDequeue(out r!);
 
-    /// <summary>One pass over one folder (also called directly by tests).</summary>
     internal void SweepOnce(int folder) => SweepOnce(_workers[folder]);
 
     private void Loop(Worker w)
@@ -77,7 +68,6 @@ internal sealed class CommandIntake : IDisposable
     {
         if (!Directory.Exists(w.Dir) || _ready.Count >= MaxQueued) return;
         var now = DateTime.Now;
-        // Files that were busy wait for their retry time; they never take the place of new requests
         var batch = new List<string>(PerSweep);
         foreach (var f in Directory.EnumerateFiles(w.Dir, "*.json"))
         {
@@ -105,7 +95,7 @@ internal sealed class CommandIntake : IDisposable
                     Interlocked.Increment(ref w.Rejected);
                     _ctx.Log.Warn($"Command file '{Path.GetFileName(f)}' in {Path.GetFileName(w.Dir)}\\ refused: {r.Reason}");
                     break;
-                default:   // Busy: try again later; said once per file after 5 minutes
+                default:
                 {
                     var first = w.Waiting.TryGetValue(f, out var old) ? old.First : now;
                     var logged = old.Logged;
@@ -119,13 +109,11 @@ internal sealed class CommandIntake : IDisposable
                 }
             }
         }
-        // Forget files that are no longer there (bounded memory)
         if (w.Waiting.Count > 0)
             foreach (var f in w.Waiting.Keys.Where(k => !File.Exists(k)).ToList()) w.Waiting.Remove(f);
         if (w.Waiting.Count > 10_000) w.Waiting.Clear();
         w.WaitingCount = w.Waiting.Count;
 
-        // Half-written requests (a .tmp the tray could not rename) are never read: removed after 2 minutes
         if (!w.Trusted)
             foreach (var t in new DirectoryInfo(w.Dir).EnumerateFiles("*.tmp").Take(100).ToList())
                 if (t.LastWriteTime < now.AddMinutes(-2)) Guarded(w, t.FullName, () => DropFile.TryDelete(t.FullName));
@@ -139,7 +127,6 @@ internal sealed class CommandIntake : IDisposable
         finally { Interlocked.Exchange(ref w.BusySince, 0); }
     }
 
-    /// <summary>Every minute (main loop): a worker that has been stuck on one file operation for over a minute is reported once.</summary>
     public void CheckStalls()
     {
         foreach (var w in _workers)
@@ -182,6 +169,6 @@ internal sealed class CommandIntake : IDisposable
     public void Dispose()
     {
         _stop.Cancel();
-        foreach (var w in _workers) w.Thread?.Join(2000);   // a worker stuck in the kernel is a background thread: it does not hold up the exit
+        foreach (var w in _workers) w.Thread?.Join(2000);
     }
 }

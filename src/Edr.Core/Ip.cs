@@ -3,7 +3,6 @@ using System.Net.Sockets;
 
 namespace Edr.Core;
 
-/// <summary>IP helpers: normalisation, CIDR matching, private ranges.</summary>
 public static class Ip
 {
     private static readonly string[] PrivateRanges =
@@ -30,7 +29,6 @@ public static class Ip
 
     public static bool IsPrivate(string? ip) => PrivateRanges.Any(r => InCidr(ip, r));
 
-    /// <summary>ConvertTo-NormalIp: canonical text of an IPv4/IPv6 address ([::ffff:1.2.3.4] -> 1.2.3.4, zone dropped), or null.</summary>
     public static string? Normalize(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
@@ -42,7 +40,6 @@ public static class Ip
         return IPAddress.TryParse(s, out var ip) ? ip.ToString() : null;
     }
 
-    /// <summary>A valid allow-list entry: an address or address/prefix.</summary>
     public static bool IsValidCidr(string? cidr)
     {
         if (string.IsNullOrWhiteSpace(cidr)) return false;
@@ -54,6 +51,5 @@ public static class Ip
         return bits >= 0 && bits <= max;
     }
 
-    /// <summary>Get-NetLabel of the tray.</summary>
     public static string NetLabel(string? ip) => IsPrivate(ip) ? "Private / LAN" : "Public internet";
 }

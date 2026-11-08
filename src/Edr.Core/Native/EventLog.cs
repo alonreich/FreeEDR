@@ -6,7 +6,6 @@ using System.Xml;
 
 namespace Edr.Core.Native;
 
-/// <summary>One Windows event: id, creation time and the EventData fields (Name -> text).</summary>
 public sealed class EventRecord
 {
     public int Id { get; init; }
@@ -32,7 +31,6 @@ public sealed class EventRecord
                 var name = e.GetAttribute("Name");
                 if (name.Length > 0) r.Data[name] = e.InnerText;
             }
-            // UserData events (e.g. 1102 / 104 "log cleared"): <UserData><LogFileCleared><SubjectUserName>...
             foreach (XmlElement e in doc.SelectNodes("/e:Event/e:UserData/*/*", ns)!) r.Data.TryAdd(e.LocalName, e.InnerText);
             if (doc.SelectSingleNode("/e:Event/e:System/e:Channel", ns)?.InnerText is { } ch) r.Channel = ch;
             return r;
@@ -41,11 +39,6 @@ public sealed class EventRecord
     }
 }
 
-/// <summary>
-/// A live subscription to one event log channel (EvtSubscribe), resuming after a saved bookmark so an engine restart
-/// loses no events. Each delivered event is handed to <c>onEvent</c> with its XML and the updated bookmark XML;
-/// errors go to <c>onError</c>. Runs on the event log's thread pool: keep the callbacks short (enqueue).
-/// </summary>
 [SupportedOSPlatform("windows")]
 public sealed unsafe partial class EventSubscription : IDisposable
 {
@@ -65,7 +58,6 @@ public sealed unsafe partial class EventSubscription : IDisposable
         _bookmark = bookmark;
     }
 
-    /// <summary>Starts the subscription. A bookmark that Windows rejects throws <see cref="InvalidDataException"/>.</summary>
     public static EventSubscription Start(string channel, string xpath, string? bookmarkXml, Action<string, string?> onEvent, Action<int> onError)
     {
         nint bm;
@@ -74,12 +66,12 @@ public sealed unsafe partial class EventSubscription : IDisposable
         {
             bm = EvtCreateBookmark(bookmarkXml);
             if (bm == 0) throw new InvalidDataException($"bookmark rejected (error {Marshal.GetLastWin32Error()})");
-            flags = 3 | 0x10000;   // EvtSubscribeStartAfterBookmark | EvtSubscribeStrict
+            flags = 3 | 0x10000;
         }
         else
         {
             bm = EvtCreateBookmark(null);
-            flags = 1;             // EvtSubscribeToFutureEvents
+            flags = 1;
         }
         var s = new EventSubscription(channel, onEvent, onError, bm);
         s._self = GCHandle.Alloc(s);
@@ -88,7 +80,6 @@ public sealed unsafe partial class EventSubscription : IDisposable
         {
             var err = Marshal.GetLastWin32Error();
             s.Dispose();
-            // 15011 ERROR_EVT_QUERY_RESULT_STALE / 15012 ..._INVALID_POSITION: the bookmarked record is gone (log cleared or wrapped)
             if (!string.IsNullOrWhiteSpace(bookmarkXml) && err is 15005 or 15011 or 15012 or 13 or 87) throw new InvalidDataException($"bookmark rejected (error {err})");
             throw new IOException($"Cannot subscribe to {channel} (error {err})");
         }
@@ -101,7 +92,7 @@ public sealed unsafe partial class EventSubscription : IDisposable
         try
         {
             if (GCHandle.FromIntPtr(context).Target is not EventSubscription s) return 0;
-            if (action == 0) { s._onError((int)evt); return 0; }   // EvtSubscribeActionError: evt is the error code
+            if (action == 0) { s._onError((int)evt); return 0; }
             var xml = Render(evt, 1);
             if (xml is null) return 0;
             string? bm = null;
@@ -124,13 +115,12 @@ public sealed unsafe partial class EventSubscription : IDisposable
         return new string(buf, 0, Math.Max(0, (int)used / 2 - 1));
     }
 
-    /// <summary>Events of the last <paramref name="since"/> matching an XPath filter, oldest first (one-shot query).</summary>
     public static List<EventRecord> Query(string channel, string xpathFilter, TimeSpan since)
     {
         var list = new List<EventRecord>();
         var ms = (long)since.TotalMilliseconds;
         var q = $"*[System[{xpathFilter} and TimeCreated[timediff(@SystemTime) <= {ms}]]]";
-        var h = EvtQuery(0, channel, q, 1);   // EvtQueryChannelPath
+        var h = EvtQuery(0, channel, q, 1);
         if (h == 0) return list;
         try
         {

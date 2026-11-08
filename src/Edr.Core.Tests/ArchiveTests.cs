@@ -4,7 +4,6 @@ using Xunit;
 
 namespace Edr.Core.Tests;
 
-/// <summary>Event-log archive (data\archive\) and the log-cleared parsing.</summary>
 public class ArchiveTests
 {
     [Fact]
@@ -15,7 +14,7 @@ public class ArchiveTests
         using var a = new EventArchive(ctx);
         var day = new DateTime(2026, 11, 6, 10, 0, 0);
         a.Append("security", "<Event><System><EventID>4624</EventID></System></Event>", day);
-        a.Append("security", "<Event><Data>line1\r\nline2</Data></Event>", day);   // a second gzip member in the same file
+        a.Append("security", "<Event><Data>line1\r\nline2</Data></Event>", day);
         var file = Path.Combine(root, "data", "archive", "2026-11-06", "security.xml.gz");
         var lines = EventArchive.ReadFile(file).ToList();
         Assert.Equal(2, lines.Count);

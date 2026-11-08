@@ -1,8 +1,4 @@
-﻿# Scorch_Earth.ps1 - Complete uninstallation, state wiping, and restoration of Windows to defaults.
-# Removes FreeEDR, EDR, LocalEDR, Wail2Ban, all registry entries, tasks, shortcuts, firewall rules,
-# uninstalls Sysmon, restores Windows Defender to clean defaults (CFA disabled, ASR rules cleared),
-# and wipes all install/temp directories leaving zero traces.
-#Requires -RunAsAdministrator
+﻿#Requires -RunAsAdministrator
 [CmdletBinding()]
 param([switch]$NoPause)
 
@@ -13,7 +9,6 @@ function Write-Step([string]$Text) { Write-Host "`n== $Text" -ForegroundColor Cy
 function Write-Ok([string]$Text)   { Write-Host "   OK   $Text" -ForegroundColor Green }
 function Write-Warn([string]$Text) { Write-Host "   WARN $Text" -ForegroundColor Yellow }
 
-# Elevation check
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     Write-Host "ERROR: Scorch_Earth requires Administrator privileges." -ForegroundColor Red
@@ -24,7 +19,6 @@ Write-Host "###########################################################" -Foregr
 Write-Host " FreeEDR / EDR Scorch-Earth Removal & Windows Restoration" -ForegroundColor Yellow
 Write-Host "###########################################################" -ForegroundColor Red
 
-# 1. Stop Processes
 Write-Step "Stopping all FreeEDR, EDR, and tool processes"
 foreach ($ev in 'Local\FreeEDR-Tray-Exit', 'Local\EDR-Tray-Exit') {
     try { ([Threading.EventWaitHandle]::OpenExisting($ev)).Set() | Out-Null } catch { }
@@ -39,7 +33,6 @@ foreach ($p in $procs) {
     catch { Write-Warn "Could not kill process $($p.Name): $($_.Exception.Message)" }
 }
 
-# 2. Stop & Remove Scheduled Tasks
 Write-Step "Removing all scheduled tasks"
 $tasks = @('FreeEDR', 'EDR', 'FreeEDR tray start', 'start wail2ban onstartup', 'LocalEDR-TrayWatcher', 'LocalEDR-DailyScan')
 foreach ($t in $tasks) {
@@ -51,13 +44,10 @@ foreach ($t in $tasks) {
     }
 }
 
-# 3. Registry Cleanup
 Write-Step "Removing registry entries (Run keys, uninstaller keys, application settings)"
-# Machine Run
 Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' -Name 'FreeEDR Tray', 'EDR Tray' -ErrorAction SilentlyContinue
 Write-Ok "Cleaned HKLM Run keys"
 
-# Helper for user accounts and profile hives
 function Get-AllUserAccounts {
     foreach ($k in Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' -ErrorAction SilentlyContinue) {
         if ($k.PSChildName -notmatch '^S-1-(5-21|12-1)-[\d-]+$') { continue }
@@ -88,13 +78,11 @@ Invoke-AllUserHives {
 }
 Write-Ok "Cleaned HKCU / User Hive Run keys and software settings"
 
-# Inno Setup and software keys
 Remove-Item -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{6F0E2C1A-4B7D-4E59-9A33-0E2D5C8B7A41}_is1' -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{6F0E2C1A-4B7D-4E59-9A33-0E2D5C8B7A41}_is1' -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path 'HKLM:\SOFTWARE\FreeEDR', 'HKLM:\SOFTWARE\LocalEDR', 'HKLM:\SOFTWARE\Wail2Ban' -Recurse -Force -ErrorAction SilentlyContinue
 Write-Ok "Cleaned Uninstall and product registry keys"
 
-# 4. Shortcuts
 Write-Step "Deleting shortcuts"
 $shortcuts = @(
     (Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'FreeEDR.lnk'),
@@ -113,7 +101,6 @@ foreach ($s in @($shortcuts | Where-Object { $_ } | Select-Object -Unique)) {
     }
 }
 
-# 5. Firewall Rules
 Write-Step "Removing firewall rules"
 try {
     $fw = New-Object -ComObject HNetCfg.FwPolicy2
@@ -128,14 +115,11 @@ if ($v6.Count) {
     Write-Ok "Removed IPv6 Remote Desktop block rules"
 }
 
-# 6. Microsoft Defender Restoration (Windows Defaults)
 Write-Step "Restoring Microsoft Defender to Windows defaults (CFA disabled, ASR rules cleared)"
 try {
-    # Disable Controlled Folder Access
     Set-MpPreference -EnableControlledFolderAccess Disabled -ErrorAction Stop
     Write-Ok "Disabled Controlled Folder Access (Windows default)"
 
-    # Clear all CFA allowed applications
     $cfaApps = @((Get-MpPreference).ControlledFolderAccessAllowedApplications)
     if ($cfaApps.Count) {
         foreach ($app in $cfaApps) {
@@ -144,7 +128,6 @@ try {
         Write-Ok "Cleared $($cfaApps.Count) Controlled Folder Access allowed application(s)"
     }
 
-    # Clear all FreeEDR Attack Surface Reduction (ASR) rules
     $asrRules = @(
         '56a863a9-875e-4185-98a7-b882c64b5ce5', '7674ba52-37eb-4a4f-a9a1-f0f9a1619a2c', 'd4f940ab-401b-4efc-aadc-ad5f3c50688a',
         '9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2', 'be9ba2d9-53ea-4cdc-84e5-9b1eeee46550', '5beb7efe-fd9a-4556-801d-275e5ffc04cc',
@@ -165,7 +148,6 @@ try {
     }
     Write-Ok "Removed $clearedAsr FreeEDR Attack Surface Reduction rule(s)"
 
-    # Remove threat action overrides
     $threatIds = @((Get-MpPreference).ThreatIDDefaultAction_Ids)
     if ($threatIds.Count) {
         foreach ($tid in $threatIds) {
@@ -174,7 +156,6 @@ try {
         Write-Ok "Cleared $($threatIds.Count) Defender threat ID override(s)"
     }
 
-    # Remove folder exclusions for FreeEDR / EDR paths
     $exPaths = @((Get-MpPreference).ExclusionPath)
     foreach ($p in $exPaths) {
         if ($p -match 'FreeEDR|LocalEDR|Wail2Ban|\\EDR(\\)?$') {
@@ -185,7 +166,6 @@ try {
     Write-Warn "Error restoring Defender settings: $($_.Exception.Message)"
 }
 
-# 7. Sysmon Uninstallation
 Write-Step "Uninstalling Sysmon"
 $sysmonExe = "$env:SystemRoot\Sysmon64.exe"
 if (Get-Service Sysmon64 -ErrorAction SilentlyContinue) {
@@ -209,21 +189,18 @@ if (-not (Get-Service Sysmon64 -ErrorAction SilentlyContinue)) {
     Write-Warn "Sysmon64 service could not be completely removed"
 }
 
-# Sysmon log file
 $evtx = "$env:SystemRoot\System32\winevt\Logs\Microsoft-Windows-Sysmon%4Operational.evtx"
 if (Test-Path -LiteralPath $evtx) {
     try { Remove-Item -LiteralPath $evtx -Force -ErrorAction SilentlyContinue; Write-Ok "Deleted Sysmon operational event log file" }
     catch { Write-Warn "Sysmon event log is locked; will be deleted upon restart" }
 }
 
-# 8. Event Log Source
 Write-Step "Removing event log source"
 if ([Diagnostics.EventLog]::SourceExists('wail2ban')) {
     try { Remove-EventLog -Source 'wail2ban' -ErrorAction SilentlyContinue; Write-Ok "Removed event source 'wail2ban'" }
     catch { Write-Warn "Could not remove event source 'wail2ban': $($_.Exception.Message)" }
 }
 
-# 9. Filesystem Directory Removal
 Write-Step "Removing FreeEDR installation directories"
 $dirs = @(
     'C:\Program Files\FreeEDR',
@@ -246,7 +223,6 @@ foreach ($d in @($dirs | Where-Object { $_ } | Select-Object -Unique)) {
     }
 }
 
-# 10. Temporary Files Cleanup
 Write-Step "Cleaning temporary setup and install files"
 $tempDirs = @($env:TEMP, "C:\Windows\Temp")
 foreach ($a in Get-AllUserAccounts) {
@@ -261,7 +237,6 @@ foreach ($td in @($tempDirs | Where-Object { $_ -and (Test-Path $_) } | Select-O
     }
 }
 
-# 11. Final Verification
 Write-Step "Verification of Clean System State"
 $leftovers = 0
 if (Test-Path 'C:\Program Files\FreeEDR') { Write-Warn "Lingering path: C:\Program Files\FreeEDR"; $leftovers++ }

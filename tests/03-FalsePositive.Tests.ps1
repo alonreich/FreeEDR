@@ -1,8 +1,4 @@
-﻿# False positives / false negatives: the Sysmon process rules (config\sysmonconfig.template.xml) against everyday
-# command lines (must stay quiet) and attack command lines (must alert) from tests\data\process-corpus.json, and the
-# engine's allow decisions (trusted-app parents, exact launcher lines, blanket allows). The checks run in C#
-# (SysmonRuleTests, EngineDecisionTests). Add every false positive found on a real PC to the corpus.
-param([string]$Repo, [switch]$Live, [switch]$Attack, [switch]$Elevated, [string]$Work)
+﻿param([string]$Repo, [switch]$Live, [switch]$Attack, [switch]$Elevated, [string]$Work)
 
 Add-CSharpResults $Repo $Work @('SysmonRuleTests', 'EngineDecisionTests')
 

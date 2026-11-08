@@ -28,6 +28,9 @@ WHAT FreeEDR IS
   - Keep docs true: a change to documented behaviour updates the routed doc in the same change. A new doc gets a
     "Read for:" line and a row in section 4.
   - Known FAILs/WARNs before you start: docs\history\STATUS.md (do not chase those).
+  - Every code change adds its entry to docs\CHANGELOG.md under "## Unreleased": a plain-English line under "What's new
+    for you" and a line under "Technical" (the build fails without one once a release tag exists). Never edit a released
+    section; releases promote Unreleased (docs\agents\AGENT_WORKFLOW.md §3a).
   Full loop, build gates, test suites and design rules: docs\agents\AGENT_WORKFLOW.md (ALWAYS read it when you edit files).
 
 
@@ -40,10 +43,12 @@ WHAT FreeEDR IS
                                                         4 programs -> live tray self-test -> staging (+signing) -> Inno Setup
      -> tests\Run-Tests.ps1 (unelevated)                01-Sanity 02-Unit 03-FalsePositive 04-PenTest 05-Live
      -> review last-run.txt, fix or justify every FAIL/WARN
-     -> update routed docs + docs\history\STATUS.md
+     -> update routed docs + docs\history\STATUS.md + docs\CHANGELOG.md (Unreleased)
      -> report (TEST RESULT line, SKIPs)
      -> install only with the owner's approval, then re-run the tests (05-Live checks the installed copy)
-  Commits / pushes only when the owner asks.
+  Commits / pushes only when the owner asks. Releases: only the owner, with .github\workflows\release.yml
+  (Actions > Release: changelog promotion, build, tests, verified draft, publish, five newest installers kept; tick
+  "Dry run" to prove the whole path without publishing).
 
 
 3. REPOSITORY MAP
@@ -79,9 +84,11 @@ WHAT FreeEDR IS
     build\installer\FreeEDR-Setup.iss   Inno Setup script (Settings > Apps entry, runs FreeEDR-Installer.exe)
     build\env.cmd, nuget.config   keep temp files / NuGet caches in obj\
     dev.cmd, build\DevRun.ps1     developer runner for the tray
-    compiled\FreeEDR-Setup.exe    the single-file installer
+    compiled\FreeEDR-Setup.exe    the single-file installer (release builds also make compiled\FreeEDR-Update.exe: the same
+                                  programs without the bundled tools, used by the dashboard's update)
     obj\, build.log               build output (safe to delete)
-    developer_tools\              developer utilities (scorch-earth uninstaller, code exporter, console font)
+    developer_tools\              developer utilities (scorch-earth uninstaller, code exporter, console font, comment
+                                  cleaner Find_and_Remove_Comments.py: run plainly, it asks Y/N once for all files)
     The legacy PowerShell scripts (EDR-*.ps1, Install-EDR.ps1, Uninstall-EDR.ps1) were deleted from the repository on
     2026-11-06 (git history has them); the installer still removes them from an older install.
 
@@ -128,7 +135,8 @@ WHAT FreeEDR IS
   Tray / dashboard (src\Edr.Tray)                       tray\TRAY_GUI.md, user\USER_GUIDE.md      architecture\DATA_FILES.md (3)
   Installer / Setup / Defender / service / ACL          install\INSTALLATION.md                   install\UNINSTALL.md
   Uninstaller                                           install\UNINSTALL.md                      install\INSTALLATION.md
-  Build pipeline / tests / code signing                 agents\AGENT_WORKFLOW.md                  -
+  Build pipeline / tests / code signing / versions      agents\AGENT_WORKFLOW.md                  -
+  Releases, changelog, FreeEDR's own update check       agents\AGENT_WORKFLOW.md (3, 3a), docs\CHANGELOG.md   tray\TRAY_GUI.md
   End-user docs / README                                user\USER_GUIDE.md                        -
   "Why is it like this?" / a finding ID                 history\DECISIONS.md                      tray\TRAY_REWRITE_PLAN.md
 

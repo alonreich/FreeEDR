@@ -5,18 +5,13 @@ using Microsoft.Win32;
 
 namespace Edr.Setup;
 
-/// <summary>
-/// Removes FreeEDR and puts back the Windows settings it changed (data\preinstall.json; Windows defaults when nothing
-/// is on record). Best effort: a failed step is a WARN and the next one still runs. Exit 0 = everything removed, 1 = WARNs.
-/// </summary>
 internal sealed class Uninstaller(EdrPaths paths, SetupOptions opt, SetupLog log)
 {
     public int Run()
     {
-        Directory.SetCurrentDirectory(EdrPaths.SystemRoot);   // the install folder is deleted: never hold it
+        Directory.SetCurrentDirectory(EdrPaths.SystemRoot);
         if (!File.Exists(paths.BaselineFile) && !File.Exists(paths.ManagedFile) && !File.Exists(paths.EnginePath) && !File.Exists(Path.Combine(paths.Root, "EDR-Engine.ps1")))
         {
-            // Setup was cancelled before it changed anything: putting "defaults" back would only lower settings
             log.Ok("FreeEDR was never set up on this PC (Setup was cancelled): no Windows setting to put back");
             return 0;
         }
@@ -94,42 +89,62 @@ internal sealed class Uninstaller(EdrPaths paths, SetupOptions opt, SetupLog log
         else if (Sys.EventSourceExists(EdrPaths.EventSource)) { Sys.DeleteEventSource(EdrPaths.EventSource); log.Ok("Event source \"wail2ban\" removed (entries already written stay in the Application log)"); }
         else log.Ok("No event source to remove");
 
+        var restoreFailed = log.Warnings > 0;
+        var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (restoreFailed)
+        {
+            foreach (var f in new[] { paths.BaselineFile, paths.ManagedFile, baseline?.Str("sysmonConfigBackup") ?? "" }.Where(f => f.Length > 0 && File.Exists(f))) keep.Add(Path.GetFullPath(f));
+            if (Directory.Exists(paths.BinDir)) foreach (var f in Directory.GetFiles(paths.BinDir)) keep.Add(Path.GetFullPath(f));
+        }
+
         log.Step($"Files ({paths.Root})");
-        if (!opt.FromSetup) Registry.LocalMachine.DeleteSubKeyTree(EdrPaths.SetupUninstallKey, throwOnMissingSubKey: false);
+        if (!opt.FromSetup && !restoreFailed) Registry.LocalMachine.DeleteSubKeyTree(EdrPaths.SetupUninstallKey, throwOnMissingSubKey: false);
+        if (!restoreFailed) Registry.LocalMachine.DeleteSubKeyTree(EdrPaths.FinishRemovalKey, throwOnMissingSubKey: false);
         foreach (var old in new[] { @"C:\EDR", @"C:\Wail2Ban", @"C:\LocalEDR" }.Where(Directory.Exists))
             try { Directory.Delete(old, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         var self = Environment.ProcessPath ?? "";
+        if (self.Length > 0) keep.Add(Path.GetFullPath(self));
         if (Directory.Exists(paths.Root))
         {
             foreach (var entry in new DirectoryInfo(paths.Root).GetFileSystemInfos())
             {
-                if (opt.FromSetup && entry.Name.StartsWith("unins", StringComparison.OrdinalIgnoreCase)) continue;   // Setup's uninstaller removes itself
+                if (opt.FromSetup && entry.Name.StartsWith("unins", StringComparison.OrdinalIgnoreCase)) continue;
                 try
                 {
                     if (entry is DirectoryInfo d)
                     {
-                        if (self.StartsWith(d.FullName + "\\", StringComparison.OrdinalIgnoreCase)) DeleteTreeExcept(d, self);
+                        if (keep.Any(k => k.StartsWith(d.FullName + "\\", StringComparison.OrdinalIgnoreCase))) DeleteTreeExcept(d, keep);
                         else d.Delete(true);
                     }
-                    else entry.Delete();
+                    else if (!keep.Contains(entry.FullName)) entry.Delete();
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
             }
             var left = Directory.GetFiles(paths.Root, "*", SearchOption.AllDirectories)
-                .Where(f => !Ps.Eq(f, self) && !(opt.FromSetup && Path.GetFileName(f).StartsWith("unins", StringComparison.OrdinalIgnoreCase))).ToList();
+                .Where(f => !keep.Contains(f) && !(opt.FromSetup && Path.GetFileName(f).StartsWith("unins", StringComparison.OrdinalIgnoreCase))).ToList();
             if (left.Count > 0) log.Warn($"{left.Count} files are still in use (first: {left[0]}) - delete {paths.Root} after a restart");
+            else if (restoreFailed) log.Ok($"Removed {paths.Root} except the record of the Windows settings to put back and the uninstaller ({paths.InstallerPath})");
             else log.Ok($"Deleted {paths.Root} (events, settings, allow/block lists, tools){(opt.FromSetup ? "; Setup removes the rest" : "")}");
+        }
+        if (restoreFailed)
+        {
+            log.Warn("Not every Windows setting could be put back. The record of the original settings was kept: fix what is listed above (or restart the PC), " +
+                     $"then run the removal again: Settings > Apps > \"FreeEDR (finish removal)\", or as administrator: \"{paths.InstallerPath}\" uninstall");
+            log.Result("UNINSTALL RESULT", "INCOMPLETE - the Windows settings record was kept, run the removal again", false);
+            return RestoreIncomplete;
         }
         log.Result("UNINSTALL RESULT", log.Warnings > 0 ? $"DONE WITH {log.Warnings} WARNING(S) - see above" : "SUCCESS", log.Warnings == 0);
         return log.Warnings > 0 ? 1 : 0;
     }
 
-    private static void DeleteTreeExcept(DirectoryInfo dir, string keep)
+    public const int RestoreIncomplete = 5;
+
+    private static void DeleteTreeExcept(DirectoryInfo dir, HashSet<string> keep)
     {
-        foreach (var f in dir.GetFiles()) if (!Ps.Eq(f.FullName, keep)) try { f.Delete(); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        foreach (var f in dir.GetFiles()) if (!keep.Contains(f.FullName)) try { f.Delete(); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         foreach (var d in dir.GetDirectories())
         {
-            if (keep.StartsWith(d.FullName + "\\", StringComparison.OrdinalIgnoreCase)) DeleteTreeExcept(d, keep);
+            if (keep.Any(k => k.StartsWith(d.FullName + "\\", StringComparison.OrdinalIgnoreCase))) DeleteTreeExcept(d, keep);
             else try { d.Delete(true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
     }

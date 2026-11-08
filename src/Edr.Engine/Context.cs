@@ -5,7 +5,6 @@ using Edr.Core.Native;
 
 namespace Edr.Engine;
 
-/// <summary>Everything the engine's parts share: paths, logs, settings and the persistent stores.</summary>
 internal sealed class Context
 {
     public Context(EdrPaths paths)
@@ -28,7 +27,6 @@ internal sealed class Context
     public Blocklist Blocks { get; }
     public DateTime Started { get; } = DateTime.Now;
 
-    /// <summary>Something the dashboards show changed (an event was written): set by the engine to notify them over the pipe.</summary>
     public Action? Changed { get; set; }
 
     public JsonObject Event(string blade, string severity, string title, string process = "", string detail = "", JsonObject? extra = null)
@@ -40,7 +38,6 @@ internal sealed class Context
 
     public void AppEvent(string text, int id, ushort type = 4) => Win32.WriteAppEvent(EdrPaths.EventSource, text, id, type);
 
-    /// <summary>[FORENSIC-AUDIT] line in engine.log + Event ID 3000 in the Application log.</summary>
     public void Audit(string action, string rubric, string user, string tail, string appText)
     {
         var now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
@@ -61,7 +58,6 @@ internal sealed class Context
         CfgStamp = File.Exists(Paths.ConfigFile) ? File.GetLastWriteTimeUtc(Paths.ConfigFile) : DateTime.MinValue;
     }
 
-    /// <summary>Picks up settings saved by the elevated helper (Settings window) without a restart.</summary>
     public bool ReloadConfigIfChanged()
     {
         var t = File.Exists(Paths.ConfigFile) ? File.GetLastWriteTimeUtc(Paths.ConfigFile) : DateTime.MinValue;

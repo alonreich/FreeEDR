@@ -1,11 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- FreeEDR tray icon + dashboard. Unelevated; reads C:\Program Files\FreeEDR, sends commands through FreeEDR-Control.exe (UAC) or inbox\. -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <RootNamespace>Edr.Tray</RootNamespace>
     <AssemblyName>FreeEDR-Tray</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <!-- Windows 10 SDK projection: native notifications with buttons (WinRT, NativeAOT-compatible) -->
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

@@ -1,11 +1,4 @@
-﻿# TestKit.ps1 - the small test framework of the FreeEDR test bundle (no Pester needed; Windows PowerShell 5.1).
-# Dot-sourced by Run-Tests.ps1. A suite (tests\NN-Name.Tests.ps1) calls Test 'name' { ... } and inside it
-# Assert-* / Skip / Known. Result levels:
-#   PASS  the check holds
-#   FAIL  a defect: the run fails (exit 1) and must be investigated before a change is declared done
-#   WARN  an accepted / documented risk or something to look at (does not fail the run)
-#   SKIP  cannot be checked here (FreeEDR not installed, needs another account, ...); the reason is printed
-
+﻿
 $global:FreeEdrTestResults = New-Object Collections.ArrayList
 $global:FreeEdrTestSuite = ''
 
@@ -38,8 +31,6 @@ function Assert-NoMatch([string]$Text, [string]$Pattern, [string]$Message = '') 
     if ($Text -match $Pattern) { throw "'$Pattern' found: '$($matches[0])'$(if ($Message) { " - $Message" })" }
 }
 
-# Function definitions and script-level assignments of a FreeEDR script, without running the script itself.
-# Usage: . ([scriptblock]::Create((Get-ScriptParts "$Repo\path\to\script.ps1" -Functions 'A','B' -Variables 'SomeVar')))
 function Get-ScriptParts([string]$Path, [string[]]$Functions = @(), [string[]]$Variables = @()) {
     $ast = [Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$null)
     $parts = @()
@@ -59,8 +50,6 @@ function Get-ScriptParts([string]$Path, [string[]]$Functions = @(), [string[]]$V
 
 function Read-Text([string]$Path) { [IO.File]::ReadAllText($Path) }
 
-# ---- The C# test suite (src\Edr.Core.Tests, xUnit v3) -------------------------------------------------------------
-# Built and run once per test run; every C# test becomes one line of the suite that owns its class.
 $global:FreeEdrCSharp = $null
 function Invoke-CSharpTests([string]$Repo, [string]$Work) {
     if ($null -ne $global:FreeEdrCSharp) { return $global:FreeEdrCSharp }
@@ -87,13 +76,12 @@ function Invoke-CSharpTests([string]$Repo, [string]$Work) {
     return $global:FreeEdrCSharp
 }
 
-# One Test line per C# test of these classes (Pass -> PASS, Fail -> FAIL, Skip -> SKIP with its reason)
 function Add-CSharpResults([string]$Repo, [string]$Work, [string[]]$Classes) {
     $all = @(Invoke-CSharpTests $Repo $Work)
     $mine = @($all | Where-Object { $Classes -contains $_.Class })
     if (-not $mine.Count) { Test "C# tests of $($Classes -join ', ')" { throw 'no C# test of these classes ran' }; return }
     foreach ($t in $mine) {
-        $global:FreeEdrCurrentCSharp = $t   # Test runs the body at once; a GetNewClosure() body would lose Skip/Known
+        $global:FreeEdrCurrentCSharp = $t
         Test "[C#] $($t.Name -replace '^Edr\.Core\.Tests\.', '')" {
             $r = $global:FreeEdrCurrentCSharp
             if ($r.Result -eq 'Skip') { Skip $r.Message }

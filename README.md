@@ -43,7 +43,8 @@ Highlights:
 
 ## 🚀 Install
 
-1. Download or build **`compiled\FreeEDR-Setup.exe`**.
+1. Download **`FreeEDR-Setup.exe`** from the [latest release](https://github.com/alonreich/FreeEDR/releases/latest)
+   (its SHA256 is in the release notes and in `FreeEDR-Setup.exe.sha256`), or build it (`compiled\FreeEDR-Setup.exe`).
 2. Run it and approve the administrator prompt. FreeEDR's setup window (same look as the dashboard) shows each step. The
    tools ship inside Setup (hash-verified); only Sysmon is downloaded from Microsoft when it is missing. Setup checks
    every part and rolls back if the new version does not start.
@@ -53,7 +54,8 @@ Highlights:
 
 Listed in **Settings > Apps** as "FreeEDR"; **Uninstall** there removes everything and restores the Windows settings it
 changed. Unattended: `FreeEDR-Setup.exe /VERYSILENT [/NoDesktopIcon=1] [/Clean=1]`. Requirements: Windows 10 1809+/11
-x64, Microsoft Defender. After the install only updates are downloaded.
+x64, Microsoft Defender. After the install only updates are downloaded. New FreeEDR versions are offered in
+**Settings > FreeEDR updates** (checked daily, installed only after you confirm; what changed: [docs/CHANGELOG.md](docs/CHANGELOG.md)).
 Details: [docs/install/INSTALLATION.md](docs/install/INSTALLATION.md).
 
 ## 🖥️ Using it

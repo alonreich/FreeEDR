@@ -1,9 +1,7 @@
-﻿# Sanity: the repository is complete and consistent (C# projects, data files, encodings, Sysmon template, installer
-# <-> uninstaller symmetry, documentation routing). No build output is needed except where a check says so.
-param([string]$Repo, [switch]$Live, [switch]$Attack, [switch]$Elevated, [string]$Work)
+﻿param([string]$Repo, [switch]$Live, [switch]$Attack, [switch]$Elevated, [string]$Work)
 
 $DataFiles = @('config\sysmonconfig.template.xml', 'rules\custom_edr.yar', 'rules\ransomware.yar', 'README.md',
-               'docs\user\USER_GUIDE.md', 'docs\install\INSTALLATION.md', 'docs\install\UNINSTALL.md')
+               'docs\user\USER_GUIDE.md', 'docs\install\INSTALLATION.md', 'docs\install\UNINSTALL.md', 'docs\CHANGELOG.md')
 $Projects = @('Edr.Core', 'Edr.Engine', 'Edr.Control', 'Edr.Setup', 'Edr.Tray', 'Edr.Core.Tests')
 
 Test 'Every installed data file and every C# project exists' {
@@ -41,7 +39,6 @@ Test 'Sysmon template: valid XML, {ROOT} placeholder, no "end with any" (Sysmon 
 }
 
 Test 'No credential-theft tool strings in plain text in the sources (antivirus / AMSI would flag the files)' {
-    # The patterns are assembled from hex so this test file itself is not flagged (the template keeps them in the XML)
     $words = @('73656b75726c73613a3a', ('6c7361647' + '56d703a3a'), '496e766f6b652d4d696d696b61747a') | ForEach-Object {
         $h = $_; -join (0..($h.Length / 2 - 1) | ForEach-Object { [char][Convert]::ToInt32($h.Substring($_ * 2, 2), 16) }) }
     $bad = @(Get-ChildItem "$Repo\src" -Recurse -Include *.cs, *.axaml -File | Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' } |
@@ -74,9 +71,28 @@ Test 'Installer and uninstaller are symmetric (everything set up outside the fol
 
 Test 'Setup: listed in Settings > Apps with version, uninstaller wired, x64 only, admin-only unpack folder' {
     $iss = Read-Text "$Repo\build\installer\FreeEDR-Setup.iss"
-    foreach ($p in 'AppVersion=\{#AppVersionText\}', 'Uninstallable=yes', 'ArchitecturesAllowed=x64os', 'setup-src', 'FreeEDR-Installer\.exe"; Parameters: "uninstall --from-setup"', 'PrivilegesRequired=admin') {
+    foreach ($p in 'AppVersion=\{#AppVersionText\}', 'Uninstallable=yes', 'ArchitecturesAllowed=x64os', 'setup-src', 'bin\\FreeEDR-Installer\.exe', "'uninstall --from-setup'", 'PrivilegesRequired=admin') {
         Assert-Match $iss $p
     }
+}
+
+Test 'Setup: no downgrade without asking, uninstall keeps the settings record unless the restore worked, Settings > Apps version stays true' {
+    $iss = Read-Text "$Repo\build\installer\FreeEDR-Setup.iss"
+    foreach ($p in 'function InitializeSetup', 'AllowDowngrade', '--allow-downgrade', 'procedure CurUninstallStepChanged', 'usPostUninstall', 'UninstallResult = 0', 'SyncDisplayVersion', 'FreeEDR \(finish removal\)') { Assert-Match $iss $p }
+    Assert-NoMatch $iss '\[UninstallDelete\]' 'Setup deletes the folder even when the restore failed'
+    Assert-NoMatch $iss 'UninstallDisplaySize' 'a fixed size is shown in Settings > Apps'
+}
+
+Test 'Release automation: changelog, release workflow with verification and five-release retention' {
+    $c = Read-Text "$Repo\docs\CHANGELOG.md"
+    Assert-Match $c '(?m)^## Unreleased' 'docs\CHANGELOG.md has no "## Unreleased"'
+    Assert-Match $c "(?m)^### What's new for you" 'docs\CHANGELOG.md has no user-facing part'
+    foreach ($f in "$Repo\AGENTS.md", "$Repo\project_structure.txt") { Assert-Match (Read-Text $f) 'CHANGELOG\.md' "$(Split-Path $f -Leaf) does not require the changelog" }
+    $wf = "$Repo\.github\workflows\release.yml"
+    Assert-True (Test-Path $wf) 'no release workflow'
+    $w = Read-Text $wf
+    foreach ($p in '--promote-changelog', 'build\.cmd', 'Run-Tests\.ps1', '--draft', 'sha256', 'KEEP', 'delete-asset', 'dry_run', 'failure\(\) \|\| cancelled\(\)', 'release-staging/', 'FreeEDR-Update\.exe', 'SkipLive', '\$env:MARKER', 'git revert') { Assert-Match $w $p "release.yml lacks $p" }
+    Assert-NoMatch $w "if: failure\(\)\s*`n" 'the clean-up must also run when a release is cancelled'
 }
 
 Test 'Elevated programs request administrator, the tray never does' {

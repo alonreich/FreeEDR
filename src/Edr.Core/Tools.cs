@@ -8,23 +8,11 @@ using System.Text.RegularExpressions;
 
 namespace Edr.Core;
 
-/// <summary>A tool FreeEDR runs, pinned to a version and the SHA256 of its executable. <see cref="Publisher"/>: the
-/// Authenticode signer its releases must carry to be installed from GitHub by a dashboard update ("" = its releases are
-/// not signed, so only the version pinned in a FreeEDR release is ever installed).</summary>
 public sealed record ToolSpec(string Name, string Repo, string Tag, string AssetPattern, string Exe, string Sha256, string VersionArgs, string VersionLinePattern, string Publisher = "")
 {
     public bool Updatable => Publisher.Length > 0;
 }
 
-/// <summary>
-/// Downloads, verifies and updates the external tools (Hayabusa, YARA, OSV-Scanner, Velociraptor).
-/// Install: the pinned version, SHA256 checked. Update (one click in the dashboard): only for a tool whose releases are
-/// Authenticode-signed by a pinned publisher (<see cref="ToolSpec.Publisher"/>). The latest GitHub release must match the
-/// SHA256 digest GitHub publishes (a transfer check) AND carry a valid signature of that publisher (an origin check:
-/// GitHub computes its digest from whatever was uploaded, so on its own it proves nothing about who built the file).
-/// Unsigned tools change only with a FreeEDR release (a new pin). Version queries run in the <see cref="Native.Sandbox"/>,
-/// and a new copy is checked before it replaces the old one.
-/// </summary>
 public sealed partial class Tools(EdrPaths paths, Action<string>? log = null)
 {
     public static readonly ToolSpec[] Pinned =
@@ -51,16 +39,12 @@ public sealed partial class Tools(EdrPaths paths, Action<string>? log = null)
 
     public string ExePath(ToolSpec t) => Path.Combine(paths.BinDir, t.Exe);
 
-    /// <summary>Version reported by the installed tool ("4.3.1"), or null. The tool runs in the sandbox (low integrity, no
-    /// privileges), never with the caller's administrator or SYSTEM rights.</summary>
     public string? InstalledVersion(ToolSpec t) => VersionOfExe(t, ExePath(t));
 
     private static string? VersionOfExe(ToolSpec t, string exe)
     {
         if (!File.Exists(exe)) return null;
         var run = Native.Sandbox.RunCapture(exe, t.VersionArgs.Split(' '), timeoutSeconds: 30, memoryMb: 1024, workDir: Path.GetDirectoryName(exe)!);
-        // A tool whose manifest demands elevation (Velociraptor: error 740) cannot start with a restricted token: its
-        // version resource is read instead; it is never run with the caller's rights just to ask its version
         if (!run.Started) return VersionOf(FileVersionInfo.GetVersionInfo(exe).ProductVersion);
         var output = run.Output;
         var lines = output.Split('\n');
@@ -74,13 +58,14 @@ public sealed partial class Tools(EdrPaths paths, Action<string>? log = null)
         return m.Success ? m.Groups[1].Value : null;
     }
 
-    /// <summary>The latest GitHub release: tag, page, assets (name, url, sha256 digest when GitHub provides it).</summary>
     public async Task<(string Tag, string Url, List<(string Name, string Url, string? Sha256)> Assets)?> LatestRelease(string repo, string? tag = null, CancellationToken ct = default)
     {
         try
         {
             var api = $"https://api.github.com/repos/{repo}/releases/{(tag is null ? "latest" : "tags/" + tag)}";
-            using var resp = await Http.GetAsync(api, ct);
+            using var req = new HttpRequestMessage(HttpMethod.Get, api);
+            if (Environment.GetEnvironmentVariable("EDR_GITHUB_TOKEN") is { Length: > 0 } token) req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using var resp = await Http.SendAsync(req, ct);
             if (!resp.IsSuccessStatusCode) return null;
             var j = JsonFile.Parse(await resp.Content.ReadAsStringAsync(ct)) as JsonObject;
             if (j is null) return null;
@@ -102,20 +87,31 @@ public sealed partial class Tools(EdrPaths paths, Action<string>? log = null)
         await resp.Content.CopyToAsync(fs, ct);
     }
 
+    public static bool IsPackagedToolFile(string rel) =>
+        rel.StartsWith(@"bin\hayabusa\", StringComparison.OrdinalIgnoreCase) || rel.StartsWith(@"seed\", StringComparison.OrdinalIgnoreCase) ||
+        Ps.Rx(@"^bin\\(yara64|yarac64|osv-scanner|velociraptor)\.exe$").IsMatch(rel);
+
     public static string Sha256Of(string file)
     {
         using var fs = File.OpenRead(file);
         return Convert.ToHexString(SHA256.HashData(fs));
     }
 
-    /// <summary>Installs the pinned version if the tool is missing (or, for Velociraptor, when its hash differs).</summary>
-    public async Task<string> EnsurePinned(ToolSpec t, CancellationToken ct = default)
+    public bool KeepInstalled(ToolSpec t)
     {
         var target = ExePath(t);
-        if (File.Exists(target))
-        {
-            if (t.Name != "Velociraptor" || Sha256Of(target) == t.Sha256) return $"OK {t.Name} present";
-        }
+        if (!File.Exists(target)) return false;
+        if (Ps.Eq(Sha256Of(target), t.Sha256)) return true;
+        return t.Updatable && IsNewerSigned(t, PublisherOf(target), InstalledVersion(t));
+    }
+
+    public static bool IsNewerSigned(ToolSpec t, string? signer, string? version) =>
+        t.Updatable && signer is { Length: > 0 } && Ps.Eq(signer, t.Publisher) &&
+        Version.TryParse(version, out var v) && Version.TryParse(VersionOf(t.Tag), out var pin) && v >= pin;
+
+    public async Task<string> EnsurePinned(ToolSpec t, CancellationToken ct = default)
+    {
+        if (KeepInstalled(t)) return $"OK {t.Name} present";
         var rel = await LatestRelease(t.Repo, t.Tag, ct) ?? throw new IOException($"{t.Name} {t.Tag}: GitHub not reachable");
         var asset = rel.Assets.FirstOrDefault(a => Ps.Match(a.Name, t.AssetPattern) && !Ps.Match(a.Name, "live-response|debug|msi"));
         if (asset.Name is null) throw new IOException($"{t.Name} {t.Tag}: no matching release asset");
@@ -123,11 +119,6 @@ public sealed partial class Tools(EdrPaths paths, Action<string>? log = null)
         return $"OK {t.Name} {t.Tag} downloaded and verified";
     }
 
-    /// <summary>
-    /// Updates a tool to the latest release: only a tool with a pinned publisher. The asset must carry GitHub's SHA256
-    /// digest and match it, the executable must be Authenticode-signed (valid chain) by that publisher, and it must run
-    /// (version query in the sandbox) before it replaces the installed copy. Returns a one-line result.
-    /// </summary>
     public async Task<(bool Ok, string Message)> UpdateToLatest(ToolSpec t, CancellationToken ct = default)
     {
         if (!t.Updatable)
@@ -167,10 +158,8 @@ public sealed partial class Tools(EdrPaths paths, Action<string>? log = null)
         finally { JsonFile.TryDelete(candidate); }
     }
 
-    /// <summary>Authenticode publisher of a file with a valid signature (null when unsigned or invalid). Replaced only by tests.</summary>
     internal static Func<string, string?> PublisherOf { get; set; } = f => new Native.AuthenticodeSigners().SignerOf(f);
 
-    /// <summary>Downloads one release asset (an .exe or .exe.gz) to <paramref name="file"/>, checking GitHub's SHA256 digest.</summary>
     private async Task FetchExe(ToolSpec t, string assetName, string url, string file, string expectedAssetSha, CancellationToken ct)
     {
         Directory.CreateDirectory(paths.DownloadDir);
@@ -239,8 +228,6 @@ public sealed partial class Tools(EdrPaths paths, Action<string>? log = null)
         finally { JsonFile.TryDelete(dl); }
     }
 
-    /// <summary>Deletes a folder tree, read-only files included (a git checkout has them); nothing when it is missing.
-    /// Links inside are removed, never followed.</summary>
     public static void DeleteTree(string dir)
     {
         var d = new DirectoryInfo(dir);
@@ -258,7 +245,6 @@ public sealed partial class Tools(EdrPaths paths, Action<string>? log = null)
         foreach (var f in Directory.GetFiles(from, "*", SearchOption.AllDirectories)) File.Copy(f, Path.Combine(to, Path.GetRelativePath(from, f)), true);
     }
 
-    /// <summary>Runs a program with an argument vector, returns exit code and combined output (bounded wait).</summary>
     public static (int Exit, string Output) RunCapture(string exe, IEnumerable<string> args, string? workDir = null, int timeoutSeconds = 120, CancellationToken ct = default)
     {
         var psi = new ProcessStartInfo(exe)

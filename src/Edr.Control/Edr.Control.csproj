@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- FreeEDR-Control.exe: the elevated helper the tray starts through UAC. Validates one request, then drops it into control\. -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <RootNamespace>Edr.Control</RootNamespace>
@@ -8,7 +7,7 @@
     <PublishAot>true</PublishAot>
     <IlcOptimizationPreference>Size</IlcOptimizationPreference>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>   <!-- LibraryImport (MessageBoxW) -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Edr.Core\Edr.Core.csproj" />

@@ -20,7 +20,6 @@ public class SingleInstanceTests
         using var shown = new ManualResetEventSlim();
         first.Listen(onShow: shown.Set, onExit: () => { });
 
-        // A second launch from another thread (mutexes are owned per thread)
         SingleInstance? second = null;
         var t = new Thread(() => second = SingleInstance.Acquire(names));
         t.Start(); t.Join();
@@ -38,7 +37,6 @@ public class SingleInstanceTests
         using var exited = new ManualResetEventSlim();
         first.Listen(onShow: () => { }, onExit: exited.Set);
 
-        // What Install-EDR.ps1 does: open the named event and set it
         using (var ev = EventWaitHandle.OpenExisting(names.ExitEvent)) ev.Set();
 
         Assert.True(exited.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));

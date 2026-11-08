@@ -3,7 +3,6 @@ using System.Runtime.Versioning;
 
 namespace Edr.Core.Native;
 
-/// <summary>Windows service control (advapi32): query, start, stop, create, delete, recovery options.</summary>
 [SupportedOSPlatform("windows")]
 public static unsafe partial class Services
 {
@@ -30,14 +29,14 @@ public static unsafe partial class Services
 
     public static bool Start(string name, int waitSeconds = 20)
     {
-        var ok = WithService(name, ServiceStart | ServiceQuery, s => StartServiceW(s, 0, 0) || Marshal.GetLastWin32Error() == 1056);   // already running
+        var ok = WithService(name, ServiceStart | ServiceQuery, s => StartServiceW(s, 0, 0) || Marshal.GetLastWin32Error() == 1056);
         return ok && WaitFor(name, State.Running, waitSeconds);
     }
 
     public static bool Stop(string name, int waitSeconds = 30)
     {
         if (Query(name) is State.Missing or State.Stopped) return true;
-        WithService(name, ServiceStop | ServiceQuery, s => ControlService(s, 1, out _));   // SERVICE_CONTROL_STOP
+        WithService(name, ServiceStop | ServiceQuery, s => ControlService(s, 1, out _));
         return WaitFor(name, State.Stopped, waitSeconds);
     }
 
@@ -52,13 +51,6 @@ public static unsafe partial class Services
         return Query(name) == want;
     }
 
-    /// <summary>Creates (or updates) an auto-start LocalSystem service that restarts itself on failure.</summary>
-    /// <summary>
-    /// Creates or updates an own-process, auto-start LocalSystem service that restarts on failure. With
-    /// <paramref name="requiredPrivileges"/> the service manager strips every other privilege from the process token
-    /// (least privilege: still SYSTEM for ACL checks, but no SeDebug, SeTcb, SeLoadDriver, SeBackup, SeRestore,
-    /// SeTakeOwnership, ...); <paramref name="serviceSid"/> adds the NT SERVICE\&lt;name&gt; SID to its token.
-    /// </summary>
     public static void CreateOrUpdate(string name, string displayName, string description, string binaryPath, string[]? requiredPrivileges = null, bool serviceSid = false)
     {
         var scm = OpenSCManagerW(null, null, ScManagerAll);
@@ -68,7 +60,7 @@ public static unsafe partial class Services
             var s = OpenServiceW(scm, name, ServiceAll);
             if (s == 0)
             {
-                s = CreateServiceW(scm, name, displayName, ServiceAll, 0x10 /* own process */, 2 /* auto start */, 1 /* normal errors */,
+                s = CreateServiceW(scm, name, displayName, ServiceAll, 0x10, 2, 1,
                                    binaryPath, null, 0, null, null, null);
                 if (s == 0) throw new IOException($"CreateService failed (error {Marshal.GetLastWin32Error()})");
             }
@@ -79,29 +71,28 @@ public static unsafe partial class Services
                 fixed (char* d = description)
                 {
                     var desc = new ServiceDescription { lpDescription = (nint)d };
-                    ChangeServiceConfig2W(s, 1, &desc);   // SERVICE_CONFIG_DESCRIPTION
+                    ChangeServiceConfig2W(s, 1, &desc);
                 }
-                // Restart after 10 s, 30 s, then every 60 s; failure count resets after a day
                 var actions = stackalloc ScAction[3];
                 actions[0] = new ScAction { Type = 1, Delay = 10_000 };
                 actions[1] = new ScAction { Type = 1, Delay = 30_000 };
                 actions[2] = new ScAction { Type = 1, Delay = 60_000 };
                 var fa = new ServiceFailureActions { dwResetPeriod = 86_400, cActions = 3, lpsaActions = (nint)actions };
-                ChangeServiceConfig2W(s, 2, &fa);     // SERVICE_CONFIG_FAILURE_ACTIONS
+                ChangeServiceConfig2W(s, 2, &fa);
                 var flag = new FailureActionsFlag { fFailureActionsOnNonCrashFailures = 1 };
-                ChangeServiceConfig2W(s, 4, &flag);   // SERVICE_CONFIG_FAILURE_ACTIONS_FLAG
+                ChangeServiceConfig2W(s, 4, &flag);
                 if (serviceSid)
                 {
-                    var sid = 1u;   // SERVICE_SID_TYPE_UNRESTRICTED
-                    if (!ChangeServiceConfig2W(s, 5, &sid)) throw new IOException($"Service SID type failed (error {Marshal.GetLastWin32Error()})");   // SERVICE_CONFIG_SERVICE_SID_INFO
+                    var sid = 1u;
+                    if (!ChangeServiceConfig2W(s, 5, &sid)) throw new IOException($"Service SID type failed (error {Marshal.GetLastWin32Error()})");
                 }
                 if (requiredPrivileges is { Length: > 0 })
                 {
                     var multi = string.Join("\0", requiredPrivileges) + "\0\0";
                     fixed (char* m = multi)
                     {
-                        var p = (nint)m;   // SERVICE_REQUIRED_PRIVILEGES_INFO { LPWSTR pmszRequiredPrivileges }
-                        if (!ChangeServiceConfig2W(s, 6, &p)) throw new IOException($"Required privileges failed (error {Marshal.GetLastWin32Error()})");   // SERVICE_CONFIG_REQUIRED_PRIVILEGES_INFO
+                        var p = (nint)m;
+                        if (!ChangeServiceConfig2W(s, 6, &p)) throw new IOException($"Required privileges failed (error {Marshal.GetLastWin32Error()})");
                     }
                 }
             }
@@ -181,10 +172,6 @@ public static unsafe partial class Services
     private static partial bool CloseServiceHandle(nint h);
 }
 
-/// <summary>
-/// Runs a program as a Windows service (StartServiceCtrlDispatcher). <c>run</c> gets a token that is cancelled when
-/// Windows asks the service to stop (stop or shutdown). Returns false when not started by the service manager.
-/// </summary>
 [SupportedOSPlatform("windows")]
 public static unsafe partial class ServiceHost
 {
@@ -204,7 +191,7 @@ public static unsafe partial class ServiceHost
             var table = stackalloc TableEntry[2];
             table[0] = new TableEntry { Name = namePtr, Proc = (nint)(delegate* unmanaged[Stdcall]<uint, nint, void>)&ServiceMain };
             table[1] = default;
-            return StartServiceCtrlDispatcherW(table);   // false (1063) when started from a console
+            return StartServiceCtrlDispatcherW(table);
         }
         finally { Marshal.FreeHGlobal(namePtr); }
     }
@@ -216,10 +203,10 @@ public static unsafe partial class ServiceHost
         _statusHandle = RegisterServiceCtrlHandlerExW(namePtr, &Handler, 0);
         Marshal.FreeHGlobal(namePtr);
         if (_statusHandle == 0) return;
-        Report(4 /* running */, 0x1 | 0x4 /* accept stop + shutdown */);
+        Report(4, 0x1 | 0x4);
         try { _run?.Invoke(Stop.Token); }
         catch (Exception) { Report(1, 0, exitCode: 1); return; }
-        Report(1 /* stopped */, 0);
+        Report(1, 0);
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
@@ -227,15 +214,15 @@ public static unsafe partial class ServiceHost
     {
         switch (control)
         {
-            case 1:   // stop
-            case 5:   // shutdown
-                Report(3 /* stop pending */, 0, waitHint: 30_000);
+            case 1:
+            case 5:
+                Report(3, 0, waitHint: 30_000);
                 Stop.Cancel();
                 return 0;
-            case 4:   // interrogate
+            case 4:
                 return 0;
             default:
-                return 120;   // ERROR_CALL_NOT_IMPLEMENTED
+                return 120;
         }
     }
 

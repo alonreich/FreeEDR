@@ -1,9 +1,5 @@
 namespace Edr.Core;
 
-/// <summary>
-/// One tray per session. The first instance owns the mutex and listens for two named events:
-/// Show (a second launch, e.g. the Start-menu shortcut) and Exit (the installer closing the tray).
-/// </summary>
 public sealed class SingleInstance : IDisposable
 {
     private readonly Mutex _mutex;
@@ -19,7 +15,6 @@ public sealed class SingleInstance : IDisposable
         _exit = exit;
     }
 
-    /// <summary>The owning instance, or null after asking the running one to show its dashboard.</summary>
     public static SingleInstance? Acquire(InstanceNames names, bool signalShowIfRunning = true)
     {
         var mutex = new Mutex(true, names.Mutex, out var created);
@@ -31,7 +26,6 @@ public sealed class SingleInstance : IDisposable
         return null;
     }
 
-    /// <summary>Calls the handlers on a background thread; marshal to the UI thread yourself.</summary>
     public void Listen(Action onShow, Action onExit)
     {
         _listener = new Thread(() =>
@@ -54,7 +48,7 @@ public sealed class SingleInstance : IDisposable
     {
         _stop.Set();
         _listener?.Join(1000);
-        try { _mutex.ReleaseMutex(); } catch (ApplicationException) { }   // released on another thread or already gone
+        try { _mutex.ReleaseMutex(); } catch (ApplicationException) { }
         _mutex.Dispose(); _show.Dispose(); _exit.Dispose(); _stop.Dispose();
     }
 }

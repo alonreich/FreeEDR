@@ -3,14 +3,6 @@ using Edr.Core;
 
 namespace EdrBuild;
 
-/// <summary>
-/// EdrBuild - builds .\compiled\FreeEDR-Setup.exe, the single-file installer of FreeEDR.
-/// Pipeline: data files -> encodings -> C# tests -> NativeAOT publish of the engine, control helper, installer and
-/// tray -> live self-test of the tray -> staging (+ optional code signing) -> Inno Setup -> exactly one file in .\compiled.
-/// Release (build.cmd) wipes .\compiled first; dev (dev_build.cmd, --dev) only replaces the installer and marks the
-/// version as a dev build. Nothing is installed and nothing leaves this PC.
-/// Exit codes: 0 = OK, 1 = BUILD FAILED.
-/// </summary>
 internal static class Program
 {
     private const string SetupName = "FreeEDR-Setup.exe";
@@ -20,11 +12,22 @@ internal static class Program
         if (args.Any(a => a is "--help" or "-h" or "/?"))
         {
             Console.WriteLine("Usage: build.cmd | dev_build.cmd [--skip-live]");
-            Console.WriteLine("  build.cmd      release build: .\\compiled is wiped first, then holds only FreeEDR-Setup.exe");
+            Console.WriteLine("  build.cmd      release build: .\\compiled is wiped first, then holds FreeEDR-Setup.exe and FreeEDR-Update.exe (set EDR_BUILD_UPDATE=1 to build the update package in a dev build)");
             Console.WriteLine("  dev_build.cmd  local dev build (--dev): .\\compiled is not wiped, the version says \"dev\"");
             Console.WriteLine("  --skip-live    skip the self-test of the tray on this PC's live FreeEDR data");
-            Console.WriteLine("  Code signing (optional): EDR_SIGN_THUMBPRINT, or EDR_SIGN_DLIB + EDR_SIGN_METADATA (Azure Trusted Signing)");
+            Console.WriteLine("  --promote-changelog <version> [--notes <file>]   move docs\\CHANGELOG.md's Unreleased entries under <version> (release workflow)");
+            Console.WriteLine("  Release version: EDR_VERSION, else the v<version> tag on HEAD, else a local build 0.yyMM.ddHH.mm that ranks below every release (WARN)");
+            Console.WriteLine("  Code signing: EDR_SIGN_THUMBPRINT, or EDR_SIGN_DLIB + EDR_SIGN_METADATA (Azure Trusted Signing).");
+            Console.WriteLine("  Release builds must be signed; EDR_ALLOW_UNSIGNED=1 allows an unsigned release build (WARN).");
             return 0;
+        }
+        var promote = Array.FindIndex(args, a => a.Equals("--promote-changelog", StringComparison.OrdinalIgnoreCase));
+        if (promote >= 0)
+        {
+            if (promote + 1 >= args.Length) { Console.Error.WriteLine("ERROR: --promote-changelog needs a version"); return 2; }
+            var n = Array.FindIndex(args, a => a.Equals("--notes", StringComparison.OrdinalIgnoreCase));
+            var r = FindRoot();
+            return Release.Promote(r, args[promote + 1].TrimStart('v'), n >= 0 && n + 1 < args.Length ? args[n + 1] : Path.Combine(r, "obj", "release-notes.md"));
         }
         var dev = args.Contains("--dev", StringComparer.OrdinalIgnoreCase);
         var skipLive = args.Contains("--skip-live", StringComparer.OrdinalIgnoreCase);
@@ -56,10 +59,12 @@ internal static class Program
 
     private static bool Run(string root, bool dev, bool skipLive, BuildLog log)
     {
-        // Numeric for the file version resource (each part <= 65535): 2026.11.1.2315
-        var now = DateTime.Now;
-        var version = $"{now:yyyy}.{now.Month}.{now.Day}.{now:HHmm}";
-        var versionText = dev ? $"{version} (dev build)" : version;
+        BuildVersion bv;
+        try { bv = Release.Compute(root, dev, DateTime.UtcNow, log); }
+        catch (InvalidDataException e) { log.Error(e.Message); return false; }
+        var version = bv.Numeric;
+        var versionText = bv.Text;
+        var requireSigning = !dev && Environment.GetEnvironmentVariable("EDR_ALLOW_UNSIGNED") != "1";
         var obj = Path.Combine(root, "obj", "EdrBuild");
         var publish = Path.Combine(obj, "publish");
         var staging = Path.Combine(obj, "Staging");
@@ -68,16 +73,18 @@ internal static class Program
         log.Banner("###########################################################");
         log.Banner($"BUILDING FreeEDR {versionText}");
         log.Banner("###########################################################");
+        log.Info($"[Version] {version}  informational {bv.Informational}  commit {bv.Commit}");
 
         log.Banner("1. Checking the project files...");
         if (!Gates.ProjectFiles(root, log)) return false;
         if (!Gates.Encodings(root, log)) return false;
+        if (!Release.ChangelogGate(root, bv, dev, log)) return false;
 
         log.Banner("2. C# tests...");
         if (!Gates.DotnetTests(root, log)) return false;
 
         log.Banner("3. NativeAOT publish (engine, control helper, installer, tray)...");
-        if (!Gates.Publish(root, publish, version, log)) return false;
+        if (!Gates.Publish(root, publish, version, bv.Informational, log)) return false;
         var trayExe = Path.Combine(publish, "Edr.Tray", "FreeEDR-Tray.exe");
         if (skipLive) log.Warn("[Self-test] skipped on request (--skip-live)");
         else if (!Gates.LiveSelfTest(trayExe, log)) return false;
@@ -102,8 +109,8 @@ internal static class Program
             File.Copy(Path.Combine(root, f), to);
             n++;
         }
-        if (!Gates.Sign(Directory.GetFiles(Path.Combine(staging, "bin"), "FreeEDR-*.exe", SearchOption.AllDirectories), log)) return false;
-        if (!EmbedTools(root, staging, log)) return false;
+        if (!Gates.Sign(Directory.GetFiles(Path.Combine(staging, "bin"), "FreeEDR-*.exe", SearchOption.AllDirectories), requireSigning, log)) return false;
+        if (!EmbedTools(root, staging, dev, log)) return false;
         log.Success($"[Staging] {n} files -> {staging}");
 
         log.Banner("5. Building the installer (Inno Setup)...");
@@ -117,33 +124,60 @@ internal static class Program
         else if (Directory.Exists(compiled)) { Directory.Delete(compiled, true); log.Info("[Compiled] .\\compiled wiped (release build)"); }
         Directory.CreateDirectory(compiled);
         var output = Path.Combine(compiled, SetupName);
-        if (File.Exists(output)) File.Delete(output);
-        var rc = Cli.Run(iscc,
-        [
-            "/Qp", "/DAppVersion=" + version, "/DAppVersionText=" + versionText,
-            "/DStagingDir=" + staging, "/DOutputDir=" + compiled,
-            Path.Combine(root, "build", "installer", "FreeEDR-Setup.iss"),
-        ], log);
-        if (rc != 0 || !File.Exists(output)) { log.Error($"Inno Setup failed (exit {rc}); the installer was not produced"); return false; }
-        if (!Gates.Sign([output], log)) return false;
+        var update = Path.Combine(compiled, UpdateName);
+        foreach (var f in new[] { output, output + ".sha256", update, update + ".sha256" }) if (File.Exists(f)) File.Delete(f);
+        if (!Compile(root, iscc, "FreeEDR-Setup", staging, compiled, version, versionText, requireSigning, log)) return false;
+
+        var slim = !dev || Environment.GetEnvironmentVariable("EDR_BUILD_UPDATE") == "1";
+        var slimStaging = Path.Combine(obj, "StagingUpdate");
+        if (slim)
+        {
+            log.Banner("5b. Building the update package (same programs, without the bundled third-party tools)...");
+            if (Directory.Exists(slimStaging)) Directory.Delete(slimStaging, true);
+            var kept = 0;
+            foreach (var f in Directory.GetFiles(staging, "*", SearchOption.AllDirectories))
+            {
+                var rel = Path.GetRelativePath(staging, f);
+                if (Tools.IsPackagedToolFile(rel)) continue;
+                var to = Path.Combine(slimStaging, rel);
+                Directory.CreateDirectory(Path.GetDirectoryName(to)!);
+                File.Copy(f, to);
+                kept++;
+            }
+            log.Info($"[Update] {kept} files; tools are kept from the installed copy, or downloaded and SHA256-checked against their pins when a pin changed");
+            if (!Compile(root, iscc, "FreeEDR-Update", slimStaging, compiled, version, versionText, requireSigning, log)) return false;
+        }
+        else log.Info("[Update] dev build: the update package is not built (set EDR_BUILD_UPDATE=1 to build it)");
 
         log.Banner("6. Validating .\\compiled...");
-        if (!ValidateCompiled(compiled, output, log)) return false;
-        using (var fs = File.OpenRead(output))
-            log.Success($"[Installer] {SetupName}  {new FileInfo(output).Length / 1024.0 / 1024.0:0.0} MB  SHA256 {Convert.ToHexString(SHA256.HashData(fs))}");
+        if (!ValidateCompiled(compiled, slim ? [output, update] : [output], log)) return false;
+        foreach (var f in slim ? new[] { output, update } : [output])
+            log.Success($"[Installer] {Path.GetFileName(f)}  {versionText}  {new FileInfo(f).Length / 1024.0 / 1024.0:0.0} MB  SHA256 {File.ReadAllText(f + ".sha256").Split(' ')[0]}  (also in {Path.GetFileName(f)}.sha256)");
         Directory.Delete(staging, true);
+        if (Directory.Exists(slimStaging)) Directory.Delete(slimStaging, true);
         return true;
     }
 
-    /// <summary>
-    /// The baseline ships inside Setup: the pinned tools (Hayabusa with its rules, YARA, OSV-Scanner, Velociraptor), each
-    /// checked against its pinned SHA256, plus a seed of the malware hash list. The installer then copies them instead of
-    /// downloading; afterwards only updates are downloaded (dashboard "Update tool", the scan's rule and IOC updates).
-    /// Downloads are cached in obj\tools-cache, so only the first build (or a new pin) needs the network.
-    /// Sysmon is not embedded: Microsoft's Sysinternals license does not allow redistributing it, so the installer still
-    /// downloads it from Microsoft (signature checked) when it is not installed yet.
-    /// </summary>
-    private static bool EmbedTools(string root, string staging, BuildLog log)
+    private const string UpdateName = "FreeEDR-Update.exe";
+
+    private static bool Compile(string root, string iscc, string name, string staging, string compiled, string version, string versionText, bool requireSigning, BuildLog log)
+    {
+        var output = Path.Combine(compiled, name + ".exe");
+        var rc = Cli.Run(iscc,
+        [
+            "/Qp", "/DAppVersion=" + version, "/DAppVersionText=" + versionText,
+            "/DStagingDir=" + staging, "/DOutputDir=" + compiled, "/DOutputName=" + name,
+            Path.Combine(root, "build", "installer", "FreeEDR-Setup.iss"),
+        ], log);
+        if (rc != 0 || !File.Exists(output)) { log.Error($"Inno Setup failed for {name}.exe (exit {rc}); it was not produced"); return false; }
+        if (!Gates.Sign([output], requireSigning, log)) return false;
+        string hash;
+        using (var fs = File.OpenRead(output)) hash = Convert.ToHexString(SHA256.HashData(fs));
+        File.WriteAllText(output + ".sha256", $"{hash}  {name}.exe\n");
+        return true;
+    }
+
+    private static bool EmbedTools(string root, string staging, bool dev, BuildLog log)
     {
         var cache = Path.Combine(root, "obj", "tools-cache");
         var cachePaths = new EdrPaths(cache, Path.Combine(cache, "user"));
@@ -175,9 +209,7 @@ internal static class Program
         }
         notices.AddRange(["", "Source code and license texts: the project pages above (each release includes its LICENSE).",
                           "Microsoft Sysinternals Sysmon is not included; Setup downloads it from Microsoft."]);
-        File.WriteAllLines(Path.Combine(staging, "docs", "THIRD_PARTY_NOTICES.txt"), notices);
 
-        // Seed of the malware hash list (abuse.ch MalwareBazaar, CC0): used only when the PC has none yet
         var seed = Path.Combine(cache, "ioc_sha256.txt");
         try
         {
@@ -185,15 +217,26 @@ internal static class Program
                 tools.Download(new EdrConfig().IocFeedUrl, seed).GetAwaiter().GetResult();
         }
         catch (Exception e) when (e is IOException or HttpRequestException or TaskCanceledException) { log.Warn($"[Tools] malware hash seed not refreshed: {e.Message}"); }
-        if (File.Exists(seed) && new FileInfo(seed).Length >= 1000)
+        if (File.Exists(seed) && new FileInfo(seed).Length >= SeedMinBytes)
         {
             Directory.CreateDirectory(Path.Combine(staging, "seed"));
             File.Copy(seed, Path.Combine(staging, "seed", "ioc_sha256.txt"), true);
-            log.Success($"[Tools] malware hash seed embedded ({new FileInfo(seed).Length / 1024} KB, {File.GetLastWriteTime(seed):yyyy-MM-dd})");
+            var seedHash = Tools.Sha256Of(seed);
+            var stamp = File.GetLastWriteTimeUtc(seed).ToString("yyyy-MM-dd HH:mm 'UTC'");
+            notices.AddRange(["", $"Malware hash seed (seed\\ioc_sha256.txt): {new EdrConfig().IocFeedUrl}, fetched {stamp}, SHA256 {seedHash}"]);
+            log.Success($"[Tools] malware hash seed embedded ({new FileInfo(seed).Length / 1024} KB, fetched {stamp}, SHA256 {seedHash})");
+        }
+        else if (!dev)
+        {
+            log.Error($"[Tools] the malware hash seed is missing or smaller than {SeedMinBytes / 1024} KB: a release build must ship it (feed down? build again later)");
+            return false;
         }
         else log.Warn("[Tools] no malware hash seed: the installer downloads it, the first scan retries");
+        File.WriteAllLines(Path.Combine(staging, "docs", "THIRD_PARTY_NOTICES.txt"), notices);
         return true;
     }
+
+    private const long SeedMinBytes = 64 * 1024;
 
     private static string License(string tool) => tool switch
     {
@@ -207,18 +250,18 @@ internal static class Program
         foreach (var f in Directory.GetFiles(from, "*", SearchOption.AllDirectories)) File.Copy(f, Path.Combine(to, Path.GetRelativePath(from, f)), true);
     }
 
-    /// <summary>.\compiled holds exactly one file: the installer. Anything else is removed and fails the build.</summary>
-    private static bool ValidateCompiled(string compiled, string output, BuildLog log)
+    private static bool ValidateCompiled(string compiled, string[] outputs, BuildLog log)
     {
-        var ok = File.Exists(output);
+        var ok = outputs.All(o => File.Exists(o) && File.Exists(o + ".sha256"));
+        var allowed = outputs.SelectMany(o => new[] { o, o + ".sha256" }).ToList();
         foreach (var entry in Directory.EnumerateFileSystemEntries(compiled))
         {
-            if (string.Equals(entry, output, StringComparison.OrdinalIgnoreCase)) continue;
+            if (allowed.Any(a => string.Equals(entry, a, StringComparison.OrdinalIgnoreCase))) continue;
             log.Error($"removing a disallowed artifact from .\\compiled: {Path.GetFileName(entry)}");
             if (Directory.Exists(entry)) Directory.Delete(entry, true); else File.Delete(entry);
             ok = false;
         }
-        if (ok) log.Success("[Compiled] exactly one file: " + Path.GetFileName(output));
+        if (ok) log.Success($"[Compiled] only {string.Join(" and ", outputs.Select(Path.GetFileName))} with their .sha256");
         return ok;
     }
 

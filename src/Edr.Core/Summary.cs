@@ -1,6 +1,5 @@
 namespace Edr.Core;
 
-/// <summary>What happened in a period (the weekly summary card and toast, and the learning-week wrap-up).</summary>
 public sealed record PeriodSummary(DateTime From, DateTime To, int Alerts, int Critical, int High, int SignInFailures, int Bans, int InternetLogins,
                                    int ScansOk, int ScansFailed, IReadOnlyList<(string Title, int Count)> Noisiest, IReadOnlyDictionary<string, int> ByPart)
 {

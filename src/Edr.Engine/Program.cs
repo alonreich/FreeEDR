@@ -5,9 +5,6 @@ namespace Edr.Engine;
 
 internal static class Program
 {
-    // FreeEDR-Engine.exe            started by the service manager (service "FreeEDR", LocalSystem)
-    // FreeEDR-Engine.exe --console  runs in the console until Ctrl+C (diagnostics; needs an elevated prompt)
-    // FreeEDR-Engine.exe --root <d> uses another install folder (tests)
     private static int Main(string[] args)
     {
         var root = Value(args, "--root");

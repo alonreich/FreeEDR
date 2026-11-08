@@ -7,20 +7,8 @@ using Edr.Core.Native;
 
 namespace Edr.Engine;
 
-/// <summary>
-/// Engine side of <see cref="EnginePipe"/>. A request is identified by the caller's Windows token (impersonation): an
-/// elevated administrator may send every engine verb (like control\), anyone else only resume and scan-now (like
-/// inbox\); the user name comes from the token, not from the request. Requests are queued and run on the engine's main
-/// loop (<see cref="Drain"/>), so command handling stays single-threaded; the caller gets the result. Subscribers get
-/// {"type":"changed"} at most every 300 ms after <see cref="Changed"/>.
-/// No account can take the pipe from the others: at most <see cref="MaxClients"/> connections, of which
-/// <see cref="ReservedForCommands"/> never go to subscriptions; per account (SID, elevated or not, from the client
-/// process's token) at most <see cref="PerCaller"/> connections and <see cref="SubscriptionsPerCaller"/> subscriptions;
-/// the first line must arrive within <see cref="FirstLineTimeout"/>; a subscriber that sends anything is dropped.
-/// </summary>
 internal sealed class PipeServer(Context ctx) : IDisposable
 {
-    /// <summary>The engine's answer to a request it ran: Ok, a note for the caller ("" = none), Failed = valid but not carried out.</summary>
     public readonly record struct Outcome(bool Ok, string Note, bool Failed);
 
     private sealed class Request(JsonObject cmd, bool admin, string user)
@@ -29,11 +17,9 @@ internal sealed class PipeServer(Context ctx) : IDisposable
         public readonly bool Admin = admin;
         public readonly string User = user;
         public readonly TaskCompletionSource<Outcome> Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        /// <summary>0 queued, 1 taken by the main loop, 2 abandoned (the caller's deadline passed first: never runs).</summary>
         public int State;
     }
 
-    /// <summary>A request waits at most this long for the main loop (less when the caller's deadline is earlier).</summary>
     public static readonly TimeSpan MaxQueueWait = TimeSpan.FromSeconds(25);
 
     public const int MaxClients = 16;
@@ -59,21 +45,18 @@ internal sealed class PipeServer(Context ctx) : IDisposable
         _ = Task.Run(NotifyLoop);
     }
 
-    /// <summary>Status or events changed (any thread).</summary>
     public void Changed() => Interlocked.Exchange(ref _changed, 1);
 
-    /// <summary>Runs the queued requests on the engine's main loop (tests: an executor without notes).</summary>
     public void Drain(Func<JsonObject, bool, bool> execute) => Drain((c, a) => new Outcome(execute(c, a), "", false));
 
-    /// <summary>Runs the queued requests on the engine's main loop. A request whose caller already got "busy" is skipped.</summary>
     public void Drain(Func<JsonObject, bool, Outcome> execute)
     {
         while (_requests.TryDequeue(out var r))
         {
-            if (Interlocked.CompareExchange(ref r.State, 1, 0) != 0) continue;   // abandoned: the caller was told it did not run
+            if (Interlocked.CompareExchange(ref r.State, 1, 0) != 0) continue;
             try
             {
-                r.Cmd["user"] = r.User;   // the verified caller, never what the request claims
+                r.Cmd["user"] = r.User;
                 var o = execute(r.Cmd, r.Admin);
                 var note = o.Note.Length > 0 ? o.Note : o.Ok ? "done" : r.Admin ? "refused: not a valid request" : "refused: needs administrator approval";
                 r.Done.TrySetResult(o with { Note = note });
@@ -137,7 +120,6 @@ internal sealed class PipeServer(Context ctx) : IDisposable
                     subscribed = true;
                     if (_subsPerCaller.AddOrUpdate(key, 1, (_, n) => n + 1) > SubscriptionsPerCaller) { Interlocked.Increment(ref _refused); return; }
                     _subscribers[s] = 1;
-                    // A dashboard only listens: anything it sends (or closing) ends the subscription
                     await reader.ReadAsync(_stop.Token);
                     break;
                 case "command" when msg["cmd"] is JsonObject cmd:
@@ -147,21 +129,19 @@ internal sealed class PipeServer(Context ctx) : IDisposable
                     var (admin, user) = Caller(s);
                     var req = new Request((JsonObject)cmd.DeepClone(), admin, user);
                     _requests.Enqueue(req);
-                    // Answer before the caller's own deadline ("wait"); a request still queued then is abandoned, so it
-                    // never runs after the caller was told "busy" (and queued it elsewhere, or gave up)
                     var waitMs = msg.Int("wait") is > 0 and var w ? Math.Min(w, (int)MaxQueueWait.TotalMilliseconds) : (int)MaxQueueWait.TotalMilliseconds;
-                    var finished = await Task.WhenAny(req.Done.Task, Task.Delay(waitMs, timeout.Token));   // a stopping engine ends the wait
+                    var finished = await Task.WhenAny(req.Done.Task, Task.Delay(waitMs, timeout.Token));
                     if (finished != req.Done.Task) Interlocked.CompareExchange(ref req.State, 2, 0);
                     JsonObject reply;
-                    if (Volatile.Read(ref req.State) == 2)   // abandoned (deadline, or the engine is stopping): it never runs
+                    if (Volatile.Read(ref req.State) == 2)
                         reply = new JsonObject { ["ok"] = false, ["busy"] = true, ["message"] = _stop.IsCancellationRequested ? "the engine is stopping and did not run the request" : "the engine was busy and did not run the request" };
                     else
                     {
-                        var o = await req.Done.Task.WaitAsync(timeout.Token);   // taken by the main loop: its answer follows
+                        var o = await req.Done.Task.WaitAsync(timeout.Token);
                         reply = new JsonObject { ["ok"] = o.Ok, ["message"] = o.Note };
                         if (o.Failed) reply["failed"] = true;
                     }
-                    using (var write = new CancellationTokenSource(TimeSpan.FromSeconds(5)))   // also while the engine stops
+                    using (var write = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
                         await EnginePipe.WriteLineAsync(s, reply, write.Token);
                     break;
                 }
@@ -172,7 +152,7 @@ internal sealed class PipeServer(Context ctx) : IDisposable
         {
             _subscribers.TryRemove(s, out _);
             if (subscribed) Release(_subsPerCaller, key);
-            Release(_perCaller, key);   // counted on entry, also when it was refused
+            Release(_perCaller, key);
             Interlocked.Decrement(ref _clients);
             await s.DisposeAsync();
         }
@@ -186,7 +166,6 @@ internal sealed class PipeServer(Context ctx) : IDisposable
         }
     }
 
-    /// <summary>Who is calling, from the pipe itself: elevated administrator (Administrators enabled in the token) and name.</summary>
     private static (bool Admin, string User) Caller(NamedPipeServerStream s)
     {
         var admin = false;
@@ -215,7 +194,7 @@ internal sealed class PipeServer(Context ctx) : IDisposable
             {
                 try
                 {
-                    using var t = new CancellationTokenSource(2000);   // a dashboard that does not read is dropped
+                    using var t = new CancellationTokenSource(2000);
                     await s.WriteAsync(line, t.Token);
                     await s.FlushAsync(t.Token);
                 }
@@ -234,12 +213,11 @@ internal sealed class PipeServer(Context ctx) : IDisposable
         ["refused"] = Interlocked.Read(ref _refused), ["error"] = Error.Length > 0 ? Error : null,
     };
 
-    /// <summary>Connections refused by the per-account caps since the engine started.</summary>
     public long Refused => Interlocked.Read(ref _refused);
 
     public void Dispose()
     {
         _stop.Cancel();
-        while (_requests.TryDequeue(out var r)) Interlocked.CompareExchange(ref r.State, 2, 0);   // never run; their callers hear "busy"
+        while (_requests.TryDequeue(out var r)) Interlocked.CompareExchange(ref r.State, 2, 0);
     }
 }

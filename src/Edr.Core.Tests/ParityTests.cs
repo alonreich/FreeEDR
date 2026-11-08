@@ -5,11 +5,6 @@ using Xunit;
 
 namespace Edr.Core.Tests;
 
-/// <summary>
-/// Golden tests of the dashboard model: each Fixtures\* folder holds inputs (engine files + one account's tray files)
-/// and the model they must produce (model.json; originally written by the PowerShell tray, kept since the migration).
-/// After an intended change of the model, refresh them: set FREEEDR_UPDATE_GOLDEN=1 and run the tests once.
-/// </summary>
 public class GoldenModelTests(ITestOutputHelper output)
 {
     public static TheoryData<string> Fixtures()
@@ -36,7 +31,6 @@ public class GoldenModelTests(ITestOutputHelper output)
 
         if (Environment.GetEnvironmentVariable("FREEEDR_UPDATE_GOLDEN") == "1")
         {
-            // Writes the source fixture (three levels above bin\Release\<tfm>)
             var src = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Fixtures", fixture, "model.json"));
             if (File.Exists(src)) File.WriteAllText(src, ModelDump.Write(actual));
             return;
@@ -57,8 +51,6 @@ public class GoldenModelTests(ITestOutputHelper output)
     [Fact]
     public void Overall_review_count_matches_the_open_items_of_Activity()
     {
-        // UI audit 2026-11-07: the hero, the sidebar badge and Activity's "To review" tab all count every open item
-        // (a Low one too); the serious ones only make it red
         var now = DateTime.Now;
         var st = Rec.Parse("{\"heartbeat\":\"" + now.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture) + "\",\"sysmon\":{\"ok\":true}}");
         var m = new TrayModel();

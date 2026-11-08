@@ -3,11 +3,6 @@ using System.Text.Json.Nodes;
 
 namespace Edr.Core;
 
-/// <summary>
-/// Appends alerts and status messages to data\events.jsonl (one JSON object per line), the file the tray reads.
-/// Thread-safe; rotates at 20 MB and keeps 5 archives (events-yyyyMMdd-HHmmss.jsonl).
-/// Every record has id, time, blade, severity, title, process, detail plus optional fields.
-/// </summary>
 public sealed class EventWriter(EdrPaths paths)
 {
     private const long RotateBytes = 20L * 1024 * 1024;
@@ -38,13 +33,10 @@ public sealed class EventWriter(EdrPaths paths)
     private long _failures;
     private string _lastError = "";
 
-    /// <summary>Events that could not be written since this writer was created (never silent: the engine reports them).</summary>
     public long Failures => Interlocked.Read(ref _failures);
 
     public string LastError { get { lock (_gate) return _lastError; } }
 
-    /// <summary>False when the event could not be written (counted in <see cref="Failures"/>). A failed rotation does
-    /// not lose the event: it is still appended to the current file.</summary>
     public bool Append(JsonObject e)
     {
         lock (_gate)
@@ -81,7 +73,6 @@ public sealed class EventWriter(EdrPaths paths)
     }
 }
 
-/// <summary>"yyyy-MM-dd HH:mm:ss [L] text" lines; trimmed to the newest 10,000 lines above 5 MB. Never throws.</summary>
 public sealed class TextLog(string path, long maxBytes = 5L * 1024 * 1024)
 {
     private readonly Lock _gate = new();

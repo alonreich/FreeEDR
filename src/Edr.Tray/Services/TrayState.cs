@@ -4,29 +4,16 @@ using Edr.Core.Native;
 
 namespace Edr.Tray.Services;
 
-/// <summary>
-/// Everything the dashboard shows: the engine's files and this account's own tray files, read incrementally every
-/// 2 seconds (events.jsonl is tailed; other files are re-read when their timestamp changes) and turned into the model.
-/// Unelevated and read-only on the install folder.
-/// Threading: <see cref="Refresh"/> runs on a background worker (<see cref="RefreshAsync"/>), never on the UI thread.
-/// The worker owns the working inputs; the UI reads only what was published (<see cref="Inputs"/>, a snapshot, and
-/// <see cref="Model"/>). The few UI edits (reviewed, history, hidden apps, winget results) change the working inputs
-/// under <c>_gate</c>, which the worker holds only while it reads files, never while it builds the model.
-/// </summary>
 public sealed class TrayState
 {
     public EdrPaths Paths { get; }
 
-    /// <summary>The inputs of the last published model (a read-only snapshot; safe on the UI thread).</summary>
     public EdrInputs Inputs => _published;
     public TrayModel? Model => _model;
     public Overall Overall => _overall;
     public EdrConfig Config => _config;
-    /// <summary>Write time (UTC) of the settings file the dashboard read.</summary>
     public DateTime ConfigStamp { get; private set; }
 
-    /// <summary>The engine runs with the settings file as it is now (status.json "settingsLoaded" is not older than the
-    /// file): a saved change is active.</summary>
     public bool SettingsActive => Status?.S("settingsLoaded") is { Length: > 0 } s
         && DateTime.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var t)
         && t.ToUniversalTime() >= ConfigStamp;
@@ -34,11 +21,10 @@ public sealed class TrayState
     public string CurrentSid { get; } = EdrPaths.CurrentUserSid;
     public bool Dirty { get => _dirty; set => _dirty = value; }
 
-    /// <summary>Events read by the last refresh (for notifications); empty on the first read.</summary>
     public IReadOnlyList<Rec> NewEvents => _newEvents;
 
-    private readonly Lock _gate = new();          // the working inputs (_work), _stamps, _tail
-    private readonly Lock _refreshGate = new();   // one refresh at a time
+    private readonly Lock _gate = new();
+    private readonly Lock _refreshGate = new();
     private readonly EdrInputs _work = new();
     private volatile EdrInputs _published = new();
     private volatile TrayModel? _model;
@@ -54,7 +40,6 @@ public sealed class TrayState
 
     public TrayState(EdrPaths paths) => Paths = paths;
 
-    /// <summary>Starts a refresh on the thread pool, or returns the one already running (call from the UI thread).</summary>
     public Task<bool> RefreshAsync()
     {
         if (_running is { IsCompleted: false } r) return r;
@@ -69,8 +54,6 @@ public sealed class TrayState
         return true;
     }
 
-    /// <summary>One tick: re-read what changed; returns true when the model was rebuilt. Blocking (file I/O and the
-    /// model build): the tray calls it through <see cref="RefreshAsync"/>.</summary>
     public bool Refresh()
     {
         lock (_refreshGate) return RefreshCore();
@@ -92,7 +75,7 @@ public sealed class TrayState
             _dirty = false;
             snapshot = _work.Snapshot();
         }
-        var model = new ModelBuilder(snapshot, Signers).Build();   // the slow part, outside the lock
+        var model = new ModelBuilder(snapshot, Signers).Build();
         _published = snapshot;
         _model = model;
         _overall = ModelBuilder.GetOverall(model, snapshot.Status, DateTime.Now);
@@ -130,7 +113,7 @@ public sealed class TrayState
         if (_tail is not null)
         {
             var added = _tail.ReadNew(w.Events, w, drainAll: _first);
-            if (_tail.WasReset) Dirty = true;   // history deleted (reset to defaults): the old alerts are gone from the dashboard too
+            if (_tail.WasReset) Dirty = true;
             if (added.Count > 0) { Dirty = true; if (!_first) fresh.AddRange(added); }
         }
         _first = false;
@@ -138,7 +121,6 @@ public sealed class TrayState
 
     private void ReadSysmonConfig()
     {
-        // Built-in exclusions and rule names (retired rules) come from the applied Sysmon config
         try
         {
             var doc = new System.Xml.XmlDocument();
@@ -174,8 +156,6 @@ public sealed class TrayState
     }
 
     public bool IsReviewed(Rec e) => new ModelBuilder(Inputs, Signers).IsReviewed(e);
-
-    // ---- per-account files (user\<SID>\) ----------------------------------------------------------------
 
     public void SetReviewed(IEnumerable<Rec> events, bool reviewed)
     {

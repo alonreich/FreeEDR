@@ -1,6 +1,5 @@
 namespace Edr.Core;
 
-/// <summary>Compares Python package versions by their numeric parts ("2.31.0" &lt; "2.32.1"; "1.0" == "1.0.0").</summary>
 public static class PyVersion
 {
     public static long[] Parts(string v) => Ps.Rx(@"\d+").Matches(v ?? "").Select(m => long.TryParse(m.Value, out var n) ? n : 0).ToArray();

@@ -7,12 +7,6 @@ using Windows.UI.Notifications;
 
 namespace Edr.Tray.Services;
 
-/// <summary>
-/// Native Windows notifications with buttons ("Open", "Mark reviewed", "Yes, it was me").
-/// Which alerts notify depends on the level the user chose (critical / important / all); during the first 7 days
-/// (learning week) only critical ones do. Bursts are rate-limited (3 per minute, the rest arrive as one digest), and
-/// while a "quiet" program runs (games) everything is held back and summarised afterwards.
-/// </summary>
 public sealed class Notifier
 {
     public const string Aumid = "FreeEDR.Tray";
@@ -34,7 +28,6 @@ public sealed class Notifier
         _activated = activated;
     }
 
-    /// <summary>Unpackaged apps need their AppUserModelID registered (per user, HKCU) for notifications to show.</summary>
     public void Register(string iconPng)
     {
         try
@@ -50,7 +43,6 @@ public sealed class Notifier
 
     public bool InLearningWeek => Ps.ToDate(_state.Config.InstalledAt) is { } t && DateTime.Now - t < TimeSpan.FromDays(7);
 
-    /// <summary>Called for every new event.</summary>
     public void Consider(Rec e)
     {
         if (!ShouldNotify(e)) return;
@@ -100,7 +92,6 @@ public sealed class Notifier
         Show((rank >= 4 ? "Critical: " : "") + e.S("title"), body, $"open|{id}", buttons, scenario);
     }
 
-    /// <summary>Every tick: the digest of rate-limited alerts, the summary after a game, the engine-down warning.</summary>
     public void Tick()
     {
         if (_digest.Count > 0 && DateTime.Now >= _digestDue)
@@ -163,7 +154,6 @@ public sealed class Notifier
 
     private bool QuietAppRunning()
     {
-        // This account's quiet list; until it picks one, the PC's starting list
         IReadOnlyList<string> patterns = _prefs.QuietProcesses ?? _state.Config.QuietProcesses;
         if (patterns.Count == 0) return false;
         try

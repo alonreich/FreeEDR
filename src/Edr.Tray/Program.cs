@@ -5,12 +5,6 @@ namespace Edr.Tray;
 
 internal static class Program
 {
-    // Command line: --show       open the dashboard now
-    //               --dev        separate instance names, to run next to the installed tray
-    //               --root <d>   read another install folder (development)
-    //               --toast-title / --toast-text / --toast-level   show one notification at start (installer)
-    //               --selftest   build the model from the live data, print a summary, exit
-    //                            (--dump <folder> also writes model.json; --compare <folder> checks it against a golden dump)
     [STAThread]
     private static int Main(string[] args)
     {
@@ -20,10 +14,9 @@ internal static class Program
         var log = new TrayLog(paths.TrayLog);
 
         using var instance = SingleInstance.Acquire(InstanceNames.For(options.Dev));
-        if (instance is null) return 0;   // already running: it was asked to show the dashboard
+        if (instance is null) return 0;
 
         AppDomain.CurrentDomain.UnhandledException += (_, e) => log.Write($"Unhandled: {e.ExceptionObject}");
-        // A crash or hang brings the tray back by itself (Windows restarts it); "Hide the tray icon" is a clean exit
         if (!options.Dev && options.Screenshot is null && !Edr.Core.Native.Win32.RegisterRestart("--restarted")) log.Write("Could not register for restart after a crash");
         log.Write($"Tray started (PID {Environment.ProcessId}{(options.Dev ? ", dev" : "")})");
         try
@@ -33,7 +26,6 @@ internal static class Program
         finally { log.Write("Tray stopped"); }
     }
 
-    // Also used by the XAML previewer; keep it parameterless-compatible.
     public static AppBuilder BuildAvaloniaApp() => BuildAvaloniaApp(null);
 
     private static AppBuilder BuildAvaloniaApp(TrayContext? context) =>

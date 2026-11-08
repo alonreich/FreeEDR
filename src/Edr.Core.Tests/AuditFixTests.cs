@@ -6,11 +6,9 @@ using Xunit;
 
 namespace Edr.Core.Tests;
 
-/// <summary>Pre-ship architectural audit, round 2 (2026-11-07): drop-folder intake, full-disclosure confirmation, YARA
-/// coverage, tool-update trust, pipe fairness (in <see cref="PipeTests"/>), single events writer.</summary>
 public class AuditFixTests
 {
-    private static string DevFolder(string name)   // inside the dev folder, not %TEMP%
+    private static string DevFolder(string name)
     {
         var d = Path.Combine(AppContext.BaseDirectory, "audit2", $"{name}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(d);
@@ -18,8 +16,6 @@ public class AuditFixTests
     }
 
     private static Context NewContext(string root) => new(new EdrPaths(root, Path.Combine(root, "user", "x")));
-
-    // ---- 1: drop files are taken without trusting them ------------------------------------------------
 
     [Fact]
     public void A_request_file_is_read_and_removed()
@@ -56,7 +52,7 @@ public class AuditFixTests
         {
             w.Write("{\"action\":\"scan-now\"}"u8);
             w.Flush();
-            var r = DropFile.Take(f, PatternRules.MaxPayload);   // shares read only: a writer keeps it out
+            var r = DropFile.Take(f, PatternRules.MaxPayload);
             Assert.Equal(DropFile.Outcome.Busy, r.Outcome);
             Assert.True(File.Exists(f));
         }
@@ -98,13 +94,11 @@ public class AuditFixTests
         File.WriteAllText(f, """{"action":"scan-now"}""");
         var ov = Marshal.AllocHGlobal(Marshal.SizeOf<NativeOverlapped>());
         Marshal.StructureToPtr(new NativeOverlapped(), ov, false);
-        // An overlapped handle of our own (not bound to the thread pool): the oplock request stays pending on it
-        using var holder = CreateFileW(f, 0x80000000, 0x7, 0, 3, 0x40000000, 0);   // GENERIC_READ, share all, OPEN_EXISTING, FILE_FLAG_OVERLAPPED
+        using var holder = CreateFileW(f, 0x80000000, 0x7, 0, 3, 0x40000000, 0);
         Assert.False(holder.IsInvalid);
         var granted = false;
         try
         {
-            // FSCTL_REQUEST_BATCH_OPLOCK: granted = the call stays pending (ERROR_IO_PENDING) until the oplock breaks
             granted = !DeviceIoControl(holder, 0x00090008, 0, 0, 0, 0, out _, ov) && Marshal.GetLastPInvokeError() == 997;
             Assert.SkipUnless(granted, "this volume grants no batch oplock");
             var take = Task.Run(() => DropFile.Take(f, PatternRules.MaxPayload), TestContext.Current.CancellationToken);
@@ -115,7 +109,7 @@ public class AuditFixTests
         }
         finally
         {
-            if (granted) { CancelIoEx(holder, ov); GetOverlappedResult(holder, ov, out _, true); }   // done with the OVERLAPPED before it is freed
+            if (granted) { CancelIoEx(holder, ov); GetOverlappedResult(holder, ov, out _, true); }
             holder.Dispose();
             Marshal.FreeHGlobal(ov);
         }
@@ -129,7 +123,6 @@ public class AuditFixTests
         var ctx = NewContext(root);
         Directory.CreateDirectory(ctx.Paths.InboxDir);
         using var intake = new CommandIntake(ctx);
-        // Thirty files that another program holds open come first in name order ...
         var held = new List<FileStream>();
         for (var i = 0; i < 30; i++)
         {
@@ -143,8 +136,8 @@ public class AuditFixTests
         {
             File.WriteAllText(Path.Combine(ctx.Paths.InboxDir, "9-real.json"), """{"action":"scan-now"}""");
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            intake.SweepOnce(1);   // 25 busy ones are tried and set aside
-            intake.SweepOnce(1);   // ... so the real request is reached in the next pass
+            intake.SweepOnce(1);
+            intake.SweepOnce(1);
             Assert.True(sw.ElapsedMilliseconds < 3000, $"two sweeps took {sw.ElapsedMilliseconds} ms");
             Assert.True(intake.TryDequeue(out var r));
             Assert.Equal("scan-now", r.Cmd.Str("action"));
@@ -169,8 +162,6 @@ public class AuditFixTests
         Assert.Equal("", ctx.State.PausedUntil("edr"));
         Directory.Delete(root, true);
     }
-
-    // ---- 2: the elevated confirmation shows everything or the request is refused ----------------------
 
     [Fact]
     public void Confirmation_never_cuts_a_value_and_puts_the_deciding_fields_first()
@@ -210,7 +201,7 @@ public class AuditFixTests
         var cfg = new JsonObject { ["action"] = "set-config", ["config"] = new JsonObject { ["sigmaLookback"] = "2d", ["wail2ban"] = new JsonObject { ["block"] = false } } };
         var s = RequestSummary.Build(cfg, new RequestSummary.Lookup(new EdrConfig(), null, null));
         Assert.Contains("wail2ban.block: true → false", s.Text);
-        Assert.DoesNotContain("sigmaLookback", s.Text);   // unchanged
+        Assert.DoesNotContain("sigmaLookback", s.Text);
         Assert.Equal(1, s.Lines);
     }
 
@@ -239,8 +230,6 @@ public class AuditFixTests
         Assert.Contains(@"C:\Tools\thing.exe", text);
     }
 
-    // ---- 3: YARA never reports or caches a failed scan as clean ---------------------------------------
-
     [Fact]
     public void Yara_errors_timeouts_and_failed_exits_are_not_clean()
     {
@@ -265,8 +254,6 @@ public class AuditFixTests
         Assert.Contains("50 MB", r.NotScanned);
         Directory.Delete(root, true);
     }
-
-    // ---- 4: tools from GitHub only with their publisher's signature -----------------------------------
 
     [Fact]
     public async Task An_unsigned_tool_is_never_installed_from_github()
@@ -295,8 +282,6 @@ public class AuditFixTests
                 Assert.Equal(Tools.VersionOf(t.Tag), tools.InstalledVersion(t));
     }
 
-    // ---- L5: the Sigma scan reads copies of the logs, not the live logs (Hayabusa -l needs administrator) ----
-
     [Fact]
     public void Sigma_lookback_and_hayabusa_errors_are_read_right()
     {
@@ -319,8 +304,6 @@ public class AuditFixTests
         Tools.DeleteTree(root);
     }
 
-    // ---- 6: the engine is the only writer of events.jsonl and counts what it could not write -----------
-
     [Fact]
     public void An_event_that_cannot_be_written_is_counted()
     {
@@ -340,7 +323,7 @@ public class AuditFixTests
     {
         var note = new JsonObject { ["action"] = "note", ["blade"] = "system", ["severity"] = "Info", ["title"] = "Tool updated: YARA", ["kind"] = "tool-update", ["tool"] = "YARA", ["ok"] = true };
         Assert.True(PatternRules.IsValidOp(note));
-        Assert.False(PatternRules.IsValidCommand(note, out _));   // never in a payload to the elevated helper
+        Assert.False(PatternRules.IsValidCommand(note, out _));
         Assert.False(PatternRules.IsValidOp(new JsonObject { ["action"] = "note", ["blade"] = "realtime", ["severity"] = "Critical", ["title"] = "fake alert", ["kind"] = "status" }));
         Assert.False(PatternRules.IsValidOp(new JsonObject { ["action"] = "note", ["blade"] = "system", ["severity"] = "Info", ["title"] = "x", ["kind"] = "status", ["yaraRule"] = "spoof" }));
 

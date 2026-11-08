@@ -147,8 +147,8 @@ def write(fixture, reviewed, st, event_list=None):
     with open(os.path.join(base, "data", "events.jsonl"), "w", encoding="utf-8", newline="\n") as f:
         for e in evs:
             f.write(json.dumps(e) + "\n")
-        f.write('{"broken json\n')   # skipped by both trays
-        f.write('{"time":"2026-11-01 23:59:59","blade":"realtime","title":"incomplete last line"')   # no newline: not read yet
+        f.write('{"broken json\n')
+        f.write('{"time":"2026-11-01 23:59:59","blade":"realtime","title":"incomplete last line"')
     dump(os.path.join("data", "status.json"), st)
     dump(os.path.join("data", "cve-current.json"), CVE)
     dump(os.path.join("config", "exclusions.json"), EXCL)
@@ -165,7 +165,6 @@ def write(fixture, reviewed, st, event_list=None):
 write("synthetic-a", ["e36", "  "], status(paused=False))
 write("synthetic-b", ["e16", "e29", "e37", "e36"], status(paused=True, scan_ok=False))
 
-# synthetic-c: more than 10,000 events to verify bounded buffer eviction and aggregate retention
 older_evs = []
 for i in range(20):
     older_evs.append(ev(1000 + i, "2026-10-28 01:00:00", "realtime", "Encoded PowerShell command", "High", process=PWSH, parent=CLAUDE, rule="Encoded PowerShell command", detail="pwsh -enc OLD"))

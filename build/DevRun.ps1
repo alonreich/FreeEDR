@@ -1,7 +1,4 @@
-﻿# DevRun.ps1 - FreeEDR developer runner (invoked via dev.cmd)
-# Builds and launches the Avalonia C# tray into an isolated dev sandbox (.dev-run\app),
-# (The PowerShell tray was retired on 2026-11-06.)
-param(
+﻿param(
     [switch]$SelfTest,
     [switch]$BuildOnly,
     [switch]$Clean,
@@ -16,7 +13,6 @@ $DevAppDir = Join-Path $RepoRoot '.dev-run\app'
 
 Write-Host "=== FreeEDR -- Developer Runner ===" -ForegroundColor Cyan
 
-# Stop any running dev tray instance
 $NormalizedDevDir = [System.IO.Path]::GetFullPath($DevAppDir)
 Get-Process -Name 'FreeEDR-Tray', 'Edr.Tray' -ErrorAction SilentlyContinue | ForEach-Object {
     try {
@@ -34,7 +30,6 @@ if ($Clean -and (Test-Path $DevAppDir)) {
     Remove-Item -LiteralPath $DevAppDir -Recurse -Force
 }
 
-# C# Tray (Avalonia)
 New-Item -ItemType Directory -Path $DevAppDir -Force | Out-Null
 $TrayProj = Join-Path $RepoRoot 'src\Edr.Tray\Edr.Tray.csproj'
 
@@ -44,7 +39,6 @@ if ($Show -or -not $SelfTest) { $trayArgs += '--show' }
 if ($Dev) { $trayArgs += '--dev' }
 
 if ($Aot) {
-    # The AOT linker finds the C++ tools through vswhere.exe
     $vsInstaller = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
     if ((Test-Path "$vsInstaller\vswhere.exe") -and ($env:PATH -notlike "*$vsInstaller*")) { $env:PATH += ";$vsInstaller" }
 

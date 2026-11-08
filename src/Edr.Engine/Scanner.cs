@@ -6,15 +6,8 @@ using Edr.Core.Native;
 
 namespace Edr.Engine;
 
-/// <summary>
-/// The scheduled scan (scanTimes, catch-up after the PC was off; "Scan now" at most every 2 minutes):
-/// A. IOC feed (kept on failure) B. Sigma rules update + Hayabusa over recent event logs C. OSV scan of every account's
-/// Python (only vulnerabilities with a released fix) D. tool version check. Runs on a background task; a run over 2 hours
-/// is stopped. The result (data\scan-result.json) is turned into alerts on the engine thread by <see cref="Complete"/>.
-/// </summary>
 internal sealed class Scanner(Context ctx)
 {
-    /// <summary>Records one scan step; <paramref name="skipped"/> = it did not run (paused), so its earlier results stay.</summary>
     internal delegate void StepFn(string name, bool ok, string message, bool skipped = false);
 
     private Task<JsonObject>? _task;
@@ -29,7 +22,7 @@ internal sealed class Scanner(Context ctx)
     {
         var (prev, next) = EdrConfig.ScanSlots(ctx.Cfg.ScanTimes, DateTime.Now);
         var last = Ps.ToDate(ctx.State.Get("lastScanStart")) ?? DateTime.MinValue;
-        if (last < prev) return prev < ctx.Started ? ctx.Started.AddMinutes(5) : prev;   // missed while the PC was off
+        if (last < prev) return prev < ctx.Started ? ctx.Started.AddMinutes(5) : prev;
         return next;
     }
 
@@ -49,8 +42,6 @@ internal sealed class Scanner(Context ctx)
 
     public static readonly TimeSpan ManualInterval = TimeSpan.FromMinutes(2);
 
-    /// <summary>"Scan now". Started = a scan runs now (a new one, or the one already running; Message says which, ""
-    /// for a new one). Not started: Message says why (also as an event, so a request from inbox\ is answered too).</summary>
     public (bool Started, string Message) StartManual()
     {
         if (ctx.State.IsPaused("edr")) return NotStarted("Detection is paused - resume it first.");
@@ -76,7 +67,6 @@ internal sealed class Scanner(Context ctx)
         ctx.Log.Audit($"Scan stopped: {why}");
     }
 
-    /// <summary>Every minute: start a due scan, or finish a completed one.</summary>
     public void Watch()
     {
         if (_task is not null)
@@ -93,8 +83,6 @@ internal sealed class Scanner(Context ctx)
         if (!ctx.State.IsPaused("edr") && DateTime.Now >= NextDue()) Start("schedule");
     }
 
-    // ---- the scan itself (background) ------------------------------------------------------------------
-
     private JsonObject Run(CancellationToken ct)
     {
         var result = new JsonObject
@@ -106,7 +94,7 @@ internal sealed class Scanner(Context ctx)
         void Step(string name, bool ok, string message, bool skipped = false)
         {
             var s = new JsonObject { ["name"] = name, ["ok"] = ok, ["message"] = message, ["time"] = DateTime.Now.ToString("s", CultureInfo.InvariantCulture) };
-            if (skipped) s["skipped"] = true;   // paused: did not run, so its previous results stay
+            if (skipped) s["skipped"] = true;
             result.Arr("steps").Add((JsonNode)s);
             log.Write(ok ? 'I' : 'E', $"{name}: {message}");
         }
@@ -165,15 +153,11 @@ internal sealed class Scanner(Context ctx)
         int exit;
         string output;
 
-        // The log scan parses event logs anyone can write into: sandboxed (low integrity, no privileges, one-process job).
-        // It writes its CSV into the low-integrity work folder; the result is then moved to data\.
         var csv = Path.Combine(ctx.Paths.DataDir, "hayabusa_last_scan.csv");
         JsonFile.TryDelete(csv);
         var work = SandboxWork();
         var workCsv = Path.Combine(work, "hayabusa_last_scan.csv");
         JsonFile.TryDelete(workCsv);
-        // Hayabusa's live mode (-l) demands administrator rights, which the sandbox never gives: the engine copies the
-        // recent records of every log (the Windows event log service reads them) and Hayabusa scans the copies (-d)
         var logs = Path.Combine(work, "evtx");
         DropFolder(logs);
         DropFile.TryDelete(workCsv);
@@ -188,14 +172,14 @@ internal sealed class Scanner(Context ctx)
             run = Sandbox.RunCapture(haya, ["dfir-timeline", "-d", logs, "-w", "-q", "-Q", "-K", "-C", "-m", "high", "--time-offset", ctx.Cfg.SigmaLookback, "-o", workCsv],
                                      3600, 4096, ctx.Paths.HayabusaDir, SandboxEnv(work), ct);
         }
-        finally { DropFolder(logs); }   // copies of the Security log are not kept
+        finally { DropFolder(logs); }
         ct.ThrowIfCancellationRequested();
         if (!run.Started) { step("Sigma event-log scan", false, $"sandbox could not start: {run.Error}"); return; }
         (exit, output) = (run.Exit, run.Output + run.Error);
         if (File.Exists(workCsv)) File.Move(workCsv, csv, true);
         if (HayabusaFailed(exit, output)) { log.Info(output.Trim()); step("Sigma event-log scan", false, $"Hayabusa failed (exit code {exit}) - see data\\scan.log"); return; }
-        if (!File.Exists(csv)) { step("Sigma event-log scan", true, $"0 high/critical hits in the last {ctx.Cfg.SigmaLookback}"); return; }   // nothing found: no CSV
-        const int maxRows = 2000;   // newest hits kept (bounded memory); more is reported as a problem
+        if (!File.Exists(csv)) { step("Sigma event-log scan", true, $"0 high/critical hits in the last {ctx.Cfg.SigmaLookback}"); return; }
+        const int maxRows = 2000;
         var queue = new Queue<Dictionary<string, string>>();
         var total = 0;
         string[]? header = null;
@@ -245,22 +229,19 @@ internal sealed class Scanner(Context ctx)
         foreach (var (dir, owner) in targets)
         {
             ct.ThrowIfCancellationRequested();
-            // OSV-Scanner parses files in users' folders: sandboxed like YARA and Hayabusa
             var run = Sandbox.RunCapture(osv, ["scan", "source", "-r", dir, "--format", "json"], 1200, 2048, ctx.Paths.BinDir, SandboxEnv(SandboxWork()), ct, 64_000_000);
             ct.ThrowIfCancellationRequested();
             var (o, problem) = OsvParser.Outcome(run);
             if (problem is not null) { failed.Add(dir); log.Error($"OSV scan of {dir} failed: {problem}"); continue; }
-            if (o is null) continue;   // exit 0 without a report: nothing found
+            if (o is null) continue;
             foreach (var v in OsvParser.Rows(o, owner, ref noFix)) result.Arr("vulns").Add((JsonNode)v);
         }
         if (failed.Count > 0) step(name, false, $"no result for {string.Join(", ", failed)} - kept the previous list (see data\\scan.log)");
         else step(name, true, $"{result.Arr("vulns").Count} vulnerabilities with an available update in {targets.Count} folders ({noFix} without a fix yet are not shown)");
     }
 
-    /// <summary>The copied logs may not pass this size (the Security log of a busy PC over the lookback).</summary>
     public const long MaxLogCopyBytes = 1L << 30;
 
-    /// <summary>"2d" / "12h" (EdrConfig.SigmaLookback) as a time span; anything else = 2 days.</summary>
     internal static TimeSpan Lookback(string s)
     {
         if (s.Length >= 2 && int.TryParse(s[..^1], out var n) && n > 0)
@@ -268,24 +249,15 @@ internal sealed class Scanner(Context ctx)
         return TimeSpan.FromDays(2);
     }
 
-    /// <summary>Hayabusa reports its own errors on stdout with "[ERROR]" and can still exit 0 (e.g. "-l needs to be run as
-    /// Administrator"): that is a failed scan, never "nothing found".</summary>
     internal static bool HayabusaFailed(int exit, string output) =>
         exit != 0 || output.Contains("[ERROR]", StringComparison.Ordinal);
 
-    /// <summary>Removes a work folder of the sandbox (read-only files included, links not followed).</summary>
     private void DropFolder(string dir)
     {
         try { Tools.DeleteTree(dir); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { ctx.Log.Warn($"Could not remove {dir}: {e.Message}"); }
     }
 
-    /// <summary>
-    /// Hayabusa's rule update downloads from the internet, so it runs in the sandbox, never as SYSTEM: on a fresh copy of
-    /// the rules (a git checkout) in the low-integrity work folder. Only a successful update with a plausible rule set
-    /// is copied back into the admin-only bin\hayabusa\rules\ (new files there inherit that folder's permissions, not the
-    /// work folder's low-integrity label), replacing the old set in one rename; otherwise the installed rules stay.
-    /// </summary>
     private (bool Ok, string Message) UpdateSigmaRules(string haya, TextLog log, CancellationToken ct)
     {
         var rules = Path.Combine(ctx.Paths.HayabusaDir, "rules");
@@ -295,7 +267,7 @@ internal sealed class Scanner(Context ctx)
         var old = rules + ".old";
         try
         {
-            Tools.DeleteTree(stage);   // never reuse what a sandboxed process could have touched
+            Tools.DeleteTree(stage);
             Tools.CopyTree(rules, stage);
             ct.ThrowIfCancellationRequested();
             var run = Sandbox.RunCapture(haya, ["update-rules", "-q", "-K", "-r", stage], 600, 2048, Path.GetDirectoryName(stage), SandboxEnv(SandboxWork()), ct);
@@ -327,7 +299,6 @@ internal sealed class Scanner(Context ctx)
         }
     }
 
-    /// <summary>data\sandbox\: the only folder the sandboxed tools can write (low integrity label; admin-only DACL).</summary>
     private string SandboxWork()
     {
         var d = Path.Combine(ctx.Paths.DataDir, "sandbox");
@@ -357,16 +328,13 @@ internal sealed class Scanner(Context ctx)
         step("EDR tool version check", ok > 0, string.Join(", ", parts));
     }
 
-    // ---- results -> alerts (engine thread) -------------------------------------------------------------
-
-    /// <summary>The scan result replaces cve-current.json: its OSV step ran (not paused) and every folder gave a result.</summary>
     internal static bool OsvListReplaced(JsonObject res) =>
         res.Objects("steps").Any(s => s.Str("name").Contains("OSV", StringComparison.Ordinal) && s.Truthy("ok") && !s.Truthy("skipped"));
 
     private void Complete(JsonObject? res)
     {
         res ??= JsonFile.ReadObject(ctx.Paths.ScanResultFile);
-        if (res is not null && (Ps.ToDate(res.Str("started")) is not { } st || st < _started.AddSeconds(-5))) res = null;   // left over from an earlier scan
+        if (res is not null && (Ps.ToDate(res.Str("started")) is not { } st || st < _started.AddSeconds(-5))) res = null;
         ctx.State.Set("lastScanEnd", DateTime.Now.ToString("s", CultureInfo.InvariantCulture));
         int newSigma = 0, newCve = 0;
         var problems = new List<string>();
@@ -380,7 +348,7 @@ internal sealed class Scanner(Context ctx)
             foreach (var hit in res.Objects("sigma"))
             {
                 var title = hit.Str("title");
-                if (title.Length == 0 || Ps.Match(title, @"\(Sysmon Alert\)$")) continue;   // Hayabusa repeating our own Sysmon rules
+                if (title.Length == 0 || Ps.Match(title, @"\(Sysmon Alert\)$")) continue;
                 if (!seen.Add($"{title}|{hit.Str("computer")}|{hit.Str("channel")}|{hit.Str("recordId")}")) continue;
                 var sp = SigmaProcess.FromDetails(hit.Str("details"));
                 var sev = Ps.Match(hit.Str("level"), "^crit") || Ps.Match(title, "Severe") ? "Critical" : "High";
@@ -405,8 +373,6 @@ internal sealed class Scanner(Context ctx)
             }
             ctx.State.SetSeen("sigmaSeen", seen, 20000);
             ctx.State.SetSeen("defSeen", defSeen, 2000);
-            // The CVE list shows the latest scan only (patched packages disappear); events are just for history. A paused
-            // (skipped) OSV step did not look, so the list it would replace stays
             if (OsvListReplaced(res))
                 JsonFile.WriteAtomic(ctx.Paths.CveFile, new JsonObject { ["scanned"] = DateTime.Now.ToString("s", CultureInfo.InvariantCulture), ["items"] = res["vulns"]?.DeepClone() ?? new JsonArray() });
             var cveSeen = ctx.State.Seen("cveSeen");
@@ -440,7 +406,6 @@ internal sealed class Scanner(Context ctx)
     }
 }
 
-/// <summary>Every real user account with a profile (SID + folder), read from Windows each time; works as SYSTEM.</summary>
 internal static class Accounts
 {
     public static List<(string Sid, string Profile)> All()
@@ -452,7 +417,7 @@ internal static class Accounts
             if (k is null) return list;
             foreach (var sid in k.GetSubKeyNames())
             {
-                if (!Ps.Rx(@"^S-1-(5-21|12-1)-[\d-]+$").IsMatch(sid)) continue;   // local, domain and Entra ID accounts
+                if (!Ps.Rx(@"^S-1-(5-21|12-1)-[\d-]+$").IsMatch(sid)) continue;
                 using var s = k.OpenSubKey(sid);
                 var p = Environment.ExpandEnvironmentVariables(s?.GetValue("ProfileImagePath") as string ?? "");
                 if (p.Length > 0 && Directory.Exists(p)) list.Add((sid, p));
@@ -463,7 +428,6 @@ internal static class Accounts
     }
 }
 
-/// <summary>RFC 4180 CSV reader (quoted fields, doubled quotes, newlines inside quotes), streamed.</summary>
 internal static class Csv
 {
     public static IEnumerable<string[]> Read(string path)
@@ -499,14 +463,8 @@ internal static class Csv
     }
 }
 
-/// <summary>OSV-Scanner JSON -> one row per vulnerability group with a released fix newer than the installed version.</summary>
 internal static class OsvParser
 {
-    /// <summary>
-    /// One sandboxed OSV-Scanner run → its JSON report, or nothing found, or why it failed. Only exit code 0 without a
-    /// report means "nothing found"; a timeout, a cancelled run, a sandbox that did not start or any other exit code
-    /// without a readable report is a failed folder (its earlier vulnerabilities stay listed), never a clean one.
-    /// </summary>
     public static (JsonObject? Report, string? Problem) Outcome(Sandbox.Result run)
     {
         if (!run.Started) return (null, $"the sandbox could not start ({run.Error})");
@@ -538,7 +496,7 @@ internal static class OsvParser
                     if (vs.Count == 0) continue;
                     string? fix = null;
                     foreach (var v in vs) if (FixVersion(v, name, ver) is { } f && (fix is null || PyVersion.Compare(f, fix) > 0)) fix = f;
-                    if (fix is null) { noFix++; continue; }   // no fixed release yet: nothing to update to
+                    if (fix is null) { noFix++; continue; }
                     var all = ids.Concat((g["aliases"] as JsonArray)?.Select(Ps.Str) ?? []).Concat(vs.SelectMany(v => (v["aliases"] as JsonArray)?.Select(Ps.Str) ?? []))
                                  .Where(s => s.Length > 0).Distinct().ToList();
                     var cve = all.FirstOrDefault(s => s.StartsWith("CVE-", StringComparison.Ordinal)) ?? vs[0].Str("id");
@@ -558,7 +516,6 @@ internal static class OsvParser
         return rows;
     }
 
-    /// <summary>Lowest released version above the installed one that fixes the vulnerability (commit hashes skipped).</summary>
     public static string? FixVersion(JsonObject v, string package, string installed)
     {
         var norm = Ps.Rx("[-_.]+").Replace(package, "-").ToLowerInvariant();
@@ -582,7 +539,6 @@ internal static class OsvParser
     public static string SeverityName(string score) =>
         !double.TryParse(score, NumberStyles.Float, CultureInfo.InvariantCulture, out var s) ? "Medium" : s >= 9 ? "Critical" : s >= 7 ? "High" : s >= 4 ? "Medium" : "Low";
 
-    /// <summary>Which python.exe owns the package, and which package to upgrade (a library bundled inside pip: pip itself).</summary>
     public static (string? Python, string Package) PipTarget(string path, string package)
     {
         var p = path.Replace('/', '\\');

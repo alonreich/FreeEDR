@@ -1,9 +1,5 @@
 namespace Edr.Core;
 
-/// <summary>
-/// Every file location of FreeEDR. Everything FreeEDR keeps is under <see cref="Root"/> (C:\Program Files\FreeEDR,
-/// admin-only); the tray only writes to its own <see cref="LocalDir"/> (user\&lt;SID&gt;\) and inbox\.
-/// </summary>
 public sealed class EdrPaths
 {
     public EdrPaths(string? root = null, string? localDir = null)
@@ -15,13 +11,14 @@ public sealed class EdrPaths
     public const string ProductName = "FreeEDR";
     public const string ServiceName = "FreeEDR";
     public const string EngineMutex = @"Global\FreeEDR-Engine";
-    public const string EventSource = "wail2ban";          // Application log source (kept from Wail2Ban)
-    public const string FwRulePrefix = "a a a wail2ban block IP:";   // kept from Wail2Ban so existing bans stay managed
+    public const string EventSource = "wail2ban";
+    public const string FwRulePrefix = "a a a wail2ban block IP:";
     public const string FwGroup = "EDR Wail2Ban";
     public const string UsersSid = "S-1-5-32-545";
     public const string AdminsSid = "S-1-5-32-544";
     public const string SystemSid = "S-1-5-18";
     public const string SetupUninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{6F0E2C1A-4B7D-4E59-9A33-0E2D5C8B7A41}_is1";
+    public const string FinishRemovalKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\FreeEDR-FinishRemoval";
     public const string RunKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
     public const string RunValue = "FreeEDR Tray";
     public const string EngineExe = "FreeEDR-Engine.exe";
@@ -29,17 +26,9 @@ public sealed class EdrPaths
     public const string InstallerExe = "FreeEDR-Installer.exe";
     public const string TrayExe = "FreeEDR-Tray.exe";
 
-    /// <summary>
-    /// The only privileges the engine service keeps (SERVICE_CONFIG_REQUIRED_PRIVILEGES_INFO; the service manager removes
-    /// all others from its token). It stays LocalSystem, which the Security log, firewall, Defender and Sysmon need, but
-    /// without SeDebug, SeTcb, SeLoadDriver, SeBackup, SeRestore, SeTakeOwnership and the rest.
-    /// SeSecurity: read the Security log. SeImpersonate: identify pipe clients. SeAssignPrimaryToken + SeIncreaseQuota:
-    /// start the sandboxed tools (CreateProcessAsUser). SeCreateGlobal: the Global\ mutex. SeChangeNotify: path traversal.
-    /// </summary>
     public static readonly string[] EnginePrivileges =
         ["SeChangeNotifyPrivilege", "SeCreateGlobalPrivilege", "SeImpersonatePrivilege", "SeAssignPrimaryTokenPrivilege", "SeIncreaseQuotaPrivilege", "SeSecurityPrivilege"];
 
-    /// <summary>The signed-in account's SID: each account has its own private user\&lt;SID&gt;\ folder.</summary>
     public static string CurrentUserSid
     {
         get
@@ -49,7 +38,6 @@ public sealed class EdrPaths
         }
     }
 
-    /// <summary>C:\Program Files\FreeEDR - the 64-bit Program Files folder.</summary>
     public static string DefaultRoot => Path.Combine(ProgramFiles, ProductName);
 
     public static string ProgramFiles => Environment.GetEnvironmentVariable("ProgramW6432") ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
@@ -58,7 +46,6 @@ public sealed class EdrPaths
     public static string System32 => Path.Combine(SystemRoot, "System32");
     public static string WindowsPowerShell => Path.Combine(System32, "WindowsPowerShell", "v1.0", "powershell.exe");
 
-    /// <summary>The folder that holds the user profiles (C:\Users unless Windows was set up otherwise).</summary>
     public static string ProfilesRoot
     {
         get
@@ -100,6 +87,7 @@ public sealed class EdrPaths
     public string CveFile => Path.Combine(DataDir, "cve-current.json");
     public string BaselineFile => Path.Combine(DataDir, "preinstall.json");
     public string ManagedFile => Path.Combine(DataDir, "managed.json");
+    public string UpgradePendingFile => Path.Combine(DataDir, "upgrade-pending.json");
     public string CompiledYara => Path.Combine(DataDir, "rules.yarc");
     public string ExclusionsFile => Path.Combine(ConfigDir, "exclusions.json");
     public string BlocklistFile => Path.Combine(ConfigDir, "blocklist.json");

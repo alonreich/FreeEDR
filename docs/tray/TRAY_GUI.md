@@ -18,8 +18,31 @@ files it reads in [architecture/DATA_FILES.md](../architecture/DATA_FILES.md) §
   only while reading files, never while building. Parsed records are fully materialized (`Rec.Parse`) so both threads
   can read them; signer lookups are cached thread-safely per path + last write (`CachedSigners`, 5,000 entries). The
   `Controller` asks for a refresh (`RefreshRequested`) instead of rebuilding itself. Then on the UI thread: new
-  events → `Notifier.Consider`, `Notifier.Tick`, `WingetCheck.Tick`, weekly summary / learning-week wrap-up, tray icon
-  and menu (rebuilt only when the state changes), visible window refresh.
+  events → `Notifier.Consider`, `Notifier.Tick`, `WingetCheck.Tick`, `AppUpdater.Tick`, weekly summary / learning-week
+  wrap-up, tray icon and menu (rebuilt only when the state changes), visible window refresh.
+* **FreeEDR's own updates** (`Services\AppUpdater.cs`, `Views\UpdatePanel.cs`, `Edr.Core\AppRelease.cs`). Automatic
+  check 3 minutes after start, then every 24 h (`preferences.json` `lastUpdateCheck`, so restarts do not re-check; 2 h
+  after a failed check), off with `updateCheck: false`, never on a dev build (`0.*` or "dev": *Check now* only). It
+  reads `api.github.com/repos/alonreich/FreeEDR/releases/latest` (drafts and pre-releases never show there; an asset
+  without a SHA256 digest, outside `github.com/alonreich/FreeEDR/releases/download/`, empty or over 400 MB is not
+  offered). It prefers the `FreeEDR-Update.exe` asset (no bundled tools) over `FreeEDR-Setup.exe`, and reads
+  `releases?per_page=30` to combine the user notes of every release after the installed one (`AppRelease.NotesSince`;
+  a 404 says no release is published yet or the repository is not public). One notification per new version (`notifiedVersion`; not for `skippedVersion`), a tray-menu entry while
+  one is available. *Download and install* (`Controller.InstallUpdate`, asks first) downloads to `user\<SID>\update\`
+  (resumable `.part` with HTTP Range, 60 s stall timeout, 3 tries, free-space check, an already verified file is not
+  downloaded again, other downloads are deleted; installed versions are purged at start and every 6 h,
+  `AppRelease.PurgeInstalled`, and by Setup after a successful install), then `AppRelease.Verify` opens the file read-only with write sharing denied,
+  checks its SHA256 and the signer rule (`SignerVerdict` on the normalized certificate subject CN/O/L/S/C from
+  `AuthenticodeSigners.SubjectOf`: a signed install needs the same subject or one listed in
+  `AppRelease.TrustedSuccessorSubjects`, which a release signed by the old certificate announces before a certificate change) and keeps that
+  handle until Setup exits, so the checked file is the one that runs. Setup starts through ShellExecute (its manifest
+  asks for UAC; declining keeps it "ready to install"). The card shows phase, progress, notes and the result.
+  *What's new*: after an upgrade (`lastSeenVersion` older than `version.txt`) one notification offers the "What's new
+  for you" parts of every version after `lastSeenVersion` up to the installed one from `docs\CHANGELOG.md`
+  (`AppRelease.NotesSinceInstalled`, `whatsnew|` activation); a first install shows none. **Interrupted update**:
+  when `data\upgrade-pending.json` exists and its installer process is not running (`AppRelease.PendingUpgrade`), the
+  card shows "The last update did not finish", one notification says so instead of *What's new*, and the first tick runs
+  a check that also offers the already installed version again (`Check(reinstall: true)`), so Setup can finish or roll back.
 * **Refresh keeps what the user is doing** (UI audit 2026-11-06). The engine rewrites `status.json` every 15 s, so the
   visible page is refreshed that often. Each view builds its new tree and compares `Ui.Fingerprint` (types, texts,
   colors, visibility, enabled/checked/selected state) with the live tree; an unchanged view keeps its live controls, so
@@ -108,6 +131,8 @@ files it reads in [architecture/DATA_FILES.md](../architecture/DATA_FILES.md) §
 | `Services\Notifier.cs` | WinRT toasts with buttons, AUMID registration (HKCU), levels, learning week, rate limit + digest, quiet mode, engine-down warning |
 | `Services\Preferences.cs` | `preferences.json` (incl. `theme`; a failed save is reported, `SaveError`), `Insights` (review counts, dismissed suggestions) |
 | `Services\WingetCheck.cs` | `winget upgrade` at the scan times, table parser |
+| `Services\AppUpdater.cs` | FreeEDR's own update check, download, verification and Setup start; phases for the card and the tray menu |
+| `Views\UpdatePanel.cs` | Settings > FreeEDR updates card (versions, status, progress, notes, install / skip / check now, automatic check) |
 | `ShieldIcon.cs` | the shield drawn at runtime (gradient, glyph per state) |
 
 Everything that decides something lives in Edr.Core and is tested without UI: `ModelBuilder` (lists, grouping, allow and

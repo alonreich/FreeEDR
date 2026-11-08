@@ -5,18 +5,14 @@ using Xunit;
 
 namespace Edr.Core.Tests;
 
-/// <summary>Pre-ship audit fixes (2026-11-06): elevated-request summary, scanner sandbox, signer cache key,
-/// engine state locking, tray input snapshots.</summary>
 public class HardeningTests
 {
-    private static string DevFolder(string name)   // inside the dev folder, not %TEMP%
+    private static string DevFolder(string name)
     {
         var d = Path.Combine(AppContext.BaseDirectory, "hardening", $"{name}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(d);
         return d;
     }
-
-    // ---- 1: the elevated helper shows what it is about to do ---------------------------------------------
 
     [Fact]
     public void Request_summary_names_the_change()
@@ -42,10 +38,8 @@ public class HardeningTests
         Assert.Contains("and 10 more changes", s.Text);
         Assert.DoesNotContain("\r\nfake", s.Text);
         Assert.Equal(RequestSummary.MaxLines + 1, s.Text.Split('\n').Length);
-        Assert.False(s.Complete);   // the helper refuses what its window cannot show in full (exit code 6)
+        Assert.False(s.Complete);
     }
-
-    // ---- 6: untrusted-input parsers run sandboxed ------------------------------------------------------
 
     [Fact]
     public void Sandbox_runs_at_low_integrity()
@@ -53,7 +47,7 @@ public class HardeningTests
         var whoami = Path.Combine(EdrPaths.System32, "whoami.exe");
         var r = Sandbox.RunCapture(whoami, ["/groups"], timeoutSeconds: 30, ct: TestContext.Current.CancellationToken);
         Assert.True(r.Started, r.Error);
-        Assert.Contains("S-1-16-4096", r.Output);   // Mandatory Label\Low Mandatory Level
+        Assert.Contains("S-1-16-4096", r.Output);
     }
 
     [Fact]
@@ -76,8 +70,6 @@ public class HardeningTests
         Assert.Equal([@"C:\a b\t.exe", .. args], Win32.SplitCommandLine(line));
     }
 
-    // ---- 5: the signer cache key survives no in-place rewrite --------------------------------------------
-
     [Fact]
     public void Change_stamp_differs_after_a_same_size_rewrite_with_restored_timestamps()
     {
@@ -92,12 +84,10 @@ public class HardeningTests
         using (var fs = new FileStream(f, FileMode.Open, FileAccess.Write)) fs.Write([9, 9, 9, 9, 9, 9, 9, 9]);
         File.SetCreationTimeUtc(f, created);
         File.SetLastWriteTimeUtc(f, written);
-        Assert.Equal(identity, Win32.FileIdentity(f));          // the old key is fooled ...
-        Assert.NotEqual(before, Win32.FileChangeStamp(f));       // ... the change journal is not
+        Assert.Equal(identity, Win32.FileIdentity(f));
+        Assert.NotEqual(before, Win32.FileChangeStamp(f));
         Directory.Delete(dir, true);
     }
-
-    // ---- 3: engine state is safe to use from the scan thread ---------------------------------------------
 
     [Fact]
     public void Engine_state_survives_concurrent_pause_checks_and_saves()
@@ -115,8 +105,6 @@ public class HardeningTests
 
         void Guard(Action a) { try { a(); } catch (Exception) { Interlocked.Increment(ref errors); } }
     }
-
-    // ---- 4: the tray builds its model from a snapshot ----------------------------------------------------
 
     [Fact]
     public void Inputs_snapshot_is_independent_of_later_edits()

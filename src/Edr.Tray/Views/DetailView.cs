@@ -7,17 +7,16 @@ using Edr.Core;
 
 namespace Edr.Tray.Views;
 
-/// <summary>The right-hand pane: what happened, what to do, the facts, and the buttons for the selection.</summary>
 public sealed class DetailView : Border
 {
     private readonly Controller _c;
     private readonly ScrollViewer _scroll = new() { HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
     private IReadOnlyList<Row> _rows = [];
-    private string _shownKey = "";        // the selection on screen ("" = nothing selected)
-    private string _shownFp = "";           // what it looked like
-    private bool _techOpen;                 // "Technical details" stays open once the user opened it
+    private string _shownKey = "";
+    private string _shownFp = "";
+    private bool _techOpen;
 
-    protected override Type StyleKeyOverride => typeof(Border);   // themed as "Border.card"
+    protected override Type StyleKeyOverride => typeof(Border);
 
     public DetailView(Controller c)
     {
@@ -52,7 +51,6 @@ public sealed class DetailView : Border
         var item = new RowItem(r);
         var root = new StackPanel { Spacing = 12, Margin = new Thickness(16, 14) };
 
-        // Header: severity / state, the title, and which module caught it
         var pills = new WrapPanel();
         var sev = item.Severity;
         if (r.Pinned && !r.Muted) pills.Children.Add(Ui.Pill("Was this you?", Palette.Warn).Also(p => p.Margin = new Thickness(0, 0, 6, 4)));
@@ -68,7 +66,6 @@ public sealed class DetailView : Border
         }
         root.Children.Add(header);
 
-        // Smart allow suggestion (reviewed 3+ times)
         if (rows.Count == 1 && e is not null && r.Kind == "event" && _c.Insights.ShouldSuggest(e))
         {
             var allow = Ui.Btn("Allow it from now on", "primary small", () => _ = _c.Run(new TrayAction(ActionKind.Allow, "Allow"), _rows));
@@ -81,7 +78,6 @@ public sealed class DetailView : Border
             });
         }
 
-        // Actions
         var acts = _c.ActionsFor(rows);
         var wrap = new WrapPanel();
         foreach (var a in acts.Where(a => a.Kind != ActionKind.CopyDetails))
@@ -94,7 +90,6 @@ public sealed class DetailView : Border
         }
         root.Children.Add(wrap);
 
-        // Explanation
         if (rows.Count == 1 && e is not null)
         {
             var (what, todo) = Hints.For(e);
@@ -102,7 +97,6 @@ public sealed class DetailView : Border
             if (todo.Length > 0) root.Children.Add(Section("", "What to do", Ui.T(todo, "sub")));
         }
 
-        // Facts: the few that matter, then the technical record folded away
         var facts = Facts(r);
         var key = facts.Where(f => !f.Technical).ToList();
         var tech = facts.Where(f => f.Technical).ToList();
@@ -118,8 +112,6 @@ public sealed class DetailView : Border
             root.Children.Add(exp);
         }
         root.Children.Add(Ui.Btn("Copy details", "ghost small", () => _ = _c.Run(new TrayAction(ActionKind.CopyDetails, ""), _rows), icon: "").Also(b => b.HorizontalAlignment = HorizontalAlignment.Left));
-        // A refresh that changes nothing visible keeps the live pane (focus, scroll, text selection);
-        // a change to the same selection keeps the scroll position
         var selKey = string.Join("\n", rows.Select(x => x.Key));
         var fp = Ui.Fingerprint(root);
         if (selKey == _shownKey && fp == _shownFp) return;

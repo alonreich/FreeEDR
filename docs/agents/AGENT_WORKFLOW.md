@@ -57,23 +57,76 @@ for detection changes (attack samples base64-encoded so antivirus does not flag 
    `obj\tools-cache` (downloaded once, SHA256 must match the pin, otherwise the build fails: delete the cache and build
    again), a malware hash seed (`seed\ioc_sha256.txt`, refreshed daily, WARN if the feed is down) and
    `docs\THIRD_PARTY_NOTICES.txt`; then Inno Setup, signing of
-   `FreeEDR-Setup.exe`, exactly one file in `.\compiled`, SHA256 printed.
+   `FreeEDR-Setup.exe`; release builds (and dev builds with `EDR_BUILD_UPDATE=1`) also build `FreeEDR-Update.exe`, the
+   same package without the bundled tools and seed (`Tools.IsPackagedToolFile`; the installer keeps the installed tools or
+   downloads a changed pin), for the dashboard's update; only those installers and their `.sha256` in `.\compiled`.
 
-**Code signing (P18).** Unsigned builds work (a WARN line says so). To sign, set before the build:
+**Code signing (P18).** Dev builds may be unsigned (a WARN line says so). **Release builds (`build.cmd`) must be signed**
+and fail otherwise; `EDR_ALLOW_UNSIGNED=1` allows an unsigned release (WARN; the update check then relies on GitHub's
+SHA256 digest alone, and a signed install never accepts an unsigned update). To sign, set before the build:
 * `EDR_SIGN_THUMBPRINT` = SHA1 thumbprint of a code-signing certificate in your certificate store, or
 * `EDR_SIGN_DLIB` + `EDR_SIGN_METADATA` = Azure Trusted Signing (path to `Azure.CodeSigning.Dlib.dll` and its `metadata.json`).
 Optional: `EDR_SIGN_TIMESTAMP` (default `http://timestamp.acs.microsoft.com`), `EDR_SIGNTOOL` (path to signtool.exe; default:
 PATH, then the newest Windows 10/11 SDK). A configured signing that fails fails the build.
 
-Result: `.\build.log`, first line OK / WARN / FAIL. A build installs and publishes nothing. Version `yyyy.M.d.HHmm`, plus
-"(dev build)" for dev builds. `build.cmd` wipes `.\compiled` first; `dev_build.cmd` does not. Prerequisites:
-[install/INSTALLATION.md](../install/INSTALLATION.md) §1.
+Result: `.\build.log`, first line OK / WARN / FAIL. A build installs and publishes nothing. `.\compiled` holds
+`FreeEDR-Setup.exe` and `FreeEDR-Setup.exe.sha256` (plus `FreeEDR-Update.exe` and its `.sha256` when built). `build.cmd` wipes `.\compiled` first; `dev_build.cmd` does not.
+Prerequisites: [install/INSTALLATION.md](../install/INSTALLATION.md) §1.
+
+**Versions (`build\EdrBuild\Release.cs`).** Release: `EDR_VERSION`, else the `v<version>` tag on HEAD (`YYYY.M.D` or
+`YYYY.M.D.N`), else a local release build `0.yyMM.ddHH.mm` (UTC) with a WARN and "(local release build <commit>)": like a
+dev build it ranks below every published release, so published updates are still offered over it and never ask to
+"downgrade". Dev: `0.yyMM.ddHH.mm` (UTC) plus "(dev build <commit>)", so a dev build never ranks above a
+release and installing one over a release asks first. Every program's informational version is `<version>+<commit>`
+(`.dirty` with uncommitted changes, WARN in release builds). Release builds must embed the malware hash seed (64 KB or
+more); its fetch time and SHA256 are written to `THIRD_PARTY_NOTICES.txt` and `build.log`.
+
+**Changelog gate** (`Release.ChangelogGate`, `Changelog.Problems`). `docs\CHANGELOG.md` must exist with a
+`## Unreleased` section holding exactly the headings `### What's new for you` and `### Technical` (no other headings, no
+entries outside them; a user entry needs a technical entry too; a technical-only change is fine). **Every code change
+records itself**: when `src`, `build`, `config` or `rules` has uncommitted changes and the changelog has none, a dev
+build WARNs and a release build fails; a commit that changed code after the last commit of the changelog fails every
+build. This works before the first release tag. Once a `v*` tag exists: code changed since the tag needs Unreleased
+entries, and the released sections must be unchanged since the tag (`Changelog.ReleasedKept`: corrections go into a new
+entry). A tagged / `EDR_VERSION` release build needs a `## <version>` section with "What's new for you" entries.
+
+## 3a. Releases (`.github\workflows\release.yml`)
+The workflow must be on the default branch to appear under Actions. **Before the first real release, run it once with
+*Dry run* ticked**: it does everything up to a verified draft, then deletes the draft and its staging branch (nothing is
+published, the branch is not changed). Then run **Actions > Release > Run workflow** with a version newer than the last
+tag. The workflow:
+1. checks the version (format, newer than every tag, no published release of it) and deletes a leftover draft or
+   `release-staging/v<v>` branch of an earlier run;
+2. `EdrBuild --promote-changelog <v>` moves "Unreleased" under `## <v> - <date>` (idempotent) and commits it **locally**;
+   the release notes (`Changelog.ReleaseBody`) put the plain-English part first and the technical part in a collapsed
+   `<details>` block;
+3. `build.cmd --skip-live` (every gate, signing, `FreeEDR-Setup.exe` + `FreeEDR-Update.exe`);
+4. `tests\Run-Tests.ps1 -SkipLive`: a FAIL, a SKIP for any reason other than `-SkipLive`, or a suite without a PASS
+   stops the release (the hosted runner is elevated; only the live permission checks depend on that, and `-SkipLive`
+   skips them);
+5. pushes the commit to `release-staging/v<v>` only, creates a **draft** release (invisible to update checks) with both
+   installers, their `.sha256`, sizes and the marker `<!-- freeedr-release-workflow: verified -->`, downloads both back
+   and compares each SHA256 with GitHub's asset digest;
+6. merges the release commit into the branch and pushes it (before publishing, so a published release always has its
+   changelog on the branch), publishes, and waits up to 60 s for `releases/latest` to be it;
+7. removes the `FreeEDR-Setup*` / `FreeEDR-Update*` assets of every **verified** release (the marker) older than the
+   **five** newest verified ones (Windows x64 is the only platform; tags, notes and history stay; releases made by hand are
+   neither counted nor touched).
+A failed **or cancelled** run before publishing deletes the draft and the staging branch, and when the branch was already
+pushed, reverts the changelog commit there (the entries go back under Unreleased). Secrets: `SIGN_PFX_BASE64` +
+`SIGN_PFX_PASSWORD` (imported, thumbprint signing) or `EDR_SIGN_DLIB` + `EDR_SIGN_METADATA`; repository variable
+`ALLOW_UNSIGNED_RELEASE=1` for unsigned releases. The push needs write access for `github-actions[bot]` (allow it in
+branch protection). The repository must be public: the dashboard's update check reads the API without a token.
+
+**Changing the signing certificate's subject** (company name, place): installed copies accept an update only from the
+same normalized subject (CN, O, L, S, C) or one in `AppRelease.TrustedSuccessorSubjects`. Add the new subject there, ship
+that release signed with the **old** certificate, then sign later releases with the new one.
 
 ## 4. Test bundle (`tests\`, Windows PowerShell 5.1 runner)
 | Suite | What it checks |
 |---|---|
 | `01-Sanity` | data files and projects, build/installer consistency, no PowerShell product scripts, encodings, Sysmon template, no credential-tool strings, detect-only (no process kill), installer ↔ uninstaller symmetry, manifests, documentation routing |
-| `02-Unit` | C#: `PatternRules`, `Ip`, `EdrConfig`, `JsonFile`/`EventWriter`/`CommandDrop`, `ActionBuilder`, `PeriodSummary`, `Profiles`, golden dashboard models, engine internals (OSV parsing, CSV, Wail2Ban counting and ban lengths), signatures, single instance, hardening (`HardeningTests`: request summary, YARA sandbox, change stamp, engine-state locking, tray snapshots), event archive (`ArchiveTests`), audit round 2 (`AuditFixTests`: drop-file intake with links / oplocks / growing files, full-disclosure confirmation, YARA not-scanned, signed-only tool updates, single events writer; pipe caps in `PipeTests`), settings (`SettingsTests`: change-set saves, feed rule, backup / import, both themes and their contrast), QA round 3 (`QaRound3Tests`: malware checks behind allows, Defender allows kept while active, OSV outcomes, scan-now reasons, the event list after a reset, bounded netsh, the scrolling confirmation window; busy / failed pipe answers in `PipeTests`) |
+| `02-Unit` | C#: `PatternRules`, `Ip`, `EdrConfig`, `JsonFile`/`EventWriter`/`CommandDrop`, `ActionBuilder`, `PeriodSummary`, `Profiles`, golden dashboard models, engine internals (OSV parsing, CSV, Wail2Ban counting and ban lengths), signatures, single instance, hardening (`HardeningTests`: request summary, YARA sandbox, change stamp, engine-state locking, tray snapshots), event archive (`ArchiveTests`), audit round 2 (`AuditFixTests`: drop-file intake with links / oplocks / growing files, full-disclosure confirmation, YARA not-scanned, signed-only tool updates, single events writer; pipe caps in `PipeTests`), settings (`SettingsTests`: change-set saves, feed rule, backup / import, both themes and their contrast), QA round 3 (`QaRound3Tests`: malware checks behind allows, Defender allows kept while active, OSV outcomes, scan-now reasons, the event list after a reset, bounded netsh, the scrolling confirmation window; busy / failed pipe answers in `PipeTests`), releases and updates (`ReleaseTests`: version order, changelog promotion, release parsing, signer rule, no re-download, download lock, Velociraptor kept, roll-back / uninstall safeguards) |
 | `03-FalsePositive` | C#: the Sysmon rules against everyday and attack command lines (`process-corpus.json`), the engine's allow decisions |
 | `04-PenTest` | C#: own-process trust spoofing, command-channel abuse, CVE-update injection, damaged settings files. Live (unelevated): program/settings folders not writable, inbox refuses forbidden requests, the helper refuses to run unelevated |
 | `05-Live` | the installed FreeEDR: installed = latest build, service running, heartbeat, detect-only mode, sensors, engine errors, scan steps, folder permissions, owner, tray start, Settings > Apps entry, noisy alerts |

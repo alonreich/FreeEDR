@@ -1,8 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- EdrBuild - FreeEDR's build orchestrator behind build.cmd / dev_build.cmd:
-       gates (project files, encodings, PowerShell 5.1 parse, C# tests incl. tray parity, NativeAOT tray publish,
-       tray self-test), staging, the Inno Setup installer and the "exactly one file in .\compiled" check. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
@@ -13,7 +10,6 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Tools.EnsurePinned: the same pinned versions and SHA256 checks the installer uses, to embed the tools in Setup -->
     <ProjectReference Include="..\..\src\Edr.Core\Edr.Core.csproj" />
   </ItemGroup>
 

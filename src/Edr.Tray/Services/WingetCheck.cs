@@ -4,7 +4,6 @@ using Edr.Core;
 
 namespace Edr.Tray.Services;
 
-/// <summary>Installed apps with updates (winget upgrade), checked in the user's context at the scan times.</summary>
 public sealed class WingetCheck(TrayState state)
 {
     private Task<string?>? _task;
@@ -54,7 +53,6 @@ public sealed class WingetCheck(TrayState state)
 
     public sealed record App(string Name, string Id, string Version, string Latest);
 
-    /// <summary>winget's fixed-width table (column positions from the header line).</summary>
     public static List<App> Parse(IEnumerable<string> lines)
     {
         var clean = lines.Select(l => l.Split('\r').Last()).ToList();

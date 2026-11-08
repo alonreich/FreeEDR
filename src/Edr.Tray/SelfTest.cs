@@ -5,11 +5,6 @@ using Edr.Core.Native;
 
 namespace Edr.Tray;
 
-/// <summary>
-/// --selftest: the model from the live data, without UI (used by the build on the live install).
-/// --dump &lt;folder&gt; also writes model.json. --compare &lt;folder&gt; instead reads a PowerShell dump folder
-/// (inputs\ + model.json from EDR_SELFTEST_DUMP), builds the model from the same inputs and lists the differences.
-/// </summary>
 internal static class SelfTest
 {
     public static int Run(EdrPaths paths, string? dumpDir, string? compareDir)

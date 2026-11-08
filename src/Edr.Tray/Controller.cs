@@ -8,10 +8,6 @@ using Edr.Tray.Views;
 
 namespace Edr.Tray;
 
-/// <summary>
-/// Turns every button, menu item and notification click into requests to the engine (through the elevated helper),
-/// local changes (reviewed, hidden apps, history) or a program the tray starts for the user.
-/// </summary>
 public sealed class Controller
 {
     public TrayState State { get; }
@@ -19,14 +15,12 @@ public sealed class Controller
     public Preferences Prefs { get; }
     public Insights Insights { get; }
     public WingetCheck Winget { get; }
+    public AppUpdater Updater { get; }
     public Notifier? Notifier { get; set; }
 
-    /// <summary>In-app message (bottom of the window). Set by the main window.</summary>
     public Action<string, bool, string?, Action?>? Snack { get; set; }
-    /// <summary>The model changed: redraw.</summary>
     public Action? Changed { get; set; }
 
-    /// <summary>Asks the app for a background refresh (set by App; the redraw follows when it completes).</summary>
     public Action? RefreshRequested { get; set; }
     public Func<IClipboard?>? Clipboard { get; set; }
 
@@ -37,13 +31,13 @@ public sealed class Controller
         Prefs = new Preferences(state.Paths.PreferencesFile);
         Insights = new Insights(Path.Combine(state.Paths.LocalDir, "insights.json"));
         Winget = new WingetCheck(state);
+        Updater = new AppUpdater(state.Paths, Prefs);
         Commands.Slow = () => Say("Still waiting for the administrator step: its confirmation window may still be open, or a download is still running. " +
                                   "FreeEDR tells you the result when it finishes.");
     }
 
     public string UserProfile => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-    /// <summary>Rebuild soon: the tray refreshes on its worker thread and then redraws (never blocks the UI).</summary>
     private void Refresh()
     {
         State.Dirty = true;
@@ -51,16 +45,12 @@ public sealed class Controller
         else Changed?.Invoke();
     }
 
-    /// <summary>A short message in the window (or a notification when it is closed); an optional button such as
-    /// "Undo" runs <paramref name="action"/>.</summary>
     public void Say(string msg, bool error = false, string? actionLabel = null, Action? action = null)
     {
         if (Snack is not null) Snack(msg, error, actionLabel, action);
         else Notifier?.Show(error ? "FreeEDR: not done" : "FreeEDR", msg, "page|home", []);
     }
 
-    /// <summary>Confirms and sends an elevated change set. <paramref name="yes"/> names the action on the main button
-    /// ("Ban IP", "Allow", ...), never a vague "Continue".</summary>
     private async Task<bool> Send(IEnumerable<JsonObject?> ops, string title, string question, string yes, bool danger = false)
     {
         var list = ops.Where(o => o is not null).ToList();
@@ -68,7 +58,7 @@ public sealed class Controller
         if (!await Dialogs.Confirm(title, question, yes, danger: danger, note: "Windows asks for administrator approval.")) return false;
         var r = await Commands.Ops(list);
         Say(Commands.Explain(r), r != CommandResult.Done);
-        if (r is CommandResult.Done or CommandResult.Incomplete or CommandResult.Unconfirmed) { await Task.Delay(1500); Refresh(); }   // something may have changed
+        if (r is CommandResult.Done or CommandResult.Incomplete or CommandResult.Unconfirmed) { await Task.Delay(1500); Refresh(); }
         return r == CommandResult.Done;
     }
 
@@ -97,8 +87,6 @@ public sealed class Controller
         e => Profiles.FindFor(e, State.IsProfileOn, State.Signers), State.ParentAllowed,
         r => r.Entry is { } v && ActionBuilder.OwnsCve(v, State.CurrentSid, UserProfile), State.IsReviewed);
 
-    // ---- the actions -----------------------------------------------------------------------------------
-
     public async Task Run(TrayAction a, IReadOnlyList<Row> rows)
     {
         if (rows.Count == 0 && a.Kind is not (ActionKind.UpdateTool or ActionKind.OpenUrl)) return;
@@ -113,7 +101,6 @@ public sealed class Controller
                 var evs = EventsOf(same);
                 foreach (var e in evs) Insights.CountReview(e);
                 State.SetReviewed(evs, true);
-                // One click undoes a mis-click: the alert (and its "Was this you?" question) comes back
                 Say(a.Kind == ActionKind.ItWasMe ? "Thanks - marked as yours. Future ones are still reported." : "Marked reviewed.", false, "Undo", () =>
                 {
                     foreach (var e in evs) Insights.UncountReview(e);
@@ -345,7 +332,6 @@ public sealed class Controller
         var ids = list.Select(r => r.Kind == "hidden" ? r.EntryId ?? "" : r.Kind == "hist" ? r.Entry!.S("key") : r.Entry?.S("appId") ?? "")
                       .Where(ActionBuilder.IsValidWingetId).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (ids.Count == 0) { Say("There is no app with a winget ID to update.", true); return; }
-        // Same as the Python fix: say what will run before anything starts
         if (!await Dialogs.Confirm(ids.Count == 1 ? "Update app" : $"Update {ids.Count} apps",
                 $"Update with winget:\n{Dialogs.Names(list.Select(NameOf).Where(n => n.Length > 0).DefaultIfEmpty(string.Join(", ", ids)))}\n\n" +
                 $"{(ids.Count == 1 ? "A winget window opens" : $"{ids.Count} winget windows open, one per app")}. Some installers ask for administrator approval or close the app while it updates. " +
@@ -358,9 +344,33 @@ public sealed class Controller
             else if (r.Kind == "app") State.AddHistory("apps", r.Entry!.S("appId"), r.Entry);
             else if (r.Kind == "hist") State.AddHistory("apps", r.Entry!.S("key"), r.Entry);
         }
-        Winget.CheckSoon(TimeSpan.FromMinutes(10));   // anything that failed comes back to Available
+        Winget.CheckSoon(TimeSpan.FromMinutes(10));
         Say(started == 1 ? "Update started in a winget window. It is listed under Updates > Started here." : $"{started} updates started in winget windows. They are listed under Updates > Started here.");
         Refresh();
+    }
+
+    public async Task InstallUpdate()
+    {
+        if (Updater.Info is not { } info || Updater.Busy) return;
+        var notes = info.Notes.Length > 0 ? info.Notes : "The release page lists the changes.";
+        var ready = Updater.Phase == UpdatePhase.Ready;
+        if (!await Dialogs.Confirm($"Install FreeEDR {info.Latest}",
+                $"What's new:\n{notes}\n\n" +
+                (ready ? "The update is downloaded and checked. " : $"Download: {AppRelease.Describe(info.Size)} from FreeEDR's GitHub releases. It is installed only if it matches the SHA256 fingerprint GitHub publishes and is signed like your FreeEDR. ") +
+                "Setup keeps all your settings, allow lists and history. Detection pauses for about a minute while the programs are replaced; if the new version does not pass its checks, the previous one comes back by itself. Nothing restarts the PC.",
+                ready ? "Install now" : "Download and install", "Later", note: "Windows asks for administrator approval when Setup starts.")) return;
+        await Updater.DownloadAndInstall();
+    }
+
+    public async Task ShowWhatsNew(AppUpdateInfo? info = null)
+    {
+        if (info is not null)
+        {
+            if (await Dialogs.Choose(Changelog.IsCombined(info.Notes) ? $"What's new since your version (up to {info.Latest})" : $"What's new in FreeEDR {info.Latest}", info.Notes.Length > 0 ? info.Notes : "This release has no notes.", ["Install", "Close"]) == 0) await InstallUpdate();
+            return;
+        }
+        var notes = Updater.InstalledNotes();
+        await Dialogs.Info($"What's new in FreeEDR {Updater.Installed}", string.IsNullOrWhiteSpace(notes) ? "This version has no release notes (a developer build, or an older release)." : notes);
     }
 
     public async Task UpdateTool(string name)
@@ -385,8 +395,6 @@ public sealed class Controller
         }
         catch (Exception) { Say("Could not copy to the clipboard (another program holds it). Try again.", true); }
     }
-
-    // ---- protection controls ---------------------------------------------------------------------------
 
     public async Task Pause(string blade, int minutes)
     {
@@ -419,13 +427,11 @@ public sealed class Controller
         if (State.Status?.Child("scan")?.T("running") == true) { Say("A scan is already running. You will be told when it finishes."); return; }
         if (State.PauseState("edr") == "paused") { Say("Detection is paused - resume it first.", true); return; }
         var r = await Commands.User(new() { ["action"] = "scan-now" });
-        // The engine says when it did not start one (paused, or one was started less than 2 minutes ago) or one runs already
         Say(r == CommandResult.Done
                 ? Commands.LastMessage.Length > 0 ? Commands.LastMessage : "Scan started: malware hashes, event logs and the vulnerability check run in the background."
                 : UserReply(r), r != CommandResult.Done);
     }
 
-    /// <summary>A request without UAC that was not done: the engine's own reason when it gave one.</summary>
     private string UserReply(CommandResult r) =>
         r is CommandResult.Incomplete or CommandResult.Refused && Commands.LastMessage.Length > 0 ? $"Not done: {Commands.LastMessage}" : Commands.Explain(r);
 
@@ -436,7 +442,6 @@ public sealed class Controller
         Say(r == CommandResult.Done ? "Engine restarted." : Commands.Explain(r), r != CommandResult.Done);
     }
 
-    /// <summary>Sends only <paramref name="config"/>'s values (a change set): values changed elsewhere meanwhile stay.</summary>
     public async Task<bool> SaveSettings(JsonObject config)
     {
         if (config.Count == 0) return true;
@@ -458,20 +463,13 @@ public sealed class Controller
 
     public void TestDetection()
     {
-        // Started through cmd so its parent is not the tray (the tray's own children are trusted)
         var cmd = Path.Combine(EdrPaths.System32, "cmd.exe");
         Shell.Run(cmd, ["/c", "start", "", "/min", "powershell.exe", "-NoProfile", "-Command", "Invoke-Expression 'Write-Output EDR-test-detection'"]);
         Say("A harmless test alert was triggered. It appears in Activity within a few seconds.");
     }
 
-    /// <summary>Velociraptor's local page (its "gui" mode serves it here).</summary>
     public const string ForensicsUrl = "https://127.0.0.1:8889/";
 
-    /// <summary>
-    /// Forensics: one Velociraptor at a time. When FreeEDR's Velociraptor already runs, its page is opened again instead of
-    /// starting a second server on the same port and data folder. It runs in its own window (minimized); closing that
-    /// window stops it. Checked off the UI thread (process list).
-    /// </summary>
     public async Task OpenForensics()
     {
         var v = State.Paths.VelociraptorExe;
@@ -488,8 +486,6 @@ public sealed class Controller
         else Say("Velociraptor was not started: Windows administrator approval was not given.", true);
     }
 
-    /// <summary>Settings ▸ Malware hash feed ▸ Test: downloads the address (at most 64 MB, 30 s) and counts the SHA256 lines
-    /// the engine would use. Null = it works (the count is in the text).</summary>
     public static async Task<(bool Ok, string Text)> TestFeed(string url)
     {
         if (EdrConfig.FeedProblem(url) is { Length: > 0 } bad) return (false, bad);
@@ -514,11 +510,8 @@ public sealed class Controller
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException) { return (false, $"Could not download it: {e.Message}"); }
     }
 
-    /// <summary>The backup file's content: settings and allows (read off the UI thread).</summary>
     public Task<JsonObject> CreateBackup() => Task.Run(() => SettingsBackup.Create(EdrConfig.Load(State.Paths.ConfigFile), JsonFile.ReadObject(State.Paths.ExclusionsFile)));
 
-    /// <summary>Imports a backup: shows what it changes, then sends the settings and the missing allows as normal requests
-    /// (one administrator approval each; each shows its whole content in the helper's window).</summary>
     public async Task ImportBackup(JsonObject? backup)
     {
         var paths = State.Paths;
@@ -527,7 +520,6 @@ public sealed class Controller
         var notes = new List<string>();
         if (plan.AlreadyThere > 0) notes.Add($"{plan.AlreadyThere} allows are already here.");
         if (plan.Refused > 0) notes.Add($"{plan.Refused} allows in the file are too broad for FreeEDR's rules and are skipped.");
-        // Quiet mode is this account's own list: imported without administrator approval
         var quiet = SettingsBackup.QuietOf(backup) is { } q && !q.SequenceEqual(QuietList, StringComparer.Ordinal) ? q : null;
         if (plan.Empty && quiet is null) { await Dialogs.Info("Import settings", "Nothing to change: this PC already has these settings and allows. " + string.Join(" ", notes)); return; }
         var batches = SettingsBackup.Batches(plan.Ops);
@@ -551,7 +543,6 @@ public sealed class Controller
         Refresh();
     }
 
-    /// <summary>The quiet-mode list in force for this account: its own, or the PC's starting list until it picks one.</summary>
     public IReadOnlyList<string> QuietList => Prefs.QuietProcesses ?? State.Config.QuietProcesses;
 
     private static int CountLeaves(JsonObject o) => o.Sum(kv => kv.Value is JsonObject inner ? CountLeaves(inner) : 1);
@@ -574,7 +565,6 @@ public sealed class Controller
         if (!Shell.OpenDocument(guide)) Say($"The user guide was not found: {guide}", true);
     }
 
-    /// <summary>The forensic audit trail (pauses, allows, verdicts, settings) as CSV text.</summary>
     public string AuditCsv()
     {
         var sb = new StringBuilder("\"Time\",\"Severity\",\"Kind\",\"Title\",\"Detail\",\"User\"\r\n");
@@ -586,7 +576,6 @@ public sealed class Controller
         return sb.ToString();
     }
 
-    /// <summary>A notification button or click.</summary>
     public async Task Activated(string args, Action<string, string?> navigate)
     {
         var parts = args.Split('|', 2);
@@ -611,6 +600,13 @@ public sealed class Controller
             case "page":
                 navigate(arg, null);
                 break;
+            case "whatsnew":
+                await ShowWhatsNew();
+                return;
+            case "update":
+                navigate("settings", null);
+                if (Updater.Info is { } info) await ShowWhatsNew(info);
+                return;
         }
         await Task.CompletedTask;
     }

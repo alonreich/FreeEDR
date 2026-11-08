@@ -6,7 +6,6 @@ using Edr.Core;
 
 namespace Edr.Tray.Views;
 
-/// <summary>Styled confirmation / message / input dialogs (the same look as the dashboard).</summary>
 public static class Dialogs
 {
     public static Window? Owner { get; set; }
@@ -24,8 +23,6 @@ public static class Dialogs
         Topmost = Owner is not { IsVisible: true },
     };
 
-    /// <summary>90 % of the working area of the screen the dashboard is on (large text, 200 % scaling): the buttons always
-    /// stay on screen, a long message scrolls.</summary>
     private static double MaxDialogHeight()
     {
         try
@@ -37,7 +34,6 @@ public static class Dialogs
         catch (Exception e) when (e is InvalidOperationException or NullReferenceException) { return double.PositiveInfinity; }
     }
 
-    /// <summary>The message text, scrolling when it is longer than the screen allows.</summary>
     private static Control Message(string message) => new ScrollViewer
     {
         Content = Ui.T(message, "sub"),
@@ -45,12 +41,9 @@ public static class Dialogs
         HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
     };
 
-    // One dialog at a time: a second request waits until the first is answered (it is brought to the front meanwhile),
-    // so two questions never stack up behind each other or behind the dashboard.
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static Window? _open;
 
-    /// <summary>A dialog is open (another one waits for it).</summary>
     public static bool IsOpen => _open is not null;
 
     private static async Task<T> Show<T>(Window w, Func<T> fallback)
@@ -59,7 +52,6 @@ public static class Dialogs
         await Gate.WaitAsync();
         try
         {
-            // The owner may have been shown or hidden while this one waited
             var owner = Owner is { IsVisible: true } o ? o : null;
             w.Topmost = owner is null;
             w.ShowInTaskbar = owner is null;
@@ -78,7 +70,6 @@ public static class Dialogs
         }
     }
 
-    /// <summary>Yes/No with a highlighted main button. <paramref name="danger"/> paints it red.</summary>
     public static Task<bool> Confirm(string title, string message, string yes = "Continue", string no = "Cancel", bool danger = false, string? note = null)
     {
         var w = NewDialog(title);
@@ -89,7 +80,6 @@ public static class Dialogs
         var yesBtn = Ui.Btn(yes, danger ? "danger" : "primary", () => { w.Tag = true; w.Close(); });
         var noBtn = Ui.Btn(no, "", () => { w.Tag = false; w.Close(); });
         noBtn.IsCancel = true;
-        // A destructive choice is never the Enter key: in a danger dialog Enter (and the initial focus) means Cancel
         if (danger) { noBtn.IsDefault = true; w.Opened += (_, _) => noBtn.Focus(); }
         else yesBtn.IsDefault = true;
         body.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0), Children = { noBtn, yesBtn } });
@@ -128,8 +118,6 @@ public static class Dialogs
         return Show<string?>(w, () => null);
     }
 
-    /// <summary>Several choices; returns the index of the clicked one, -1 when the window is closed. The first choice is the
-    /// default (Enter), the last one is Esc.</summary>
     public static Task<int> Choose(string title, string message, string[] choices)
     {
         var w = NewDialog(title, 520);
@@ -146,7 +134,6 @@ public static class Dialogs
         return Show(w, () => -1);
     }
 
-    /// <summary>Bulleted list of names, at most 8 (Format-NameList).</summary>
     public static string Names(IEnumerable<string> names)
     {
         var u = names.Where(n => n.Length > 0).Distinct().ToList();
@@ -156,7 +143,6 @@ public static class Dialogs
     }
 }
 
-/// <summary>First run: what FreeEDR does, which apps to trust, how much to be told (3 steps).</summary>
 public sealed class WelcomeWindow : Window
 {
     private int _step;
@@ -172,16 +158,12 @@ public sealed class WelcomeWindow : Window
     public Dictionary<string, bool> ProfileChoice { get; } = new();
     public string NotifyLevel { get; private set; } = "important";
     public bool Finished { get; private set; }
-    /// <summary>The user ended the tour early (Skip, or the window's X): the current choices stay and the tour is not shown
-    /// again at the next sign-in (Settings > Help > Show the welcome tour still opens it). A close the program asked for
-    /// (the installer stopping the tray) is not a skip.</summary>
     public bool Skipped { get; private set; }
     private readonly Button _skip;
 
     public WelcomeWindow(Func<string, bool> profileOn, string level)
     {
         Title = "Welcome to FreeEDR";
-        // Resizable, and the step scrolls: large text or 200 % scaling never cuts off the content or the buttons
         Width = 720; Height = 560; MinWidth = 520; MinHeight = 420; CanResize = true;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Icon = ShieldIcon.Create(ShieldState.Protected);
@@ -199,7 +181,6 @@ public sealed class WelcomeWindow : Window
         Grid.SetColumn(_back, 2); footer.Children.Add(_back);
         _next.Margin = new Thickness(10, 0, 0, 0);
         Grid.SetColumn(_next, 3); footer.Children.Add(_next);
-        // The window's X is the same as Skip; a programmatic close (installer, shutdown) is not
         Closing += (_, e) => { if (!Finished && !e.IsProgrammatic && e.CloseReason == WindowCloseReason.WindowClosing) Skipped = true; };
         var root = new DockPanel { Margin = new Thickness(32, 28) };
         DockPanel.SetDock(footer, Dock.Bottom);

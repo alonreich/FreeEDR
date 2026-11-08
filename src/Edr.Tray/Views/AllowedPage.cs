@@ -5,12 +5,10 @@ using Edr.Core;
 
 namespace Edr.Tray.Views;
 
-/// <summary>Allowed &amp; trusted: the trusted-app switches and every allow (exclusion) in one place.</summary>
 public sealed class AllowedPage : UserControl
 {
     private readonly Controller _c;
     private readonly ListPage _list;
-    // Switches the user flipped but did not apply yet: survive the 15-second refresh and tab changes
     private readonly Dictionary<string, bool> _want = [];
 
     public AllowedPage(Controller c)
@@ -31,11 +29,8 @@ public sealed class AllowedPage : UserControl
 
     private Control TrustedApps()
     {
-        // A new panel on every build: the page content is rebuilt on each visit, and a control can have only one parent.
-        // (ListPage keeps the live panel when a new build looks the same, so focus and scroll survive a refresh.)
         foreach (var id in _want.Keys.ToList()) if (_want[id] == _c.State.IsProfileOn(id)) _want.Remove(id);
         var pendingNote = Ui.T(PendingText(), "", 12, Palette.Warn);
-        // Enabled only while a switch differs from what is applied (the reason is the tooltip, shown while disabled too)
         var apply = Ui.Btn("Apply changes", "primary big", () => _ = Apply(), icon: "");
         ToolTip.SetShowOnDisabled(apply, true);
         void SyncApply()
@@ -77,7 +72,6 @@ public sealed class AllowedPage : UserControl
         head.Children.Add(Ui.Stack(4, Ui.T("Trusted apps run without alerts for their normal work", "h3"),
             Ui.T("Each one allows only what that app does (for AI coding assistants: only their PowerShell launcher, only when the parent is validly signed). Malware fingerprints, YARA and Defender keep checking.", "sub"),
             pendingNote).Also(x => x.Margin = new Thickness(0, 0, 16, 0)));
-        // Left-aligned with the page header and tabs like every other tab (a centred column floated off the grid)
         return new ScrollViewer { Content = Ui.Stack(14, Ui.Card(head), apps).Also(s => { s.MaxWidth = 1000; s.HorizontalAlignment = HorizontalAlignment.Left; }) };
     }
 
@@ -93,7 +87,6 @@ public sealed class AllowedPage : UserControl
     public void Refresh() => _list.Refresh();
 }
 
-/// <summary>FreeEDR's own tools (Hayabusa, YARA, OSV-Scanner, Velociraptor) with one-click updates.</summary>
 public static class ToolPanel
 {
     public static Control Build(Controller c)
@@ -110,7 +103,7 @@ public static class ToolPanel
             var outdated = info?.T("outdated") == true;
             var status = outdated ? Ui.Pill($"{latest} available", Palette.Warn) : latest.Length > 0 ? Ui.Pill("Up to date", Palette.Ok) : Ui.Pill("Not checked yet", Palette.Muted);
             var update = Ui.Btn(outdated ? $"Update to {latest}" : "Check & update", outdated ? "primary" : "", () => _ = c.UpdateTool(t.Name), icon: "");
-            if (!t.Updatable)   // unsigned releases are never installed from GitHub: they come with a FreeEDR release
+            if (!t.Updatable)
             {
                 update.IsEnabled = false;
                 Avalonia.Controls.ToolTip.SetTip(update, "Not signed by its publisher: updated with the next FreeEDR release");

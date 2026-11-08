@@ -4,24 +4,13 @@ using Edr.Core.Native;
 
 namespace Edr.Core;
 
-/// <summary>
-/// Back to a fresh install's state, with the service stopped by the caller. Used by Settings ▸ Restore defaults
-/// (FreeEDR-Control.exe) and by Setup's "Clean install". Never touches data\preinstall.json / managed.json (the record of
-/// Windows settings before FreeEDR, which the uninstaller needs) or a legacy quarantine\ folder (users' files).
-/// Microsoft Defender allows added from the dashboard are removed from Defender in both cases; one Defender refuses to
-/// remove stays in the allow list, so it is never active without FreeEDR knowing about it.
-/// </summary>
 public static class FactoryReset
 {
-    /// <param name="everything">Clean install: also the logs, scan results, event archive, backups and the install date
-    /// (the learning week starts again). Restore defaults keeps those and the install date.</param>
     public static List<string> Apply(EdrPaths paths, bool everything)
     {
         var notes = new List<string>();
         var old = EdrConfig.Load(paths.ConfigFile);
 
-        // Defender allows that were added from the dashboard go with the allow list (Restore defaults and Clean install
-        // alike). One that Defender would not remove stays listed, so the dashboard and the uninstaller can still remove it.
         var keptDefender = RemoveDefenderAllows(JsonFile.ReadObject(paths.ExclusionsFile), Defender.RemoveAllow, notes);
 
         var cfg = new EdrConfig { AllowProfilesInitialized = true, DefenderMode = old.DefenderMode, InstalledAt = everything ? DateTime.Now.ToString("s", CultureInfo.InvariantCulture) : old.InstalledAt };
@@ -36,7 +25,7 @@ public static class FactoryReset
                 foreach (var (k, v) in op) if (k is not ("action" or "blade")) entry[k] = v?.DeepClone();
                 ((JsonArray)excl[op.Str("blade")]!).Add((JsonNode)entry);
             }
-        foreach (var k in keptDefender) ((JsonArray)excl["defender"]!).Add((JsonNode)k);   // still active in Defender: still listed
+        foreach (var k in keptDefender) ((JsonArray)excl["defender"]!).Add((JsonNode)k);
         JsonFile.WriteAtomic(paths.ExclusionsFile, excl);
         JsonFile.WriteAtomic(paths.BlocklistFile, new JsonObject { ["items"] = new JsonArray() });
         notes.Add("OK Settings and allow lists set to the defaults (recommended trusted apps), verdicts cleared");
@@ -59,20 +48,18 @@ public static class FactoryReset
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException) { notes.Add($"WARN Could not remove {d}: {e.Message}"); }
 
         foreach (var d in new[] { paths.ControlDir, paths.InboxDir }.Where(Directory.Exists))
-            foreach (var f in Directory.GetFiles(d)) DropFile.TryDelete(f);   // inbox\ is user-writable: never follow a link or wait on a lock
+            foreach (var f in Directory.GetFiles(d)) DropFile.TryDelete(f);
         if (Directory.Exists(paths.UserDir))
             foreach (var u in Directory.GetDirectories(paths.UserDir))
             {
                 var files2 = everything ? Directory.GetFiles(u) : new[] { "reviewed.txt", "history.json", "ignored-apps.txt", "insights.json" }.Select(n => Path.Combine(u, n)).ToArray();
-                foreach (var f in files2) DropFile.TryDelete(f);   // user\<SID>\ belongs to that account: same rule
+                foreach (var f in files2) DropFile.TryDelete(f);
             }
         notes.Add(everything ? "OK Events, logs, scan results, event archive, backups and every account's dashboard state deleted"
                              : "OK Events, Wail2Ban strikes, engine state and every account's reviewed / history / hidden lists deleted");
         return notes;
     }
 
-    /// <summary>Removes every Defender allow of <paramref name="exclusions"/>' "defender" list with <paramref name="remove"/>
-    /// (kind, path) → (ok, error); returns the ones Defender kept, which must stay listed.</summary>
     public static List<JsonObject> RemoveDefenderAllows(JsonObject? exclusions, Func<string, string, (bool Ok, string Error)> remove, List<string> notes)
     {
         var kept = new List<JsonObject>();

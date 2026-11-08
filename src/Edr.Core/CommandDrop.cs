@@ -2,11 +2,6 @@ using System.Text.Json.Nodes;
 
 namespace Edr.Core;
 
-/// <summary>
-/// The two command drop folders: control\ (admin-only, written by the elevated FreeEDR-Control.exe) and inbox\
-/// (any account; the engine accepts only resume and scan-now from it). A request is written as .tmp and renamed to
-/// .json, so the engine never reads half a file.
-/// </summary>
 public static class CommandDrop
 {
     public static string Write(string dir, JsonObject cmd)
@@ -29,12 +24,6 @@ public static class CommandDrop
     }
 }
 
-/// <summary>
-/// An event from one of FreeEDR's elevated programs (the helper, the installer). The engine is the only writer of
-/// data\events.jsonl (one process, one lock: no rotation race, no silent loss), so these are sent to it as a "note"
-/// request: over the pipe (it answers at once), or into the admin-only control\ when it is not running (written at its
-/// next start).
-/// </summary>
 public static class EngineNote
 {
     public static void Send(EdrPaths paths, string severity, string title, string process = "", string detail = "", string kind = "status", string tool = "", bool? ok = null)
@@ -52,9 +41,8 @@ public static class EngineNote
             if (!r.Ok) new TextLog(paths.EngineLog).Warn($"Engine refused an event ({title}): {r.Message}");
             return;
         }
-        // Sent without an answer: the engine may still write it, so it is not queued a second time (no duplicate)
         if (r.Unanswered) { new TextLog(paths.EngineLog).Warn($"Engine did not confirm an event in time ({title}): {r.Message}"); return; }
-        CommandDrop.Write(paths.ControlDir, cmd);   // engine not running, or busy (it dropped the request): its next pass reads it
+        CommandDrop.Write(paths.ControlDir, cmd);
     }
 
     private static string Fit(string s, int max) => s.Length <= max ? s : s[..(max - 3)] + "...";

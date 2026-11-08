@@ -41,7 +41,13 @@ Never run the installer or uninstaller on the owner's PC without their approval.
   certificate ([agents/AGENT_WORKFLOW.md](../agents/AGENT_WORKFLOW.md) §3).
 
 ## 2. Running it
-* `compiled\FreeEDR-Setup.exe` (one UAC prompt). Unattended: `/VERYSILENT [/NoDesktopIcon=1] [/Clean=1] [/ReplaceSysmonConfig=1]`.
+* `compiled\FreeEDR-Setup.exe` or the release download (one UAC prompt). Unattended: `/VERYSILENT [/NoDesktopIcon=1] [/Clean=1]
+  [/ReplaceSysmonConfig=1] [/AllowDowngrade=1]`. Updates: the dashboard downloads, checks and starts the same Setup
+  (Settings > FreeEDR updates, [tray/TRAY_GUI.md](../tray/TRAY_GUI.md)).
+* **No silent downgrade**: Setup's `InitializeSetup` compares its version with the installed one (`version.txt`, else
+  the Apps entry's `DisplayVersion`). Older than installed: it asks (default No); unattended it stops unless
+  `/AllowDowngrade=1`. A confirmed downgrade passes `--allow-downgrade`; without it the installer refuses too. Dev
+  builds are versioned `0.yyMM.ddHH.mm`, so installing one over a release always asks.
 * Setup shows no wizard pages of its own: it unpacks to the admin-only `C:\Program Files\FreeEDR\setup-src` and runs
   `setup-src\bin\FreeEDR-Installer.exe install --source <setup-src> --version <v>`, whose **setup window** (Avalonia, the
   dashboard's theme, no console) does the rest, then deletes `setup-src`:
@@ -54,29 +60,38 @@ Never run the installer or uninstaller on the owner's PC without their approval.
   * **Progress**: every step with OK / WARN lines as they happen; the window cannot be closed while it works.
   * **Result**: success / rolled back / failed, with the log path.
 * Exit codes of the installer: 0 SUCCESS, 3 ROLLED BACK, 1 FAILED, 4 cancelled in the window; Setup returns 0 only for
-  SUCCESS. Cancelling a first install leaves only Setup's Apps entry: its Uninstall changes no Windows setting (the
+  SUCCESS. After a failed, cancelled or rolled-back upgrade Setup rewrites the Apps entry's `DisplayVersion` from
+  `version.txt`, so Settings > Apps names the version that really runs. After any install the installer writes the
+  measured folder size (KB) to the entry's `EstimatedSize`. Cancelling a first install leaves only Setup's Apps entry: its Uninstall changes no Windows setting (the
   uninstaller sees that nothing was set up). Cancelling an upgrade leaves the installed version as it was.
 * The installer can also be run directly (elevated): `FreeEDR-Installer.exe install [--source <folder>] [--silent]
-  [--no-desktop-icon] [--replace-sysmon-config] [--clean] [--version <text>]`; `--silent` runs headless (log only).
+  [--no-desktop-icon] [--replace-sysmon-config] [--clean] [--version <text>] [--allow-downgrade]`; `--silent` runs headless (log only).
   Development: `FreeEDR-Installer.exe --screenshot <dir>` renders the window's three pages to PNG and installs nothing
   (`__COMPAT_LAYER=RunAsInvoker` starts it without UAC).
 * Log: `C:\Program Files\FreeEDR\install.log` (copy in `%TEMP%\FreeEDR-install.log`).
 
 ## 3. What the installer does (Installer.cs, in this order)
 1. **Pre-flight**: elevated, x64, all setup files present; refuses a Sysmon installed under another service name; needs
-   `--replace-sysmon-config` (ticked in the window, or `/ReplaceSysmonConfig=1`) to replace a foreign Sysmon configuration.
+   `--replace-sysmon-config` (ticked in the window, or `/ReplaceSysmonConfig=1`) to replace a foreign Sysmon configuration;
+   refuses an older `--version` than `version.txt` without `--allow-downgrade` (nothing is stopped or changed).
 2. **Stops the running version**: the service, the scheduled tasks of the PowerShell versions (`FreeEDR`, `EDR`, legacy
    Wail2Ban/LocalEDR tasks are disabled), every account's tray (exit event, then by process), FreeEDR's tools.
-3. **Clean install only** (`--clean` on an existing install): `FactoryReset.Apply(everything: true)`, as above.
-4. **Backup** of the previous programs (and PowerShell scripts of an older version) and the Sysmon config to
-   `data\backup-<time>`; the newest 3 backups are kept.
+3. **Backup** (before a clean install erases anything) to `data\backup-<time>`: the programs (`bin\FreeEDR-*.exe`,
+   `bin\tray\`), the tools this upgrade replaces (`Tools.KeepInstalled` false), all of `config\` (settings, allow and
+   block lists, Sysmon config), `rules\*.yar`, `docs\`, `README.md`, `version.txt` and the PowerShell scripts of an older
+   version; the newest 3 backups are kept. Then `data\upgrade-pending.json` records the backup, the from/to versions
+   and the installer's process id. When that file is already there (an earlier upgrade was interrupted, for example by
+   a power cut), its backup is kept as the roll-back point instead of backing up the half-replaced files.
+4. **Clean install only** (`--clean` on an existing install): `FactoryReset.Apply(everything: true)`, as above.
 5. **Copies the files** from `setup-src` (not the tools and `seed\`, see step 7); writes `version.txt`.
 6. **Baseline** (first install only): `data\preinstall.json` records Defender's ASR rules, Controlled folder access,
    allowed apps, ASR exclusions, threat-ID actions, the RDP shadow rule, a foreign Sysmon (its config is exported to
    `data\sysmon-original.reg`) and whether the event source existed.
-7. **Tools**: each pinned tool that is missing (or Velociraptor when it is not the pinned build) is copied from the setup
-   package and its SHA256 checked again; a tool already there (possibly updated from the dashboard) is kept. Only a
-   package without the tool (a dev build without `obj\tools-cache`) downloads it from GitHub. The build embeds the tools
+7. **Tools**: a tool is kept when it matches its pinned SHA256, or (Velociraptor, updatable from the dashboard) when it
+   is signed by its pinned publisher and not older than the pin (`Tools.KeepInstalled`). Any other tool (missing, or an
+   unsigned tool that differs from the new pin) is copied from the setup package and its SHA256 checked again. Only a
+   package without the tool (a dev build without `obj\tools-cache`, or the `FreeEDR-Update.exe` package the
+   dashboard uses) downloads it from GitHub (pinned SHA256). The build embeds the tools
    (`build\EdrBuild` EmbedTools: pinned SHA256, cached in `obj\tools-cache`) and writes `docs\THIRD_PARTY_NOTICES.txt`.
 8. **Sysmon**: downloads Sysmon.zip from Sysinternals when Sysmon is not installed, checks the Microsoft signature,
    renders the config, installs (`-i`) or updates (`-c`); a rejected config is rolled back to the previous one.
@@ -95,9 +110,16 @@ Never run the installer or uninstaller on the owner's PC without their approval.
     YARA rules compiled, Hayabusa, OSV-Scanner, all tools). All OK: removes the old scheduled tasks and PowerShell scripts
     and leftover `C:\EDR`, `C:\LocalEDR`, `C:\Wail2Ban`; result SUCCESS. Otherwise **roll-back**: the backed-up programs
     (and Sysmon config) are restored; after a PowerShell version the service is removed and its scheduled task and tray
-    start come back; result ROLLED BACK.
+    start come back; result ROLLED BACK. The roll-back restores everything step 3 saved (programs, replaced tools,
+    `config\`, `rules\*.yar`, `docs\`, `README.md`, `version.txt`), deletes `data\rules.yarc` (the old engine compiles its
+    own rules) and re-applies the old Sysmon config. Any exception during the install (not only the expected I/O and
+    download errors) also rolls back. A successful install or roll-back deletes `data\upgrade-pending.json`; an
+    incomplete roll-back keeps it, so the next Setup run rolls back from the same backup. A success also deletes the
+    downloaded installers of that version or older in every `user\<SID>\update\`.
 14. **Starts the tray** for every signed-in account (a one-shot scheduled task for the Users group, unelevated) with a
-    notification of the result.
+    notification of the result. This runs after every outcome once the trays were stopped (success, failed check, or an
+    error with roll-back), so the dashboard always comes back. Stopping FreeEDR's processes spares the downloaded
+    installer the dashboard started (`user\*\update\`) and the unpacked `setup-src\`.
 
 A first install that fails is not rolled back step by step: Settings > Apps > FreeEDR > Uninstall removes what it set up.
 

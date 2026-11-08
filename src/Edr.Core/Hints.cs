@@ -1,7 +1,5 @@
 namespace Edr.Core;
 
-/// <summary>Plain-language "What happened" and "What to do" for every alert type. FreeEDR only detects: the advice
-/// never promises that FreeEDR stops anything (only Wail2Ban blocks, and only network sign-in attackers).</summary>
 public static class Hints
 {
     public static readonly Dictionary<string, (string What, string Do)> Rules = new(StringComparer.OrdinalIgnoreCase)
@@ -87,7 +85,6 @@ public static class Hints
             "If you trust the app, allow it. If you do not know it, investigate - ransomware changes many files quickly."),
     };
 
-    /// <summary>The hint of one alert (rule first, then Defender kind, then blade).</summary>
     public static (string What, string Do) For(Rec? e)
     {
         if (e is null) return ("", "");

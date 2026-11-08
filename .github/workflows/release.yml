@@ -1,0 +1,243 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version: YYYY.M.D or YYYY.M.D.N, newer than the last release"
+        required: true
+      dry_run:
+        description: "Dry run: build, test, upload and verify a draft, then delete it (nothing is published, the branch is not changed)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  KEEP: "5"
+  MARKER: "<!-- freeedr-release-workflow: verified -->"
+  INPUT_VERSION: ${{ inputs.version }}
+  DRY_RUN: ${{ inputs.dry_run }}
+  BRANCH: ${{ github.ref_name }}
+  REPO: ${{ github.repository }}
+  GH_TOKEN: ${{ github.token }}
+  EDR_GITHUB_TOKEN: ${{ github.token }}
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  release:
+    runs-on: windows-2025
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the version (format, newer than every release tag, not used yet) and remove a leftover draft
+        run: |
+          $v = $env:INPUT_VERSION.Trim().TrimStart('v')
+          if ($v -notmatch '^\d{4}\.\d{1,2}\.\d{1,2}(\.\d{1,5})?$') { throw "not a release version: '$v' (YYYY.M.D or YYYY.M.D.N)" }
+          function To4([string]$t) { $p = @($t.TrimStart('v').Split('.')) + @('0', '0', '0'); [version]($p[0..3] -join '.') }
+          if ((To4 $v).Revision -gt 65535) { throw "each part must be 0-65535" }
+          if (git tag -l "v$v") { throw "tag v$v exists already: a published release is never rebuilt" }
+          $last = git tag -l 'v*' | Where-Object { $_ -match '^v\d{4}\.\d+\.\d+(\.\d+)?$' } | ForEach-Object { To4 $_ } | Sort-Object | Select-Object -Last 1
+          if ($last -and (To4 $v) -le $last) { throw "v$v is not newer than the last release v$last" }
+          $all = @(gh api "repos/$env:REPO/releases?per_page=100" --paginate --slurp | Out-String | ConvertFrom-Json | ForEach-Object { $_ })
+          foreach ($r in $all | Where-Object { $_.tag_name -eq "v$v" }) {
+            if (-not $r.draft) { throw "a published release v$v exists already" }
+            Write-Host "Removing a leftover draft v$v (id $($r.id)) from an earlier run that did not finish"
+            gh api -X DELETE "repos/$env:REPO/releases/$($r.id)"
+            if ($LASTEXITCODE) { throw "could not remove the leftover draft v$v" }
+          }
+          git push origin --delete "release-staging/v$v" 2>$null
+          "VERSION=$v" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "STAGING=release-staging/v$v" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          Write-Host "Releasing FreeEDR $v (previous: $(if ($last) { $last } else { 'none' }))$(if ($env:DRY_RUN -eq 'true') { ' - DRY RUN' })"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: src/global.json
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Cache the pinned tools
+        uses: actions/cache@v4
+        with:
+          path: obj/tools-cache
+          key: tools-${{ hashFiles('src/Edr.Core/Tools.cs') }}
+
+      - name: Promote "Unreleased" in docs/CHANGELOG.md to this version (local commit only)
+        run: |
+          dotnet build build/EdrBuild/EdrBuild.csproj -c Release --nologo -v quiet
+          if ($LASTEXITCODE) { throw "EdrBuild did not build" }
+          dotnet build/EdrBuild/bin/Release/net10.0-windows/EdrBuild.dll --promote-changelog $env:VERSION --notes obj/release-notes.md
+          if ($LASTEXITCODE) { throw "the changelog has nothing to release for $env:VERSION" }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/CHANGELOG.md
+          git diff --cached --quiet
+          if ($LASTEXITCODE) { git commit -m "Release $env:VERSION: changelog"; "PROMOTED=1" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV }
+          "TARGET=$(git rev-parse HEAD)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Import the code-signing certificate (when configured)
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+        run: |
+          if (-not $env:SIGN_PFX_BASE64) { Write-Host "No SIGN_PFX_BASE64 secret: the build needs EDR_SIGN_* secrets or the ALLOW_UNSIGNED_RELEASE variable"; exit 0 }
+          $pfx = Join-Path $env:RUNNER_TEMP 'sign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
+          $pw = ConvertTo-SecureString $env:SIGN_PFX_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+          Remove-Item $pfx -Force
+          "EDR_SIGN_THUMBPRINT=$($cert.Thumbprint)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Build (all gates, C# tests, NativeAOT, signing, installer and update package)
+        env:
+          EDR_VERSION: ${{ env.VERSION }}
+          EDR_SIGN_DLIB: ${{ secrets.EDR_SIGN_DLIB }}
+          EDR_SIGN_METADATA: ${{ secrets.EDR_SIGN_METADATA }}
+          EDR_ALLOW_UNSIGNED: ${{ vars.ALLOW_UNSIGNED_RELEASE }}
+        shell: cmd
+        run: call build.cmd --skip-live
+
+      - name: Test bundle (01-Sanity, 02-Unit, 03-FalsePositive, 04-PenTest); only the live checks may be skipped
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\Run-Tests.ps1 -SkipLive
+          $rc = $LASTEXITCODE
+          if (-not (Test-Path tests/results/last-run.json)) { throw "the test bundle wrote no result: nothing is published" }
+          $run = Get-Content tests/results/last-run.json -Raw | ConvertFrom-Json
+          Write-Host $run.summary
+          Get-Content tests/results/last-run.txt
+          if ($rc) { throw "the test bundle has a FAIL: nothing is published" }
+          $results = @($run.results)
+          $badSkips = @($results | Where-Object { $_.Result -eq 'SKIP' -and $_.Detail -notmatch 'SkipLive' })
+          if ($badSkips.Count) { throw "tests were skipped for a reason other than -SkipLive, so they did not check this release: $(($badSkips | ForEach-Object { "[$($_.Suite)] $($_.Name): $($_.Detail)" }) -join '; ')" }
+          foreach ($s in 'Sanity', 'Unit', 'FalsePositive', 'PenTest') {
+            if (-not @($results | Where-Object { $_.Suite -eq $s -and $_.Result -eq 'PASS' }).Count) { throw "suite $s passed no test: nothing is published" }
+          }
+
+      - name: Push the release commit to a staging branch (the main branch is changed only after verification)
+        run: |
+          git push origin "HEAD:refs/heads/$env:STAGING"
+          if ($LASTEXITCODE) { throw "could not push $env:STAGING" }
+
+      - name: Create a draft release (not visible to update checks yet)
+        run: |
+          $assets = @('FreeEDR-Setup.exe', 'FreeEDR-Update.exe')
+          foreach ($a in $assets) { if (-not (Test-Path "compiled/$a") -or -not (Test-Path "compiled/$a.sha256")) { throw "the build did not produce $a and its .sha256" } }
+          $hashes = @{}
+          foreach ($a in $assets) { $hashes[$a] = (Get-Content "compiled/$a.sha256" -Raw).Split(' ')[0].Trim() }
+          $notes = Get-Content obj/release-notes.md -Raw
+          $mb = { param($f) '{0:0.0} MB' -f ((Get-Item "compiled/$f").Length / 1MB) }
+          $body = "$notes`n---`n**Download (Windows 10/11 x64):** FreeEDR-Setup.exe ($(& $mb 'FreeEDR-Setup.exe'), new installs and repairs; SHA256 ``$($hashes['FreeEDR-Setup.exe'])``). " +
+                  "FreeEDR-Update.exe ($(& $mb 'FreeEDR-Update.exe'), used by the dashboard's update; SHA256 ``$($hashes['FreeEDR-Update.exe'])``). Built from $env:TARGET.`n`n$env:MARKER`n"
+          Set-Content obj/release-body.md $body -Encoding utf8
+          $files = $assets | ForEach-Object { "compiled/$_"; "compiled/$_.sha256" }
+          gh release create "v$env:VERSION" @files --draft --target $env:TARGET --title "FreeEDR $env:VERSION" --notes-file obj/release-body.md
+          if ($LASTEXITCODE) { throw "the draft release was not created" }
+          ($hashes | ConvertTo-Json -Compress) | Set-Content obj/asset-hashes.json -Encoding utf8
+
+      - name: Verify the uploaded files (download them back, compare SHA256 and GitHub's digests)
+        run: |
+          $hashes = Get-Content obj/asset-hashes.json -Raw | ConvertFrom-Json -AsHashtable
+          $dir = 'obj/verify'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $rel = @(gh api "repos/$env:REPO/releases?per_page=100" --paginate --slurp | Out-String | ConvertFrom-Json | ForEach-Object { $_ } | Where-Object { $_.tag_name -eq "v$env:VERSION" })
+          if ($rel.Count -ne 1 -or -not $rel[0].draft) { throw "expected exactly one draft v$env:VERSION, found $($rel.Count)" }
+          foreach ($name in $hashes.Keys) {
+            gh release download "v$env:VERSION" --pattern $name --dir $dir --clobber
+            if ($LASTEXITCODE) { throw "the uploaded $name could not be downloaded" }
+            $got = (Get-FileHash "$dir/$name" -Algorithm SHA256).Hash
+            if ($got -ne $hashes[$name]) { throw "uploaded $name differs: $got vs $($hashes[$name])" }
+            $asset = @($rel[0].assets | Where-Object name -eq $name)
+            if ($asset.Count -ne 1) { throw "the release has $($asset.Count) $name assets" }
+            if ($asset[0].digest -ne "sha256:$($hashes[$name].ToLowerInvariant())") { throw "GitHub's digest $($asset[0].digest) for $name does not match $($hashes[$name]) (the app installs only a matching download)" }
+            Write-Host "Verified $name : SHA256 $got, GitHub digest $($asset[0].digest)"
+          }
+
+      - name: Dry run - remove the draft and the staging branch (nothing was published)
+        if: ${{ inputs.dry_run }}
+        run: |
+          gh release delete "v$env:VERSION" --yes
+          if ($LASTEXITCODE) { throw "could not remove the dry-run draft" }
+          git push origin --delete $env:STAGING
+          Write-Host "Dry run passed: build, tests, upload and verification of v$env:VERSION work. Nothing was published; $env:BRANCH is unchanged."
+
+      - name: Bring the release commit to the branch (before publishing, so the changelog never lags a release)
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git fetch origin $env:BRANCH
+          git merge --no-edit "origin/$env:BRANCH"
+          if ($LASTEXITCODE) { git merge --abort; throw "$env:BRANCH changed docs/CHANGELOG.md during the release: merge it by hand and run the release again (nothing was published)" }
+          git push origin "HEAD:refs/heads/$env:BRANCH"
+          if ($LASTEXITCODE) { throw "could not push to $env:BRANCH (branch protection? allow github-actions[bot]); nothing was published" }
+          "BRANCH_PUSHED=1" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Publish the release (update checks see it from now on)
+        if: ${{ !inputs.dry_run }}
+        run: |
+          gh release edit "v$env:VERSION" --draft=false --latest
+          if ($LASTEXITCODE) { throw "the release was not published" }
+          "PUBLISHED=1" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          for ($i = 1; $i -le 12; $i++) {
+            $latest = gh api "repos/$env:REPO/releases/latest" --jq .tag_name
+            if ($latest -eq "v$env:VERSION") { Write-Host "releases/latest is v$env:VERSION"; break }
+            if ($i -eq 12) { throw "releases/latest is still $latest, not v$env:VERSION, after 60 s" }
+            Start-Sleep -Seconds 5
+          }
+          git push origin --delete $env:STAGING
+
+      - name: Keep installers of the five newest verified releases only (tags, notes and history stay)
+        if: ${{ !inputs.dry_run }}
+        run: |
+          $all = @(gh api "repos/$env:REPO/releases?per_page=100" --paginate --slurp | Out-String | ConvertFrom-Json | ForEach-Object { $_ } | Where-Object { -not $_.draft -and -not $_.prerelease })
+          $verified = @($all | Where-Object { "$($_.body)".Contains($env:MARKER) } | Sort-Object { [datetime]$_.published_at } -Descending)
+          foreach ($r in $all | Where-Object { -not "$($_.body)".Contains($env:MARKER) }) { Write-Warning "$($r.tag_name) was not published by this workflow: left as it is and not counted" }
+          if (-not ($verified | Select-Object -First 1 | Where-Object tag_name -eq "v$env:VERSION")) { throw "the new release is not the newest verified one: nothing is removed" }
+          foreach ($r in $verified | Select-Object -Skip ([int]$env:KEEP)) {
+            foreach ($a in $r.assets | Where-Object { $_.name -like 'FreeEDR-Setup*' -or $_.name -like 'FreeEDR-Update*' }) {
+              Write-Host "Removing $($a.name) from $($r.tag_name) (older than the $env:KEEP newest verified releases)"
+              gh release delete-asset $r.tag_name $a.name -y
+              if ($LASTEXITCODE) { Write-Warning "could not remove $($a.name) from $($r.tag_name); the next release tries again" }
+            }
+          }
+          Write-Host "Installers kept: $(($verified | Select-Object -First ([int]$env:KEEP) | ForEach-Object tag_name) -join ', ')"
+
+      - name: Clean up an unfinished release (failed or cancelled)
+        if: ${{ failure() || cancelled() }}
+        run: |
+          if (-not $env:VERSION) { exit 0 }
+          if ($env:PUBLISHED -eq '1') { Write-Warning "v$env:VERSION is published; only a later step failed. Nothing is removed."; exit 0 }
+          $drafts = @(gh api "repos/$env:REPO/releases?per_page=100" --paginate --slurp | Out-String | ConvertFrom-Json | ForEach-Object { $_ } | Where-Object { $_.tag_name -eq "v$env:VERSION" -and $_.draft })
+          foreach ($d in $drafts) { gh api -X DELETE "repos/$env:REPO/releases/$($d.id)"; Write-Host "Draft v$env:VERSION removed: nothing was published" }
+          git push origin --delete $env:STAGING 2>$null
+          if ($env:BRANCH_PUSHED -eq '1' -and $env:PROMOTED -eq '1') {
+            git fetch origin $env:BRANCH
+            git checkout -B undo "origin/$env:BRANCH"
+            git revert --no-edit $env:TARGET
+            if ($LASTEXITCODE) { git revert --abort; Write-Warning "could not undo the changelog promotion on $env:BRANCH: move the v$env:VERSION entries back under Unreleased by hand"; exit 1 }
+            git push origin "HEAD:refs/heads/$env:BRANCH"
+            if ($LASTEXITCODE) { Write-Warning "could not push the undo of the changelog promotion to $env:BRANCH"; exit 1 }
+            Write-Host "The changelog promotion on $env:BRANCH was undone: its entries are back under Unreleased"
+          }
+
+      - name: Keep the build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: |
+            build.log
+            obj/release-notes.md
+            tests/results/last-run.txt
+          if-no-files-found: ignore

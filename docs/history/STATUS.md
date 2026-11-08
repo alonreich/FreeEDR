@@ -31,6 +31,54 @@ Microsoft Store Python in the scan made by the old engine (re-check after the ne
 | L3 | Installed tray (2026.11.6.1406) crashes on the second build of Allowed & trusted > Trusted apps (control re-parented) | **Resolved** 2026-11-06 (fix installed in 2026.11.6.1520) |
 | L2 | 05-Live "Folder permissions" failed when the engine consumed a `control\` command file between listing and `Get-Acl` | **Resolved** (the test skips files that disappear) |
 
+## Build / install / update / release audit (2026-11-08) - 13 items, built, not installed
+`dev_build.cmd` OK (0.2611.806.32, dev build, unsigned: WARNs are the unsigned files only); `TEST RESULT: OK  pass=159
+fail=0 warn=2 skip=0` (WARNs: installed copy older than this build, Store-Python OSV). Tray `--screenshot` run renders the
+new Settings card. Not verified yet: a real install / upgrade / roll-back / uninstall with the new Setup (owner approval
+needed), the release workflow on GitHub (never run; needs signing secrets or `ALLOW_UNSIGNED_RELEASE=1` and permission
+for `github-actions[bot]` to push the changelog commit), and an end-to-end update from a published release.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | Uninstall deleted the folder (and the settings record) even when the restore failed | `.iss` runs the helper in `CurUninstallStepChanged`, deletes `{app}` only after exit 0/1; `Uninstaller` keeps `preinstall.json` / `managed.json` / Sysmon backup / `bin\` and exits 5; "FreeEDR (finish removal)" Apps entry |
+| 2 | Roll-back restored only programs | backup (before `--clean`) and roll-back cover `config\`, `rules\*.yar`, `docs\`, `version.txt`, README, replaced tools |
+| 3 | No update check for FreeEDR itself | `AppRelease` + `AppUpdater` + Settings card, daily background check, verified resumable download, signer rule |
+| 4 | Silent downgrades | `InitializeSetup` asks / `/AllowDowngrade=1`; installer refuses without `--allow-downgrade` |
+| 5 | Upgrade undid a dashboard-updated Velociraptor | `Tools.KeepInstalled` (pin match, or newer + pinned publisher); unsigned tools now follow the new pin |
+| 6 | No release pipeline | `.github\workflows\release.yml`; release builds must be signed (`EDR_ALLOW_UNSIGNED=1`) |
+| 7 | Clock-based, untraceable versions | tag / `EDR_VERSION` versions, UTC, `+commit` informational version, dev builds `0.yyMM.ddHH.mm` |
+| 8 | Apps entry showed the failed version | `.iss` `SyncDisplayVersion` from the restored `version.txt` |
+| 9 | No changelog / no agent rule | `docs\CHANGELOG.md`, rule in `project_structure.txt` + `AGENTS.md`, `Release.ChangelogGate` |
+| 10 | No "What's new" | release notes from the changelog, update card notes, one notification after an upgrade |
+| 11 | No installer retention | workflow keeps `FreeEDR-Setup*` assets of the five newest releases |
+| 12 | Unrecorded seed | seed SHA256 + fetch time in `THIRD_PARTY_NOTICES.txt` / `build.log`; release builds fail without it |
+| 13 | Fixed Apps size | `UninstallDisplaySize` removed; installer writes the measured `EstimatedSize` |
+
+### Release audit round 2 (2026-11-08) - 11 findings, built, not installed
+`dev_build.cmd` with `EDR_BUILD_UPDATE=1` OK (0.2611.816.36; WARNs are the unsigned files only; `FreeEDR-Setup.exe`
+102.7 MB, `FreeEDR-Update.exe` 30.7 MB); C# tests 218 passed, 1 skipped (the known low-integrity folder test);
+`TEST RESULT: OK  pass=168 fail=0 warn=2 skip=0` (WARNs: installed copy older than this build, Store-Python OSV). Not
+verified yet: the release workflow on GitHub (run it once with *Dry run*; it must be on the default branch), an install /
+interrupted upgrade / roll-back with the new Setup (owner approval), the slim `FreeEDR-Update.exe` installing over a real
+install, and the tray's new update card states on screen.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | Release system never shipped or exercised | workflow `dry_run` input proves build, tests, upload and verification without publishing; 404 message names a private repository; still to do by the owner: commit, merge to `main`, dry run |
+| 2 | A failed upgrade left no tray | `Installer.Run` restarts the trays in `finally` after any outcome once they were stopped |
+| 3 | Setup killed the downloaded installer it ran from | `Sys.StopFreeEdrProcesses` skips `user\*\update\` |
+| 4 | Signer compared by CN only, no certificate change path | normalized full subject (`SubjectOf`, `NormalizeSubject`), `TrustedSuccessorSubjects` |
+| 5 | No recovery from an interrupted upgrade; unexpected exceptions skipped roll-back | `data\upgrade-pending.json` marker, its backup reused, tray card + reinstall offer; catch-all roll-back |
+| 6 | Notes of skipped versions lost; jargon in public notes | `NotesSince` / `UserPartsBetween`; `ReleaseBody` puts the technical part in `<details>` |
+| 7 | Changelog gate inactive before a tag and satisfied by one old entry | `Changelog.Problems`, `ReleasedKept`, "no code after the last changelog edit" |
+| 8 | Cancelled runs left drafts; orphan changelog sections; `latest` race; unverified releases counted | cancel-safe clean-up with revert, staging branch, leftover draft removal, 60 s retry, retention marker |
+| 9 | 100 MB per update, never deleted | `FreeEDR-Update.exe` without tools; purge by Setup and by the tray |
+| 10 | Test gate passed on skipped suites | release fails on non-`-SkipLive` SKIPs and suites without a PASS (elevation only affects the skipped live checks) |
+| 11 | Local release builds outranked official releases | untagged release builds are `0.yyMM.ddHH.mm` |
+
+Behaviour change to know: the next dev build installed over the current `2026.11.x` dev install is version `0.*`, so
+Setup asks once whether to install the "older" version (answer Yes).
+
 ## Security audit (2026-11-02) — carried into the C# version
 | Rank | Area | C# implementation |
 |---|---|---|

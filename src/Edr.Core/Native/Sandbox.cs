@@ -5,15 +5,6 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Edr.Core.Native;
 
-/// <summary>
-/// Runs a parser of untrusted input (YARA on files any user can drop) with as little power as the caller can give
-/// away: a restricted copy of the caller's token (every privilege removed, Administrators deny-only) at LOW integrity
-/// (it can read, but cannot write to or open for writing anything labelled medium or higher: files, registry,
-/// processes), inside a Job object (one process, memory cap, killed with the job). Output is captured from one pipe.
-/// A sandbox that cannot be started is reported as such; the caller must not fall back to an unrestricted run.
-/// Used for YARA (real-time), Hayabusa's event-log scan and OSV-Scanner (scheduled scan). A tool that must write gets a
-/// folder labelled low integrity (<see cref="LowIntegrityFolder"/>) and TEMP/TMP pointing there.
-/// </summary>
 [SupportedOSPlatform("windows")]
 public static unsafe partial class Sandbox
 {
@@ -26,40 +17,38 @@ public static unsafe partial class Sandbox
         var pi = default(ProcessInformation);
         try
         {
-            if (!OpenProcessToken(GetCurrentProcess(), 0x0001 | 0x0002 | 0x0008 | 0x0080, out proc)) return Fail("OpenProcessToken");   // ASSIGN_PRIMARY | DUPLICATE | QUERY | ADJUST_DEFAULT
+            if (!OpenProcessToken(GetCurrentProcess(), 0x0001 | 0x0002 | 0x0008 | 0x0080, out proc)) return Fail("OpenProcessToken");
             if (!ConvertStringSidToSidW("S-1-5-32-544", out admins) || !ConvertStringSidToSidW("S-1-16-4096", out low)) return Fail("ConvertStringSidToSid");
             var disable = new SidAndAttributes { Sid = admins, Attributes = 0 };
-            if (!CreateRestrictedToken(proc, 0x1, 1, &disable, 0, 0, 0, 0, out tok)) return Fail("CreateRestrictedToken");   // DISABLE_MAX_PRIVILEGE
-            var label = new TokenMandatoryLabel { Label = new SidAndAttributes { Sid = low, Attributes = 0x20 } };   // SE_GROUP_INTEGRITY
-            if (!SetTokenInformation(tok, 25, &label, (uint)(sizeof(TokenMandatoryLabel) + GetLengthSid(low)))) return Fail("SetTokenInformation(integrity)");   // TokenIntegrityLevel
+            if (!CreateRestrictedToken(proc, 0x1, 1, &disable, 0, 0, 0, 0, out tok)) return Fail("CreateRestrictedToken");
+            var label = new TokenMandatoryLabel { Label = new SidAndAttributes { Sid = low, Attributes = 0x20 } };
+            if (!SetTokenInformation(tok, 25, &label, (uint)(sizeof(TokenMandatoryLabel) + GetLengthSid(low)))) return Fail("SetTokenInformation(integrity)");
 
             job = CreateJobObjectW(0, null);
             if (job == 0) return Fail("CreateJobObject");
             var limits = new JobExtendedLimits();
-            limits.Basic.LimitFlags = 0x2000 | 0x0008 | 0x0100 | 0x0400;   // KILL_ON_JOB_CLOSE | ACTIVE_PROCESS | PROCESS_MEMORY | DIE_ON_UNHANDLED_EXCEPTION
+            limits.Basic.LimitFlags = 0x2000 | 0x0008 | 0x0100 | 0x0400;
             limits.Basic.ActiveProcessLimit = 1;
             limits.ProcessMemoryLimit = (nuint)((long)memoryMb * 1024 * 1024);
-            if (!SetInformationJobObject(job, 9, &limits, (uint)sizeof(JobExtendedLimits))) return Fail("SetInformationJobObject");   // ExtendedLimitInformation
+            if (!SetInformationJobObject(job, 9, &limits, (uint)sizeof(JobExtendedLimits))) return Fail("SetInformationJobObject");
 
             var sa = new SecurityAttributes { Length = (uint)sizeof(SecurityAttributes), Inherit = 1 };
             if (!CreatePipe(out pipeRead, out pipeWrite, &sa, 0)) return Fail("CreatePipe");
-            SetHandleInformation(pipeRead, 1, 0);   // only the write end goes to the child
+            SetHandleInformation(pipeRead, 1, 0);
 
-            // The child inherits exactly one handle (the pipe), not whatever else the engine has open as inheritable
             nuint attrSize = 0;
             InitializeProcThreadAttributeList(0, 1, 0, ref attrSize);
             attrs = Marshal.AllocHGlobal((nint)attrSize);
             if (!InitializeProcThreadAttributeList(attrs, 1, 0, ref attrSize)) { Marshal.FreeHGlobal(attrs); attrs = 0; return Fail("InitializeProcThreadAttributeList"); }
             var inherit = pipeWrite;
-            if (!UpdateProcThreadAttribute(attrs, 0, 0x20002, &inherit, (nuint)sizeof(nint), 0, 0)) return Fail("UpdateProcThreadAttribute");   // PROC_THREAD_ATTRIBUTE_HANDLE_LIST
+            if (!UpdateProcThreadAttribute(attrs, 0, 0x20002, &inherit, (nuint)sizeof(nint), 0, 0)) return Fail("UpdateProcThreadAttribute");
 
-            var si = new StartupInfoEx { Info = new StartupInfo { Cb = (uint)sizeof(StartupInfoEx), Flags = 0x100, StdOutput = pipeWrite, StdError = pipeWrite }, AttributeList = attrs };   // STARTF_USESTDHANDLES
+            var si = new StartupInfoEx { Info = new StartupInfo { Cb = (uint)sizeof(StartupInfoEx), Flags = 0x100, StdOutput = pipeWrite, StdError = pipeWrite }, AttributeList = attrs };
             var cmd = CommandLine(exe, args) + "\0";
             var block = EnvironmentBlock(env);
             fixed (char* c = cmd)
             fixed (char* e = block)
             {
-                // CREATE_SUSPENDED | CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB | EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT
                 var flags = 0x00000004u | 0x08000000 | 0x01000000 | 0x00080000 | (block is null ? 0u : 0x400);
                 if (!CreateProcessAsUserW(tok, exe, c, 0, 0, true, flags, (nint)e, workDir ?? Path.GetDirectoryName(exe), &si, &pi)
                     && !CreateProcessAsUserW(tok, exe, c, 0, 0, true, flags & ~0x01000000u, (nint)e, workDir ?? Path.GetDirectoryName(exe), &si, &pi))
@@ -92,7 +81,7 @@ public static unsafe partial class Sandbox
             if (pipeWrite != 0) CloseHandle(pipeWrite);
             if (pipeRead != 0) CloseHandle(pipeRead);
             if (attrs != 0) { DeleteProcThreadAttributeList(attrs); Marshal.FreeHGlobal(attrs); }
-            if (job != 0) CloseHandle(job);   // KILL_ON_JOB_CLOSE: nothing outlives the call
+            if (job != 0) CloseHandle(job);
             if (tok != 0) CloseHandle(tok);
             if (proc != 0) CloseHandle(proc);
             if (low != 0) LocalFree(low);
@@ -100,7 +89,6 @@ public static unsafe partial class Sandbox
         }
     }
 
-    /// <summary>The caller's environment with <paramref name="overrides"/> applied, as a sorted Unicode block; null = inherit.</summary>
     private static string? EnvironmentBlock(IReadOnlyDictionary<string, string>? overrides)
     {
         if (overrides is null || overrides.Count == 0) return null;
@@ -112,9 +100,6 @@ public static unsafe partial class Sandbox
         return sb.Append('\0').ToString();
     }
 
-    /// <summary>Creates <paramref name="dir"/> and labels it low integrity (inheriting), so a sandboxed tool can write its
-    /// output there. The DACL is unchanged (admin-only under the install folder), so only processes that run as SYSTEM -
-    /// the engine's sandboxed tools - can write it at low integrity.</summary>
     public static bool LowIntegrityFolder(string dir)
     {
         Directory.CreateDirectory(dir);
@@ -124,7 +109,6 @@ public static unsafe partial class Sandbox
 
     private static Result Fail(string step) => new(false, -1, "", $"{step} failed (error {Marshal.GetLastPInvokeError()})");
 
-    /// <summary>Windows command-line quoting (the rules CommandLineToArgvW / the C runtime use to split it again).</summary>
     public static string CommandLine(string exe, IEnumerable<string> args)
     {
         var sb = new StringBuilder();
@@ -147,8 +131,6 @@ public static unsafe partial class Sandbox
         }
         sb.Append('"');
     }
-
-    // ---- interop (blittable structs, LibraryImport) ------------------------------------------------------
 
     [StructLayout(LayoutKind.Sequential)] private struct SidAndAttributes { public nint Sid; public uint Attributes; }
     [StructLayout(LayoutKind.Sequential)] private struct TokenMandatoryLabel { public SidAndAttributes Label; }
@@ -182,7 +164,7 @@ public static unsafe partial class Sandbox
     private struct JobExtendedLimits
     {
         public JobBasicLimits Basic;
-        public ulong ReadOps, WriteOps, OtherOps, ReadBytes, WriteBytes, OtherBytes;   // IO_COUNTERS
+        public ulong ReadOps, WriteOps, OtherOps, ReadBytes, WriteBytes, OtherBytes;
         public nuint ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
     }
 

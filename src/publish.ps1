@@ -1,8 +1,4 @@
-﻿# Builds the NativeAOT tray into ..\obj\publish\tray (FreeEDR-Tray.exe + Avalonia's native DLLs; .pdb symbols stay beside it).
-# Normally dev_build.cmd / build.cmd do this; this script is for working on the tray alone.
-# Needs the .NET 10 SDK and the VS 2022 C++ build tools. Run from any folder: powershell -File src\publish.ps1
-$ErrorActionPreference = 'Stop'
-# The AOT linker finds the C++ tools through vswhere.exe, which the VS installer does not put on PATH
+﻿$ErrorActionPreference = 'Stop'
 $vsInstaller = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
 if ((Test-Path "$vsInstaller\vswhere.exe") -and ($env:PATH -notlike "*$vsInstaller*")) { $env:PATH += ";$vsInstaller" }
 $out = Join-Path $PSScriptRoot '..\obj\publish\tray'

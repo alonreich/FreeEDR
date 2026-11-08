@@ -6,10 +6,8 @@ using Xunit;
 
 namespace Edr.Core.Tests;
 
-/// <summary>Settings audit (2026-11-07): change-set saves, one feed rule, backup / import, both themes.</summary>
 public class SettingsTests
 {
-    // ---- 1: a save sends only what changed --------------------------------------------------------------
 
     [Fact]
     public void Changes_hold_only_the_values_that_differ()
@@ -21,7 +19,7 @@ public class SettingsTests
         var d = EdrConfig.Changes(before, now);
         Assert.Equal(2, d.Count);
         Assert.Equal(7, ((JsonObject)d["wail2ban"]!).Int("failCount"));
-        Assert.Single((JsonObject)d["wail2ban"]!);   // block, windowSeconds, ... not sent
+        Assert.Single((JsonObject)d["wail2ban"]!);
         Assert.Empty(EdrConfig.Changes(before, new EdrConfig().ToJson()));
     }
 
@@ -29,14 +27,12 @@ public class SettingsTests
     public void A_partial_save_keeps_a_value_changed_elsewhere()
     {
         var cfg = new EdrConfig();
-        cfg.Apply(new JsonObject { ["wail2ban"] = new JsonObject { ["block"] = false } });   // the Network page switch
-        cfg.Apply(new JsonObject { ["wail2ban"] = new JsonObject { ["failCount"] = 9 } });   // the Settings page, later
+        cfg.Apply(new JsonObject { ["wail2ban"] = new JsonObject { ["block"] = false } });
+        cfg.Apply(new JsonObject { ["wail2ban"] = new JsonObject { ["failCount"] = 9 } });
         Assert.False(cfg.Wail2Ban.Block);
         Assert.Equal(9, cfg.Wail2Ban.FailCount);
         Assert.Equal(1800, cfg.Wail2Ban.WindowSeconds);
     }
-
-    // ---- 2: a feed address that is saved is never dropped later -----------------------------------------
 
     [Theory]
     [InlineData("https://example.org/hashes.txt", true)]
@@ -50,7 +46,7 @@ public class SettingsTests
         var cfg = new EdrConfig();
         cfg.Apply(new JsonObject { ["iocFeedUrl"] = url });
         var reread = EdrConfig.FromJson(cfg.ToJson());
-        Assert.Equal(cfg.IocFeedUrl, reread.IocFeedUrl);   // what Apply kept survives the next read
+        Assert.Equal(cfg.IocFeedUrl, reread.IocFeedUrl);
         Assert.Equal(ok ? url : EdrConfig.DefaultFeed, reread.IocFeedUrl);
     }
 
@@ -61,8 +57,6 @@ public class SettingsTests
         cfg.Apply(new JsonObject { ["quietProcesses"] = new JsonArray("My Game*", "obs64*") });
         Assert.Equal(["My Game*", "obs64*"], cfg.QuietProcesses);
     }
-
-    // ---- found live after the install: Security-log (4688) Sigma hits name the parent ParentProcessName -------
 
     [Fact]
     public void A_security_log_sigma_hit_is_covered_by_the_trusted_app_allow()
@@ -76,8 +70,6 @@ public class SettingsTests
     }
 
     private sealed class NoSigners : ISignerLookup { public string? SignerOf(string path) => null; }
-
-    // ---- 7: backup and import -------------------------------------------------------------------------
 
     private static JsonObject Exclusions(params (string List, JsonObject Entry)[] items)
     {
@@ -105,7 +97,7 @@ public class SettingsTests
         var op = Assert.Single(plan.Ops);
         Assert.True(PatternRules.IsValidOp(op));
         Assert.False(op.ContainsKey("id"));
-        Assert.Equal(1, plan.Refused);   // the match-all allow is refused like a hand-made one
+        Assert.Equal(1, plan.Refused);
 
         var again = SettingsBackup.PlanImport(backup, source, Exclusions(("realtime", allow)));
         Assert.True(again.Empty);
@@ -129,8 +121,6 @@ public class SettingsTests
         Assert.All(batches, b => Assert.True(PatternRules.IsValidCommand(b, out _)));
         Assert.Equal(45, batches.Sum(b => b.Str("action") == "batch" ? ((JsonArray)b["ops"]!).Count : 1));
     }
-
-    // ---- 17: both themes define every color, with readable contrast --------------------------------------
 
     private static string Repo()
     {
@@ -163,7 +153,7 @@ public class SettingsTests
         var light = ThemeColors("Light");
         Assert.Equal(dark.Keys.Order(), light.Keys.Order());
         var styles = File.ReadAllText(Path.Combine(Repo(), "src", "Edr.Tray", "Theme.axaml"));
-        Assert.DoesNotContain("{StaticResource", styles[styles.IndexOf("</Styles.Resources>", StringComparison.Ordinal)..]);   // a theme switch reaches every style
+        Assert.DoesNotContain("{StaticResource", styles[styles.IndexOf("</Styles.Resources>", StringComparison.Ordinal)..]);
         Assert.DoesNotMatch(new Regex(@"Value=""#[0-9A-Fa-f]{6}"""), styles);
     }
 
@@ -177,7 +167,7 @@ public class SettingsTests
         foreach (Match m in Regex.Matches(ui, @"SolidColorBrush (\w+) = Themed\(""(#\w{6})"", ""(#\w{6})""\)"))
         {
             var key = m.Groups[1].Value + "Brush";
-            if (!dark.ContainsKey(key)) continue;   // code-only colors (badges, button text)
+            if (!dark.ContainsKey(key)) continue;
             Assert.Equal(dark[key], m.Groups[2].Value, ignoreCase: true);
             Assert.Equal(light[key], m.Groups[3].Value, ignoreCase: true);
             n++;
@@ -212,8 +202,6 @@ public class SettingsTests
         return (Math.Max(x, y) + 0.05) / (Math.Min(x, y) + 0.05);
     }
 
-    // ---- Settings audit, round 2 (2026-11-07) -----------------------------------------------------------
-
     [Fact]
     public void Numbers_in_the_file_are_used_in_the_ranges_a_save_allows()
     {
@@ -225,7 +213,6 @@ public class SettingsTests
         Assert.Equal(EdrConfig.Limits.WindowSeconds.Min, c.Wail2Ban.WindowSeconds);
         Assert.Equal(EdrConfig.Limits.MaxBanSeconds.Min, c.Wail2Ban.MaxBanPublicSec);
         Assert.Equal(EdrConfig.Limits.MaxBanSeconds.Max, c.Wail2Ban.MaxBanPrivateSec);
-        // A save and a read agree: what Apply keeps is read back unchanged
         var saved = new EdrConfig();
         saved.Apply(new JsonObject { ["wail2ban"] = new JsonObject { ["failCount"] = 500, ["windowSeconds"] = 90, ["maxBanPublicSec"] = 3600 } });
         var reread = EdrConfig.FromJson(saved.ToJson());
@@ -239,9 +226,9 @@ public class SettingsTests
         cfg.Wail2Ban.WindowSeconds = 90;
         var u = cfg.UserJson();
         Assert.Equal(EdrConfig.UserDefaults().Select(kv => kv.Key).Order(), u.Select(kv => kv.Key).Order());
-        Assert.DoesNotContain("quietProcesses", u.Select(kv => kv.Key));   // quiet mode is an account preference
+        Assert.DoesNotContain("quietProcesses", u.Select(kv => kv.Key));
         Assert.False(((JsonObject)u["wail2ban"]!).ContainsKey("maxTrackedIps"));
-        Assert.Equal(90, ((JsonObject)u["wail2ban"]!).Int("windowSeconds"));   // exact, not rounded to minutes
+        Assert.Equal(90, ((JsonObject)u["wail2ban"]!).Int("windowSeconds"));
         Assert.Empty(EdrConfig.Changes(u, cfg.UserJson()));
     }
 
@@ -256,7 +243,7 @@ public class SettingsTests
         Assert.DoesNotContain("dummy_token", EdrConfig.RedactUrl(url));
         var req = new JsonObject { ["iocFeedUrl"] = url, ["sigmaLookback"] = "2d" };
         Assert.Equal(shown, EdrConfig.Redacted(req).Str("iocFeedUrl"));
-        Assert.Equal(url, req.Str("iocFeedUrl"));   // the request itself is not changed
+        Assert.Equal(url, req.Str("iocFeedUrl"));
     }
 
     [Fact]
@@ -264,11 +251,11 @@ public class SettingsTests
     {
         var backup = SettingsBackup.Create(new EdrConfig(), Exclusions());
         var settings = (JsonObject)backup["settings"]!;
-        Assert.False(settings.ContainsKey("quietProcesses"));   // the tray adds the account's own list
+        Assert.False(settings.ContainsKey("quietProcesses"));
         settings["quietProcesses"] = new JsonArray("obs64*", @"C:\Games\x.exe", "My Game*");
         Assert.Equal(["obs64*", "My Game*"], SettingsBackup.QuietOf(backup));
         var plan = SettingsBackup.PlanImport(backup, new EdrConfig(), Exclusions());
-        Assert.False(plan.ConfigChanges.ContainsKey("quietProcesses"));   // never a PC change (no administrator prompt)
+        Assert.False(plan.ConfigChanges.ContainsKey("quietProcesses"));
         Assert.Null(SettingsBackup.QuietOf(new JsonObject { ["format"] = SettingsBackup.Format }));
         Assert.Null(SettingsBackup.QuietOf(new JsonObject { ["settings"] = new JsonObject { ["quietProcesses"] = new JsonArray("x*") } }));
     }
@@ -287,6 +274,6 @@ public class SettingsTests
         var page = File.ReadAllText(Path.Combine(Repo(), "src", "Edr.Tray", "Views", "SettingsPage.cs"));
         Assert.Contains("EdrConfig.Limits.FailCount", page);
         Assert.Contains("EdrConfig.Limits.WindowSeconds", page);
-        Assert.DoesNotContain("Thickness(240, -6", page);   // the test result sits under its field, not pushed into place
+        Assert.DoesNotContain("Thickness(240, -6", page);
     }
 }

@@ -8,10 +8,6 @@ using Edr.Core;
 
 namespace Edr.Tray.Views;
 
-/// <summary>
-/// Home: one sentence about what matters now, "Was this you?" questions, one tile per protection part (with pause /
-/// resume), the learning week, suggestions and the weekly summary.
-/// </summary>
 public sealed class HomePage : UserControl
 {
     private readonly Controller _c;
@@ -26,8 +22,6 @@ public sealed class HomePage : UserControl
         Content = new ScrollViewer { Content = _root };
     }
 
-    /// <summary>Rebuilds the page, but swaps it in only when something visible changed (the engine refreshes every
-    /// 15 s): an unchanged page keeps keyboard focus, the scroll position and an open Pause menu.</summary>
     public void Refresh()
     {
         var items = new List<Control>();
@@ -37,7 +31,6 @@ public sealed class HomePage : UserControl
         items.Add(Hero(ov));
         if (!s.EngineAlive)
         {
-            // The dashboard cannot reach the engine: say what that means and offer the fix in one click
             var hb = s.Status?.S("heartbeat");
             var since = Ps.ToDate(hb) is { } t ? $"Its last sign of life was {Ui.When(hb!)}." : "It has not reported since this dashboard started.";
             var fix = Ui.Row(6, Ui.Btn("Restart engine", "primary small", () => _ = _c.RestartEngine()),
@@ -53,7 +46,6 @@ public sealed class HomePage : UserControl
         }
         if (m is not null)
         {
-            // Same question asked several times (e.g. four "Event log cleared") = one card that answers all of them
             var groups = new[] { "malware", "edr", "sigma", "wail2ban" }.SelectMany(k => m.Sec[k].Rows[0]).Where(r => r.Pinned && !r.Muted && r.Ev is not null)
                 .GroupBy(r => $"{r.Sec}|{r.Ev!.S("blade")}|{r.Ev.S("title")}").Select(g => g.ToList()).ToList();
             if (groups.Count > 0)
@@ -119,7 +111,6 @@ public sealed class HomePage : UserControl
         var r = rows[0];
         var e = r.Ev!;
         var times = rows.Sum(x => Math.Max(1, x.Group.Count));
-        // The same answer labels as the details pane and the notification (ActionBuilder): "Yes, it was me" / "No, it wasn't me"
         var me = Ui.Btn("Yes, it was me", "ok small", () => _ = _c.Run(new TrayAction(ActionKind.ItWasMe, ""), rows));
         var notMe = Ui.Btn(r.Sec == "wail2ban" ? "No - ban this IP" : "No, it wasn't me", "danger small", () => _ = _c.Run(new TrayAction(ActionKind.Flag, ""), rows));
         var more = Ui.Btn("Details", "ghost small", () => _navigate(r.Sec == "wail2ban" ? "network" : "activity", e.S("id")));
@@ -165,7 +156,7 @@ public sealed class HomePage : UserControl
         IBrush color; string status;
         if (!engine || st == "error") { color = Palette.Danger; status = st == "error" ? "Not working" : "Engine stopped"; }
         else if (st == "paused") { color = Palette.Paused; status = "Paused " + Until(blade); }
-        else if (attention > 0) { color = Palette.Danger; status = $"{open} to review"; }   // same number as the page's tab and badge
+        else if (attention > 0) { color = Palette.Danger; status = $"{open} to review"; }
         else if (open > 0) { color = Palette.Warn; status = blade == "cve" ? $"{open} update{(open == 1 ? "" : "s")} waiting" : $"{open} to look at"; }
         else { color = Palette.Ok; status = "All clear"; }
         var action = st == "paused"
@@ -265,15 +256,11 @@ public sealed class HomePage : UserControl
     }
 }
 
-/// <summary>
-/// A Home tile that opens its page: click anywhere but its own button, or Tab to it and press Enter or Space.
-/// Screen readers see it as a button (name set by the caller) that can be invoked.
-/// </summary>
 internal sealed class LinkTile : Border
 {
     private readonly Action _open;
 
-    protected override Type StyleKeyOverride => typeof(Border);   // themed as "Border.tile"
+    protected override Type StyleKeyOverride => typeof(Border);
 
     public LinkTile(Control child, Action open)
     {

@@ -2,11 +2,6 @@ using System.Text.Json.Nodes;
 
 namespace Edr.Core;
 
-/// <summary>
-/// Compares two model dumps (PowerShell tray vs C# tray). Sort-Object in Windows PowerShell 5.1 is not stable,
-/// so rows that tie on their sort keys may come in any order: lists are compared as the same rows (by key, all
-/// fields) plus the same sequence of sort keys. Returns the differences (empty = parity).
-/// </summary>
 public static class ParityCheck
 {
     public static List<string> Compare(JsonNode expected, JsonNode actual)
@@ -46,9 +41,6 @@ public static class ParityCheck
         for (var i = 0; i < Math.Min(ek.Count, ak.Count); i++)
             if (ek[i] != ak[i]) { diffs.Add($"{name}: order differs at row {i}: expected [{ek[i]}], got [{ak[i]}]"); break; }
 
-        // Same rows: grouped by sort key (ties may be in any order), then matched by content.
-        // A grouped row "(xN)" shows its newest member; when several members share that time, PowerShell picks
-        // any of them, so the id (key) and the member's own detail (last column) may differ - nothing else.
         static string Content(JsonObject r) => r.ToJsonString();
         static string Loose(JsonObject r)
         {

@@ -6,34 +6,21 @@ using Edr.Core;
 
 namespace Edr.Tray.Services;
 
-/// <summary>Result of a request to the engine. Unconfirmed: sent, but no answer came in time (it may still be carried
-/// out). Incomplete: valid, but the engine could not carry it out (all of it); <see cref="Commands.LastMessage"/> says why.</summary>
 public enum CommandResult { Done, Cancelled, Refused, Failed, TooLarge, Busy, Unconfirmed, Incomplete }
 
-/// <summary>
-/// Requests to the engine. Weakening changes (allow, verdicts, pause, settings) go through Windows' UAC prompt to the
-/// elevated FreeEDR-Control.exe, which validates them; resume and scan-now go to inbox\ without a prompt. Never blocks
-/// the UI thread.
-/// </summary>
 public sealed class Commands(TrayState state)
 {
     private bool _busy;
 
     public bool Busy => _busy;
 
-    /// <summary>The engine's own words about the last <see cref="User"/> request ("" = none), e.g. why a scan did not start.</summary>
     public string LastMessage { get; private set; } = "";
 
-    /// <summary>Called once when an administrator step runs longer than <see cref="SlowAfter"/> (its confirmation window is
-    /// still open, or a tool download continues). The tray keeps waiting for the helper's real result.</summary>
     public Action? Slow { get; set; }
 
     public static readonly TimeSpan SlowAfter = TimeSpan.FromMinutes(2);
-    /// <summary>After this long without a result the tray stops waiting and says the outcome is unknown (the helper's own
-    /// steps are bounded well below it: a tool download times out after 10 minutes).</summary>
     public static readonly TimeSpan GiveUpAfter = TimeSpan.FromMinutes(30);
 
-    /// <summary>The helper's exit code as a result (see FreeEDR-Control.exe).</summary>
     public static CommandResult FromExitCode(int code) => code switch
     {
         0 => CommandResult.Done, 2 => CommandResult.Refused, 4 => CommandResult.Cancelled, 6 => CommandResult.TooLarge,
@@ -45,19 +32,17 @@ public sealed class Commands(TrayState state)
         if (_busy) return CommandResult.Busy;
         if (cmd.Str("user").Length == 0) cmd["user"] = Environment.UserName;
         var b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonFile.ToText(cmd, indented: false)));
-        if (b64.Length > 30_000) return CommandResult.TooLarge;   // travels on the command line (~32,000 characters)
+        if (b64.Length > 30_000) return CommandResult.TooLarge;
         var exe = Path.Combine(state.Paths.BinDir, EdrPaths.ControlExe);
         if (!File.Exists(exe)) return CommandResult.Failed;
         _busy = true;
         try
         {
-            var psi = new ProcessStartInfo(exe) { UseShellExecute = true, Verb = "runas" };   // not Hidden: the helper shows its confirmation window
+            var psi = new ProcessStartInfo(exe) { UseShellExecute = true, Verb = "runas" };
             psi.ArgumentList.Add("--payload");
             psi.ArgumentList.Add(b64);
             using var p = Process.Start(psi);
             if (p is null) return CommandResult.Failed;
-            // The elevated helper cannot be stopped from here (and must not be: its confirmation may still be answered,
-            // or its work still be running), so the tray waits for its real result and stays "busy" until then
             var exit = p.WaitForExitAsync();
             if (await Task.WhenAny(exit, Task.Delay(SlowAfter)) != exit)
             {
@@ -67,13 +52,11 @@ public sealed class Commands(TrayState state)
             state.Dirty = true;
             return FromExitCode(p.ExitCode);
         }
-        catch (Win32Exception e) when (e.NativeErrorCode == 1223) { return CommandResult.Cancelled; }   // UAC declined
+        catch (Win32Exception e) when (e.NativeErrorCode == 1223) { return CommandResult.Cancelled; }
         catch (Win32Exception) { return CommandResult.Failed; }
         finally { _busy = false; }
     }
 
-    /// <summary>Several steps behind one prompt (duplicates removed); a single step is sent as itself. A request the
-    /// helper's confirmation could not show in full is not sent (the helper would refuse it after the UAC prompt).</summary>
     public async Task<CommandResult> Ops(IEnumerable<JsonObject?> ops)
     {
         var list = new List<JsonObject>();
@@ -83,13 +66,11 @@ public sealed class Commands(TrayState state)
         if (list.Count == 0) return CommandResult.Refused;
         var cmd = list.Count == 1 ? list[0] : new JsonObject { ["action"] = "batch", ["ops"] = new JsonArray(list.Select(o => (JsonNode)o).ToArray()) };
         var paths = state.Paths;
-        var summary = await Task.Run(() => RequestSummary.Build(cmd, RequestSummary.LookupFor(paths)));   // reads files: off the UI thread
+        var summary = await Task.Run(() => RequestSummary.Build(cmd, RequestSummary.LookupFor(paths)));
         if (!summary.Complete) return CommandResult.TooLarge;
         return await Admin(cmd);
     }
 
-    /// <summary>resume / scan-now without a prompt: over the engine's pipe (answered at once); when the engine is not
-    /// reachable through inbox\ (read at its next start); when even that fails, through the elevated helper.</summary>
     public async Task<CommandResult> User(JsonObject cmd)
     {
         LastMessage = "";
@@ -101,8 +82,7 @@ public sealed class Commands(TrayState state)
             LastMessage = r.Ok && r.Message == "done" ? "" : r.Message;
             return r.Ok ? CommandResult.Done : r.Failed ? CommandResult.Incomplete : CommandResult.Refused;
         }
-        if (r.Unanswered) return CommandResult.Unconfirmed;   // it may still run: never sent a second time
-        // The engine is not running, or was too busy and dropped the request: it reads inbox\ on its next pass
+        if (r.Unanswered) return CommandResult.Unconfirmed;
         try
         {
             CommandDrop.Write(state.Paths.InboxDir, cmd);
@@ -124,10 +104,8 @@ public sealed class Commands(TrayState state)
     };
 }
 
-/// <summary>Things the tray starts for the user: browser pages, Explorer, terminals (argument vectors, never shell strings).</summary>
 public static class Shell
 {
-    // Each returns false when nothing was opened, so the caller can tell the user why
 
     public static bool OpenUrl(string url)
     {
@@ -135,7 +113,6 @@ public static class Shell
         try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); return true; } catch (Win32Exception) { return false; }
     }
 
-    /// <summary>Opens a document with its associated app; without one (e.g. .md on a fresh Windows) in Notepad.</summary>
     public static bool OpenDocument(string path)
     {
         if (!File.Exists(path)) return false;
@@ -160,7 +137,6 @@ public static class Shell
         try { Process.Start(psi); return true; } catch (Win32Exception) { return false; }
     }
 
-    /// <summary>Starts a program with an argument vector in its own console window.</summary>
     public static bool Run(string file, IEnumerable<string> args)
     {
         var psi = new ProcessStartInfo(file) { UseShellExecute = false, CreateNoWindow = false };
@@ -168,7 +144,6 @@ public static class Shell
         try { Process.Start(psi); return true; } catch (Win32Exception) { return false; }
     }
 
-    /// <summary>Microsoft Defender custom scan of one file, in a console window the user can watch.</summary>
     public static bool DefenderScan(string file)
     {
         var mp = Path.Combine(EdrPaths.ProgramFiles, "Windows Defender", "MpCmdRun.exe");
@@ -178,14 +153,12 @@ public static class Shell
         try { Process.Start(psi); return true; } catch (Win32Exception) { return false; }
     }
 
-    /// <summary>VirusTotal page for the file's SHA256 (only the hash leaves the PC).</summary>
     public static bool VirusTotal(string file, string? knownSha256)
     {
         var sha = knownSha256 is { Length: 64 } ? knownSha256 : File.Exists(file) ? Tools.Sha256Of(file) : null;
         return sha is not null && OpenUrl($"https://www.virustotal.com/gui/file/{sha.ToLowerInvariant()}");
     }
 
-    /// <summary>Starts a program elevated; false when the UAC prompt was declined or it could not start.</summary>
     public static bool Elevated(string file, IEnumerable<string> args, bool minimized = false)
     {
         var psi = new ProcessStartInfo(file) { UseShellExecute = true, Verb = "runas", WindowStyle = minimized ? ProcessWindowStyle.Minimized : ProcessWindowStyle.Normal };

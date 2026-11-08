@@ -2,7 +2,6 @@
 setlocal EnableDelayedExpansion
 set "SCRIPT_DIR=%~dp0"
 
-:: Check for Administrator elevation
 net session >nul 2>&1
 if %ERRORLEVEL% equ 0 (
     goto :elevated

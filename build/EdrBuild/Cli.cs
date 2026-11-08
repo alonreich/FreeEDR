@@ -4,7 +4,6 @@ namespace EdrBuild;
 
 internal static class Cli
 {
-    /// <summary>Runs a program, streams its output into the log, returns the exit code (-1 if it could not start).</summary>
     public static int Run(string exe, IEnumerable<string> args, BuildLog log, string? workDir = null, bool quiet = false)
     {
         var psi = new ProcessStartInfo(exe)
@@ -13,9 +12,6 @@ internal static class Cli
             WorkingDirectory = workDir ?? Environment.CurrentDirectory,
         };
         foreach (var a in args) psi.ArgumentList.Add(a);
-        // A build started from PowerShell 7 passes on its PSModulePath; Windows PowerShell 5.1 then fails to load
-        // Microsoft.PowerShell.Security (Get-AuthenticodeSignature), so every signature-tied allow silently stops matching.
-        // Without the variable, 5.1 uses its own default module path.
         if (string.Equals(exe, WindowsPowerShell, StringComparison.OrdinalIgnoreCase)) psi.Environment.Remove("PSModulePath");
         try
         {
@@ -38,7 +34,6 @@ internal static class Cli
         (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
             .Select(d => Path.Combine(d.Trim('"'), exe)).FirstOrDefault(File.Exists);
 
-    /// <summary>Inno Setup's compiler: EDR_ISCC, PATH, then the default install folders.</summary>
     public static string? FindIscc()
     {
         var configured = Environment.GetEnvironmentVariable("EDR_ISCC");
@@ -53,7 +48,6 @@ internal static class Cli
         return File.Exists(perUser) ? perUser : null;
     }
 
-    /// <summary>signtool.exe: EDR_SIGNTOOL, PATH, then the newest Windows 10/11 SDK.</summary>
     public static string? FindSigntool()
     {
         var configured = Environment.GetEnvironmentVariable("EDR_SIGNTOOL");
@@ -65,7 +59,6 @@ internal static class Cli
                         .Select(d => Path.Combine(d, "x64", "signtool.exe")).FirstOrDefault(File.Exists);
     }
 
-    /// <summary>The NativeAOT linker finds the C++ tools through vswhere.exe, which the VS installer does not put on PATH.</summary>
     public static void EnsureVswhereOnPath()
     {
         var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft Visual Studio", "Installer");

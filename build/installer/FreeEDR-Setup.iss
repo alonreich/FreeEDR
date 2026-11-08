@@ -1,20 +1,3 @@
-; ================================================================================================
-; FreeEDR-Setup.exe - the single-file installer of FreeEDR (Inno Setup 6.3 or newer).
-; Compiled by build\EdrBuild (build.cmd / dev_build.cmd), which passes the defines below; never compile by hand.
-;
-; WHAT IT DOES
-;   * Asks for administrator rights once (FreeEDR runs as SYSTEM and lives in admin-only C:\Program Files\FreeEDR).
-;   * Refuses non-x64 Windows (the tools and the Sysmon driver are x64-only).
-;   * Unpacks the staged files (bin\ NativeAOT programs, config\, rules\, docs) into C:\Program Files\FreeEDR\setup-src,
-;     which only administrators can write, and deletes them again at the end. Every file stays visible to antivirus.
-;   * Shows no wizard pages of its own: it runs setup-src\bin\FreeEDR-Installer.exe install, whose window (the
-;     dashboard's look) asks upgrade vs clean install, shows every step and the result. The installer does everything
-;     else (backup, tools, Sysmon, ACLs, Defender audit mode, the "FreeEDR" service, tray, shortcuts, verify, roll back)
-;     and returns 0 = SUCCESS, 3 = ROLLED BACK, 1 = FAILED, 4 = cancelled in its window.
-;   * Registers FreeEDR in Settings > Apps / appwiz.cpl. Uninstall runs FreeEDR-Installer.exe uninstall, which puts the
-;     Windows settings back, then removes the folder.
-;   Silent:  FreeEDR-Setup.exe /VERYSILENT [/NoDesktopIcon=1] [/Clean=1] [/ReplaceSysmonConfig=1]   (exit code 0 / 1)
-; ================================================================================================
 
 #if Ver < EncodeVer(6, 3, 0)
   #error Inno Setup 6.3 or newer is required (winget install JRSoftware.InnoSetup).
@@ -31,6 +14,11 @@
 #ifndef OutputDir
   #error OutputDir is missing. Build with build.cmd / dev_build.cmd (build\EdrBuild), not by hand.
 #endif
+#ifndef OutputName
+  #define OutputName "FreeEDR-Setup"
+#endif
+#define UninstallKey "Software\Microsoft\Windows\CurrentVersion\Uninstall\{6F0E2C1A-4B7D-4E59-9A33-0E2D5C8B7A41}_is1"
+#define FinishKey "Software\Microsoft\Windows\CurrentVersion\Uninstall\FreeEDR-FinishRemoval"
 
 [Setup]
 AppId={{6F0E2C1A-4B7D-4E59-9A33-0E2D5C8B7A41}
@@ -45,11 +33,10 @@ VersionInfoProductTextVersion={#AppVersionText}
 VersionInfoCompany=FreeEDR Project
 VersionInfoDescription=FreeEDR Setup (detect-only EDR + Wail2Ban)
 VersionInfoProductName=FreeEDR
-VersionInfoOriginalFileName=FreeEDR-Setup.exe
+VersionInfoOriginalFileName={#OutputName}.exe
 OutputDir={#OutputDir}
-OutputBaseFilename=FreeEDR-Setup
+OutputBaseFilename={#OutputName}
 PrivilegesRequired=admin
-; The folder is fixed (EdrPaths.DefaultRoot); Setup's uninstaller lives in it
 CreateAppDir=yes
 DefaultDirName={commonpf64}\FreeEDR
 DisableDirPage=yes
@@ -58,8 +45,6 @@ DirExistsWarning=no
 Uninstallable=yes
 UninstallDisplayName=FreeEDR
 UninstallDisplayIcon={app}\bin\tray\FreeEDR-Tray.exe
-; Program, tools (embedded), rules and the event archive: about 1.3 GB at most
-UninstallDisplaySize=1395864371
 CloseApplications=no
 RestartApplications=no
 DisableWelcomePage=yes
@@ -76,35 +61,107 @@ SolidCompression=yes
 SetupLogging=no
 
 [Files]
-; Admin-only location (not the user's %TEMP%), so nothing unelevated can swap the files before they run elevated
 Source: "{#StagingDir}\*"; DestDir: "{app}\setup-src"; Flags: recursesubdirs createallsubdirs ignoreversion deleteafterinstall
-
-[UninstallRun]
-Filename: "{app}\bin\FreeEDR-Installer.exe"; Parameters: "uninstall --from-setup"; WorkingDir: "{sys}"; Flags: waituntilterminated; RunOnceId: "FreeEDRUninstall"; StatusMsg: "Removing FreeEDR and restoring the Windows settings it changed..."
-
-[UninstallDelete]
-Type: filesandordirs; Name: "{app}"
 
 [Code]
 var
   InstallResult: Integer;
+  UninstallResult: Integer;
+  Downgrade: Boolean;
+
+function VersionPart(const S: String; Index: Integer): Integer;
+var
+  I, Part, Value: Integer;
+  C: Char;
+begin
+  Result := 0;
+  Part := 0;
+  Value := 0;
+  for I := 1 to Length(S) do
+  begin
+    C := S[I];
+    if (C >= '0') and (C <= '9') then
+    begin
+      if Value < 100000 then Value := Value * 10 + (Ord(C) - Ord('0'));
+    end
+    else if C = '.' then
+    begin
+      if Part = Index then begin Result := Value; Exit; end;
+      Part := Part + 1;
+      Value := 0;
+    end
+    else Break;
+  end;
+  if Part = Index then Result := Value;
+end;
+
+function CompareVersions(const A, B: String): Integer;
+var
+  I, X, Y: Integer;
+begin
+  Result := 0;
+  for I := 0 to 3 do
+  begin
+    X := VersionPart(A, I);
+    Y := VersionPart(B, I);
+    if X < Y then begin Result := -1; Exit; end;
+    if X > Y then begin Result := 1; Exit; end;
+  end;
+end;
+
+function InstalledVersion: String;
+var
+  S: AnsiString;
+begin
+  Result := '';
+  if LoadStringFromFile(ExpandConstant('{commonpf64}\FreeEDR\version.txt'), S) then Result := Trim(String(S));
+  if Result = '' then
+    if not RegQueryStringValue(HKLM64, '{#UninstallKey}', 'DisplayVersion', Result) then Result := '';
+end;
+
+function InitializeSetup: Boolean;
+var
+  Installed: String;
+begin
+  Result := True;
+  Downgrade := False;
+  Installed := InstalledVersion;
+  if (Installed = '') or (CompareVersions(Installed, '{#AppVersion}') <= 0) then Exit;
+  Downgrade := True;
+  if ExpandConstant('{param:AllowDowngrade|0}') = '1' then Exit;
+  if SuppressibleMsgBox('The installed FreeEDR (' + Installed + ') is newer than this Setup ({#AppVersionText}).' + #13#10#13#10 +
+       'Installing it goes back to an older version: fixes and detection rules made since then are lost, and settings saved by the newer version may not load.' + #13#10#13#10 +
+       'Install the older version anyway?', mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) <> IDYES then
+  begin
+    Log('Downgrade from ' + Installed + ' to {#AppVersionText} declined; nothing was changed.');
+    Result := False;
+  end;
+end;
+
+procedure SyncDisplayVersion;
+var
+  S: AnsiString;
+begin
+  if LoadStringFromFile(ExpandConstant('{app}\version.txt'), S) and (Trim(String(S)) <> '') then
+    RegWriteStringValue(HKLM64, '{#UninstallKey}', 'DisplayVersion', Trim(String(S)));
+end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  Src, Params, Log: String;
+  Src, Params, LogFile: String;
   Upgrade: Boolean;
 begin
-  if CurStep = ssDone then DelTree(ExpandConstant('{app}\setup-src'), True, True, True);   { the unpacked copy, files and folders }
+  if CurStep = ssDone then DelTree(ExpandConstant('{app}\setup-src'), True, True, True);
   if CurStep <> ssPostInstall then Exit;
   Src := ExpandConstant('{app}\setup-src');
-  Log := ExpandConstant('{app}\install.log');
+  LogFile := ExpandConstant('{app}\install.log');
   Upgrade := FileExists(ExpandConstant('{app}\bin\FreeEDR-Engine.exe'));
-  { Without /SILENT the installer shows its own window (choices, steps, result); Setup's wizard stays out of the way }
   Params := 'install --source "' + Src + '" --version "{#AppVersionText}"';
   if WizardSilent then Params := Params + ' --silent';
   if ExpandConstant('{param:NoDesktopIcon|0}') = '1' then Params := Params + ' --no-desktop-icon';
   if ExpandConstant('{param:Clean|0}') = '1' then Params := Params + ' --clean';
   if ExpandConstant('{param:ReplaceSysmonConfig|0}') = '1' then Params := Params + ' --replace-sysmon-config';
+  if Downgrade then Params := Params + ' --allow-downgrade';
   WizardForm.StatusLabel.Caption := 'FreeEDR Setup is running in its own window...';
   WizardForm.Hide;
   try
@@ -116,8 +173,8 @@ begin
     end;
   finally
     WizardForm.Show;
+    if Upgrade and (InstallResult <> 0) then SyncDisplayVersion;
   end;
-  { The window already showed the result; only a silent run or a cancel needs a word here }
   if InstallResult = 4 then
   begin
     if Upgrade then
@@ -126,11 +183,43 @@ begin
       SuppressibleMsgBox('Setup was cancelled before anything was set up.' + #13#10#13#10 + 'To remove the leftover entry: Settings > Apps > FreeEDR > Uninstall (it changes no Windows setting, since none was changed).', mbInformation, MB_OK, IDOK);
   end
   else if WizardSilent and (InstallResult <> 0) then
-    SuppressibleMsgBox('FreeEDR installation did not succeed (exit code ' + IntToStr(InstallResult) + '). Details: ' + Log, mbCriticalError, MB_OK, IDOK);
+    SuppressibleMsgBox('FreeEDR installation did not succeed (exit code ' + IntToStr(InstallResult) + '). Details: ' + LogFile, mbCriticalError, MB_OK, IDOK);
 end;
 
 function GetCustomSetupExitCode: Integer;
 begin
-  { 0 only when the installer reported SUCCESS }
   if InstallResult = 0 then Result := 0 else Result := 1;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Helper: String;
+begin
+  Helper := ExpandConstant('{app}\bin\FreeEDR-Installer.exe');
+  if CurUninstallStep = usUninstall then
+  begin
+    UninstallResult := -1;
+    UninstallProgressForm.StatusLabel.Caption := 'Removing FreeEDR and restoring the Windows settings it changed...';
+    if FileExists(Helper) then
+      if not Exec(Helper, 'uninstall --from-setup', ExpandConstant('{sys}'), SW_SHOWNORMAL, ewWaitUntilTerminated, UninstallResult) then UninstallResult := -1;
+  end
+  else if CurUninstallStep = usPostUninstall then
+  begin
+    if (UninstallResult = 0) or (UninstallResult = 1) then
+      DelTree(ExpandConstant('{app}'), True, True, True)
+    else
+    begin
+      if FileExists(Helper) then
+      begin
+        RegWriteStringValue(HKLM64, '{#FinishKey}', 'DisplayName', 'FreeEDR (finish removal)');
+        RegWriteStringValue(HKLM64, '{#FinishKey}', 'UninstallString', '"' + Helper + '" uninstall');
+        RegWriteStringValue(HKLM64, '{#FinishKey}', 'DisplayIcon', Helper);
+        RegWriteStringValue(HKLM64, '{#FinishKey}', 'Publisher', 'FreeEDR Project');
+        RegWriteDWordValue(HKLM64, '{#FinishKey}', 'NoModify', 1);
+        RegWriteDWordValue(HKLM64, '{#FinishKey}', 'NoRepair', 1);
+      end;
+      SuppressibleMsgBox('FreeEDR could not put back every Windows setting it changed (code ' + IntToStr(UninstallResult) + '), so its folder and the record of your original settings were kept.' + #13#10#13#10 +
+        'Restart the PC, then finish with Settings > Apps > "FreeEDR (finish removal)". Details: FreeEDR-uninstall.log in %TEMP%.', mbError, MB_OK, IDOK);
+    end;
+  end;
 end;

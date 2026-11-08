@@ -5,8 +5,6 @@ using Microsoft.Win32;
 
 namespace Edr.Setup;
 
-/// <summary>install.log in the installer's "== step / OK / WARN" style; every line is also raised as <see cref="Line"/>
-/// for the setup window (kind: S step, O ok, W warn, I info, E error, R result).</summary>
 internal sealed class SetupLog : IDisposable
 {
     private readonly StreamWriter? _file;
@@ -38,7 +36,6 @@ internal sealed class SetupLog : IDisposable
     public void Error(string t) => Write('E', $"\nERROR: {t}", t);
     public void Result(string label, string result, bool good) => Write('R', $"\n{label}: {result}", result);
 
-    /// <summary>Lines from shared helpers ("OK ..." / "WARN ...").</summary>
     public void Note(string n)
     {
         if (n.StartsWith("WARN ", StringComparison.Ordinal)) Warn(n[5..]);
@@ -54,7 +51,6 @@ internal static class Sys
 
     public static string Sys32(string exe) => Path.Combine(EdrPaths.System32, exe);
 
-    /// <summary>Signals every session's tray to exit, then stops FreeEDR's processes (and the PowerShell scripts of versions before 2026-11-06).</summary>
     public static void StopFreeEdrProcesses(EdrPaths paths, bool includeTools)
     {
         foreach (var ev in new[] { @"Local\FreeEDR-Tray-Exit", @"Local\EDR-Tray-Exit" })
@@ -70,13 +66,18 @@ internal static class Sys
                 var name = Path.GetFileName(path);
                 var ours = path.StartsWith(paths.Root + "\\", StringComparison.OrdinalIgnoreCase) &&
                            (includeTools || name.StartsWith("FreeEDR-", StringComparison.OrdinalIgnoreCase)) &&
-                           !path.Contains(@"\setup-src\", StringComparison.OrdinalIgnoreCase);
+                           !path.Contains(@"\setup-src\", StringComparison.OrdinalIgnoreCase) && !IsUpdateDownload(paths, path);
                 if (!ours && (Ps.Eq(name, "powershell.exe") || Ps.Eq(name, "pwsh.exe")))
                     ours = Ps.Rx(@"EDR-(Engine|Tray|Scan|Control)\.ps1").IsMatch(Win32.CommandLineOf(p.Id));
                 if (ours) Win32.Kill(p.Id);
             }
         }
     }
+
+    public static bool IsUpdateDownload(EdrPaths paths, string path) =>
+        path.StartsWith(paths.UserDir + "\\", StringComparison.OrdinalIgnoreCase) &&
+        (path.Contains(@"\update\", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(path).StartsWith("FreeEDR-Setup", StringComparison.OrdinalIgnoreCase) ||
+         Path.GetFileName(path).StartsWith("FreeEDR-Update", StringComparison.OrdinalIgnoreCase));
 
     public static bool TaskExists(string name) => Run(Sys32("schtasks.exe"), "/Query", "/TN", name).Exit == 0;
 
@@ -88,7 +89,6 @@ internal static class Sys
 
     public static bool TaskDelete(string name) => !TaskExists(name) || Run(Sys32("schtasks.exe"), "/Delete", "/TN", name, "/F").Exit == 0;
 
-    /// <summary>Any Sysmon on this PC, whatever its service name: (service name, image path).</summary>
     public static List<(string Name, string Image)> SysmonServices()
     {
         var list = new List<(string, string)>();
@@ -122,7 +122,6 @@ internal static class Sys
     public static void DeleteEventSource(string source) =>
         Registry.LocalMachine.DeleteSubKeyTree($@"SYSTEM\CurrentControlSet\Services\EventLog\Application\{source}", throwOnMissingSubKey: false);
 
-    /// <summary>Runs <paramref name="action"/> with every account's HKCU (loaded hives in place, others loaded for a moment).</summary>
     public static void ForEachUserHive(Action<RegistryKey> action)
     {
         using var list = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList");

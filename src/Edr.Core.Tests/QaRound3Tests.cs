@@ -7,12 +7,9 @@ using Xunit;
 
 namespace Edr.Core.Tests;
 
-/// <summary>QA audit, round 3 (2026-11-07): allows never hide malware checks, Defender allows are never forgotten while
-/// active, honest scan / command results, the dashboard after a reset, bounded netsh, a confirmation that fits the screen.
-/// Pipe busy / failed answers are in <see cref="PipeTests"/> (static pipe hooks).</summary>
 public class QaRound3Tests
 {
-    private static string DevFolder(string name)   // inside the dev folder, not %TEMP%
+    private static string DevFolder(string name)
     {
         var d = Path.Combine(AppContext.BaseDirectory, "qa3", $"{name}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(d);
@@ -25,8 +22,6 @@ public class QaRound3Tests
         File.Exists(ctx.Paths.EventsFile)
             ? File.ReadAllLines(ctx.Paths.EventsFile).Select(l => JsonFile.Parse(l) as JsonObject).OfType<JsonObject>().ToList()
             : [];
-
-    // ---- 1: a real-time allow hides the behaviour alert, never a known-malware hash --------------------
 
     private const string Hash = "AB12CD34EF56AB12CD34EF56AB12CD34EF56AB12CD34EF56AB12CD34EF56AB12";
 
@@ -49,13 +44,12 @@ public class QaRound3Tests
         Directory.CreateDirectory(ctx.Paths.RulesDir);
         Directory.CreateDirectory(ctx.Paths.ConfigDir);
         File.WriteAllText(ctx.Paths.IocFile, $"{Hash};Test.Trojan\n");
-        // "Allow everything builder.exe starts" (ActionBuilder.ParentEverywhereOps)
         File.WriteAllText(ctx.Paths.ExclusionsFile, """{"realtime":[{"id":"allow1","rule":"*","image":"","parent":"C:\\Tools\\Builder\\builder.exe","parentSigner":""}]}""");
         ctx.Excl.Load();
         using var rt = new Realtime(ctx);
         rt.UpdateIocSet();
 
-        rt.Handle(ProcessStart(new string('0', 64)));   // a clean program: the behaviour alert stays hidden
+        rt.Handle(ProcessStart(new string('0', 64)));
         Assert.Empty(Events(ctx));
 
         rt.Handle(ProcessStart(Hash));
@@ -83,8 +77,6 @@ public class QaRound3Tests
         Assert.Empty(Events(ctx));
         Directory.Delete(root, true);
     }
-
-    // ---- 2: a Defender allow is never forgotten while Defender still has it -----------------------------
 
     [Fact]
     public void Reset_removes_the_defender_allows_and_keeps_listing_one_defender_refused()
@@ -127,8 +119,6 @@ public class QaRound3Tests
         Directory.Delete(root, true);
     }
 
-    // ---- 6, 7: a paused or failed OSV step never empties the vulnerability list ------------------------
-
     [Fact]
     public void A_skipped_or_failed_osv_step_keeps_the_vulnerability_list()
     {
@@ -145,17 +135,15 @@ public class QaRound3Tests
         var clean = OsvParser.Outcome(new Sandbox.Result(true, 0, "", ""));
         Assert.Null(clean.Report);
         Assert.Null(clean.Problem);
-        Assert.NotNull(OsvParser.Outcome(new Sandbox.Result(true, -1, "", "timeout")).Problem);      // timed out
+        Assert.NotNull(OsvParser.Outcome(new Sandbox.Result(true, -1, "", "timeout")).Problem);
         Assert.NotNull(OsvParser.Outcome(new Sandbox.Result(true, -1, "", "cancelled")).Problem);
-        Assert.NotNull(OsvParser.Outcome(new Sandbox.Result(true, unchecked((int)0xC0000005), "", "")).Problem);     // crashed, no output
+        Assert.NotNull(OsvParser.Outcome(new Sandbox.Result(true, unchecked((int)0xC0000005), "", "")).Problem);
         Assert.NotNull(OsvParser.Outcome(new Sandbox.Result(true, 128, "", "")).Problem);
         Assert.NotNull(OsvParser.Outcome(new Sandbox.Result(false, 0, "", "CreateProcessAsUser")).Problem);
         var found = OsvParser.Outcome(new Sandbox.Result(true, 1, "scanning...\n{\"results\":[]}\n", ""));
         Assert.Null(found.Problem);
         Assert.NotNull(found.Report);
     }
-
-    // ---- 12: "Scan now" says when no scan started -------------------------------------------------------
 
     [Fact]
     public void Scan_now_that_cannot_start_says_why()
@@ -171,8 +159,6 @@ public class QaRound3Tests
         Directory.Delete(root, true);
     }
 
-    // ---- 8: the dashboard forgets the alerts of a deleted history, not those of a rotated file ----------
-
     private static void WriteEvents(string file, int n, string tag) =>
         File.WriteAllLines(file, Enumerable.Range(0, n).Select(i => $$"""{"id":"{{tag}}{{i}}","blade":"realtime","title":"{{tag}} {{i}} {{new string('x', 40)}}"}"""));
 
@@ -186,14 +172,14 @@ public class QaRound3Tests
         var tail = new EventTail(file);
         Assert.Equal(3, tail.ReadNew(events).Count);
 
-        File.Delete(file);                        // reset to defaults: the history (and every archive) is deleted ...
-        WriteEvents(file, 10, "new");             // ... and the new file is already longer than the old read position
+        File.Delete(file);
+        WriteEvents(file, 10, "new");
         var added = tail.ReadNew(events);
         Assert.True(tail.WasReset);
         Assert.Equal(10, added.Count);
         Assert.All(events, e => Assert.StartsWith("new", e.S("id")));
 
-        File.Delete(file);                        // the history deleted, the engine has not written yet
+        File.Delete(file);
         Assert.Empty(tail.ReadNew(events));
         Assert.True(tail.WasReset);
         Assert.Empty(events);
@@ -209,7 +195,7 @@ public class QaRound3Tests
         var events = new List<Rec>();
         var tail = new EventTail(file);
         tail.ReadNew(events);
-        File.Move(file, Path.Combine(d, "events-20261107-120000.jsonl"));   // EventWriter.Rotate
+        File.Move(file, Path.Combine(d, "events-20261107-120000.jsonl"));
         WriteEvents(file, 10, "new");
         tail.ReadNew(events);
         Assert.False(tail.WasReset);
@@ -217,22 +203,17 @@ public class QaRound3Tests
         Directory.Delete(d, true);
     }
 
-    // ---- 14: a console program the engine runs can never block it ---------------------------------------
-
     [Fact]
     public void A_hung_or_chatty_netsh_style_program_never_blocks_its_caller()
     {
         var sw = Stopwatch.StartNew();
         Assert.Equal(-1, Firewall.RunBounded(Path.Combine(EdrPaths.System32, "ping.exe"), "-n 30 127.0.0.1", 1000));
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"waited {sw.Elapsed}");
-        // Far more on stderr than a pipe buffer holds, while stdout stays empty: drained, not deadlocked
         sw.Restart();
         var rc = Firewall.RunBounded(Path.Combine(EdrPaths.System32, "cmd.exe"), "/d /c \"for /L %i in (1,1,4000) do @echo %i-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 1>&2\"", 60_000);
         Assert.Equal(0, rc);
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(50), $"took {sw.Elapsed}");
     }
-
-    // ---- 11: the confirmation shows a long request in full, inside the screen ---------------------------
 
     private static (bool Answer, string Text, RECT Window, RECT Work) AskAndAnswer(string request, Func<nint, bool> answer)
     {
@@ -244,12 +225,12 @@ public class QaRound3Tests
         for (var i = 0; i < 200 && hwnd == 0; i++) { Thread.Sleep(50); hwnd = FindWindowW(ConfirmWindow.ClassName, title); }
         Assert.NotEqual(0, hwnd);
         var edit = GetDlgItem(hwnd, ConfirmWindow.IdText);
-        var len = (int)SendMessageW(edit, 0x0E, 0, 0);   // WM_GETTEXTLENGTH
+        var len = (int)SendMessageW(edit, 0x0E, 0, 0);
         var buf = new System.Text.StringBuilder(len + 1);
-        SendMessageW(edit, 0x0D, len + 1, buf);   // WM_GETTEXT
+        SendMessageW(edit, 0x0D, len + 1, buf);
         GetWindowRect(hwnd, out var win);
         var work = new RECT();
-        SystemParametersInfoW(0x30, 0, ref work, 0);   // SPI_GETWORKAREA
+        SystemParametersInfoW(0x30, 0, ref work, 0);
         Assert.True(answer(hwnd));
         Assert.True(t.Join(10_000), "the window did not close");
         return (result, buf.ToString(), win, work);
@@ -260,9 +241,9 @@ public class QaRound3Tests
     {
         var lines = Enumerable.Range(1, 20).Select(i => $"• Allow (realtime): image=C:\\Users\\someone\\AppData\\Local\\{new string('p', 280)}\\tool{i}.exe").ToList();
         var request = string.Join("\n", lines);
-        var (answer, text, win, work) = AskAndAnswer(request, h => PostMessageW(h, 0x111, ConfirmWindow.IdNo, GetDlgItem(h, ConfirmWindow.IdNo)));   // the No button clicked (BN_CLICKED)
+        var (answer, text, win, work) = AskAndAnswer(request, h => PostMessageW(h, 0x111, ConfirmWindow.IdNo, GetDlgItem(h, ConfirmWindow.IdNo)));
         Assert.False(answer);
-        foreach (var l in lines) Assert.Contains(l, text);   // nothing cut
+        foreach (var l in lines) Assert.Contains(l, text);
         Assert.True(win.Top >= work.Top && win.Bottom <= work.Bottom && win.Left >= work.Left && win.Right <= work.Right,
                     $"window {win.Left},{win.Top}-{win.Right},{win.Bottom} outside the work area {work.Left},{work.Top}-{work.Right},{work.Bottom}");
     }
@@ -271,9 +252,9 @@ public class QaRound3Tests
     public void The_confirmation_answers_yes_only_for_the_yes_button()
     {
         Assert.True(AskAndAnswer("• Resume Real-time detection", h => PostMessageW(h, 0x111, ConfirmWindow.IdYes, GetDlgItem(h, ConfirmWindow.IdYes))).Answer);
-        Assert.False(AskAndAnswer("• Resume Real-time detection", h => PostMessageW(h, 0x10, 0, 0)).Answer);         // closed with X = No
-        Assert.False(AskAndAnswer("• Resume Real-time detection", h => PostMessageW(h, 0x111, 2, 0)).Answer);        // Esc (IDCANCEL) = No
-        Assert.False(AskAndAnswer("• Resume Real-time detection", h => PostMessageW(h, 0x111, 1, 0)).Answer);        // Enter (IDOK) = No
+        Assert.False(AskAndAnswer("• Resume Real-time detection", h => PostMessageW(h, 0x10, 0, 0)).Answer);
+        Assert.False(AskAndAnswer("• Resume Real-time detection", h => PostMessageW(h, 0x111, 2, 0)).Answer);
+        Assert.False(AskAndAnswer("• Resume Real-time detection", h => PostMessageW(h, 0x111, 1, 0)).Answer);
     }
 
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }

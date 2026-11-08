@@ -10,9 +10,7 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Golden fixtures: inputs + the expected model (model.json). Refresh with FREEEDR_UPDATE_GOLDEN=1 after an intended change. Local data, not shared. -->
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
-    <!-- The Sysmon template and the process corpus are tested from the repository itself -->
     <None Include="..\..\config\sysmonconfig.template.xml" Link="Repo\sysmonconfig.template.xml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\tests\data\process-corpus.json" Link="Repo\process-corpus.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

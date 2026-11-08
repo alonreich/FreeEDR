@@ -6,17 +6,9 @@ set "VSCONSOLEOUTPUT=1"
 set "SCRIPT_DIR=%~dp0"
 pushd "%SCRIPT_DIR%" >nul || exit /b 1
 
-rem =====================================================================================
-rem  dev_build.cmd - FreeEDR Local Development Build (Dev Version, Keeps .\compiled)
-rem  Runs the full build pipeline via build\EdrBuild (gates, encodings, PS 5.1 parse,
-rem  C# tests + parity, NativeAOT tray publish, live parity self-test, Inno Setup).
-rem  Builds .\compiled\FreeEDR-Setup.exe without wiping .\compiled first.
-rem =====================================================================================
-
 call "%SCRIPT_DIR%build\env.cmd"
 set "RC=0"
 
-rem Preflight: verify dotnet CLI and .NET 10 SDK
 where dotnet >nul 2>&1
 if errorlevel 1 (
   echo ERROR: the "dotnet" command was not found.
@@ -34,7 +26,6 @@ if errorlevel 1 (
   goto :finish
 )
 
-rem Build the build orchestrator first, then run its DLL directly to avoid "dotnet run" console noise
 dotnet build "%SCRIPT_DIR%build\EdrBuild\EdrBuild.csproj" -c Release --nologo -v quiet -tl:off
 set "RC=%ERRORLEVEL%"
 if "%RC%"=="0" (

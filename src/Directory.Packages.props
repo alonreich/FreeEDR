@@ -1,5 +1,4 @@
 <Project>
-  <!-- Exact package versions, pinned 2026-11-01 (each released at least 3 weeks earlier). -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>

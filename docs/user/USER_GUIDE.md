@@ -20,7 +20,28 @@ antivirus. The one part that acts is **Wail2Ban**: it blocks computers that keep
     week starts again), then installs as new. The record of your Windows settings from before FreeEDR is kept, so
     uninstalling still restores them.
 * The tools come inside Setup; only Sysmon is downloaded from Microsoft when it is not installed. Later, FreeEDR
-  downloads only updates (tool updates you start, Sigma rules and the malware hash list during scans).
+  downloads only updates (FreeEDR updates and tool updates you start, Sigma rules and the malware hash list during scans).
+* Setup never quietly installs an **older** FreeEDR over a newer one: it asks first (default: No).
+
+### Updating FreeEDR
+* **Settings > FreeEDR updates** shows your version, the latest release and when FreeEDR last looked. FreeEDR checks
+  once a day in the background (untick *Check for new versions automatically* to stop that; *Check now* always works).
+  A new version shows one notification and an entry in the tray menu; nothing is downloaded until you say so.
+* **Download and install** shows what is new (every version since yours, when you skipped some) and asks first. The
+  dashboard downloads the small update package (the bundled third-party tools stay as they are unless the new version
+  needs a different one, which Setup then fetches and checks). The download runs in the background with a progress bar
+  (*Stop download* keeps what was fetched; the next try continues). FreeEDR starts Setup only when the file matches the
+  SHA256 fingerprint GitHub publishes and is digitally signed by the same publisher as your FreeEDR (the full
+  publisher identity, not just its name). Then Windows asks for administrator
+  approval and Setup shows each step. Your settings stay; detection pauses for about a minute; if the new version does
+  not pass its checks or Setup stops with an error, the previous one comes back by itself and the dashboard reopens
+  with a note. The PC is never restarted. The downloaded installer is deleted once that version is installed.
+* If the PC restarts (or loses power) while Setup runs, the dashboard says **The last update did not finish** and offers
+  the same version again: running Setup again finishes the update, or puts the previous version back from its backup.
+* **Skip this version** stops reminders for that version (a later one is offered as usual). Offline, or GitHub not
+  reachable: nothing happens, FreeEDR tries again later.
+* After an update, a notification offers **What's new** (all versions since the one you had); *What's new in my
+  version* on the same card shows it again.
 
 ## 1. The shield in the notification area
 * **Green ✓** protected, nothing to review · **Amber !** something needs review or the last scan had problems ·

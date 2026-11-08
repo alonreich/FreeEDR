@@ -1,6 +1,4 @@
-﻿# Live: health and configuration of the FreeEDR installed on this PC (read-only; skipped with -SkipLive or when not installed).
-# These describe the INSTALLED version: after a code change they only reflect it once FreeEDR-Setup.exe was run.
-param([string]$Repo, [switch]$Live, [switch]$Attack, [switch]$Elevated, [string]$Work)
+﻿param([string]$Repo, [switch]$Live, [switch]$Attack, [switch]$Elevated, [string]$Work)
 
 $Root = Join-Path $(if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }) 'FreeEDR'
 $installed = Test-Path "$Root\data\status.json"
@@ -91,7 +89,6 @@ Test 'Last scan had no failed steps' {
 Test 'Folder permissions: no write access for Users / Everyone / Authenticated Users on the folder or its programs' {
     Need-Install
     $weak = 'S-1-5-32-545', 'S-1-1-0', 'S-1-5-11'
-    # Rights that let an account change files (ReadAndExecute / Synchronize are fine: every account may run the tray)
     $write = [Security.AccessControl.FileSystemRights]::WriteData -bor [Security.AccessControl.FileSystemRights]::AppendData -bor
              [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
              [Security.AccessControl.FileSystemRights]::Delete -bor [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
@@ -99,7 +96,6 @@ Test 'Folder permissions: no write access for Users / Everyone / Authenticated U
     $targets = @($Root) + @(Get-ChildItem "$Root\bin", "$Root\config", "$Root\rules", "$Root\control" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }) +
                @(Get-ChildItem "$Root\bin" -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
     foreach ($p in $targets | Select-Object -Unique) {
-        # control\ holds short-lived command files the engine consumes: skip one that disappears between listing and reading
         $acl = try { Get-Acl -LiteralPath $p -ErrorAction Stop } catch [System.Management.Automation.ItemNotFoundException] { $null }
         if (-not $acl) { continue }
         foreach ($a in $acl.Access) {

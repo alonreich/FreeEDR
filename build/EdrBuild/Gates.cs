@@ -2,17 +2,15 @@ using System.Text;
 
 namespace EdrBuild;
 
-/// <summary>Checks a build must pass before anything is packed (docs/agents/AGENT_WORKFLOW.md §3).</summary>
 internal static class Gates
 {
-    /// <summary>Data files installed next to the programs (the programs themselves come from the NativeAOT publish).</summary>
     public static readonly string[] DataFiles =
     [
         @"config\sysmonconfig.template.xml", @"rules\custom_edr.yar", @"rules\ransomware.yar",
         "README.md", @"docs\user\USER_GUIDE.md", @"docs\install\INSTALLATION.md", @"docs\install\UNINSTALL.md",
+        @"docs\CHANGELOG.md",
     ];
 
-    /// <summary>The NativeAOT programs: project folder under src\, output folder in bin\ of the install, exe name.</summary>
     public static readonly (string Project, string BinSub, string Exe)[] Programs =
     [
         ("Edr.Engine", "", "FreeEDR-Engine.exe"),
@@ -32,7 +30,6 @@ internal static class Gates
         return true;
     }
 
-    /// <summary>*.yar plain ASCII without BOM (YARA rejects a BOM); *.md and *.xml valid UTF-8.</summary>
     public static bool Encodings(string root, BuildLog log)
     {
         var ok = true;
@@ -51,7 +48,6 @@ internal static class Gates
         return ok;
     }
 
-    /// <summary>C# tests: rules, detection decisions, Sysmon corpus, golden dashboard models, engine internals.</summary>
     public static bool DotnetTests(string root, BuildLog log)
     {
         var rc = Cli.Run("dotnet", ["test", "--project", Path.Combine(root, "src", "Edr.Core.Tests"), "-c", "Release"], log, Path.Combine(root, "src"));
@@ -60,15 +56,14 @@ internal static class Gates
         return true;
     }
 
-    /// <summary>Every program publishes as NativeAOT with no warnings (warnings are errors).</summary>
-    public static bool Publish(string root, string outDir, string version, BuildLog log)
+    public static bool Publish(string root, string outDir, string version, string informational, BuildLog log)
     {
         Cli.EnsureVswhereOnPath();
         foreach (var (project, _, exe) in Programs)
         {
             var dir = Path.Combine(outDir, project);
             if (Directory.Exists(dir)) Directory.Delete(dir, true);
-            var rc = Cli.Run("dotnet", ["publish", Path.Combine(root, "src", project), "-c", "Release", "-o", dir, $"-p:Version={version}", $"-p:FileVersion={version}", $"-p:InformationalVersion={version}"],
+            var rc = Cli.Run("dotnet", ["publish", Path.Combine(root, "src", project), "-c", "Release", "-o", dir, $"-p:Version={version}", $"-p:FileVersion={version}", $"-p:InformationalVersion={informational}", "-p:IncludeSourceRevisionInInformationalVersion=false"],
                              log, Path.Combine(root, "src"), quiet: true);
             var path = Path.Combine(dir, exe);
             if (rc != 0 || !File.Exists(path)) { log.Error($"NativeAOT publish of {project} failed (exit {rc})"); return false; }
@@ -77,13 +72,7 @@ internal static class Gates
         return true;
     }
 
-    /// <summary>
-    /// Optional code signing (signtool). Configure one of:
-    ///   EDR_SIGN_THUMBPRINT  = SHA1 thumbprint of a code-signing certificate in the current user's or machine's store
-    ///   EDR_SIGN_DLIB + EDR_SIGN_METADATA = Azure Trusted Signing (Azure.CodeSigning.Dlib.dll and its metadata.json)
-    /// Without either, the build stays unsigned (WARN). A configured signing that fails fails the build.
-    /// </summary>
-    public static bool Sign(IEnumerable<string> files, BuildLog log)
+    public static bool Sign(IEnumerable<string> files, bool required, BuildLog log)
     {
         var thumb = Environment.GetEnvironmentVariable("EDR_SIGN_THUMBPRINT");
         var dlib = Environment.GetEnvironmentVariable("EDR_SIGN_DLIB");
@@ -91,6 +80,11 @@ internal static class Gates
         var list = files.Where(File.Exists).ToList();
         if (string.IsNullOrWhiteSpace(thumb) && (string.IsNullOrWhiteSpace(dlib) || string.IsNullOrWhiteSpace(meta)))
         {
+            if (required)
+            {
+                log.Error("[Signing] a release build must be signed: set EDR_SIGN_THUMBPRINT, or EDR_SIGN_DLIB + EDR_SIGN_METADATA (EDR_ALLOW_UNSIGNED=1 allows an unsigned release). See docs\\agents\\AGENT_WORKFLOW.md §3.");
+                return false;
+            }
             log.Warn($"[Signing] not configured: {list.Count} file(s) left unsigned (SmartScreen may warn). See docs\\agents\\AGENT_WORKFLOW.md §3 (code signing).");
             return true;
         }
@@ -106,7 +100,6 @@ internal static class Gates
         return true;
     }
 
-    /// <summary>Read-only smoke test on this PC's live data: the published tray builds the model from the installed FreeEDR.</summary>
     public static bool LiveSelfTest(string trayExe, BuildLog log)
     {
         var installed = Path.Combine(Environment.GetEnvironmentVariable("ProgramW6432") ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "FreeEDR");

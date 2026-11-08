@@ -4,11 +4,6 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace Edr.Core.Native;
 
-/// <summary>
-/// Publisher of a file with a valid embedded Authenticode signature (WinVerifyTrust, no UI, no revocation check),
-/// as Get-AuthenticodeSignature reports it. Catalog-signed Windows files return null; the tray never allows
-/// Microsoft's own publishers anyway (<see cref="Catalog.UnsafeSigners"/>).
-/// </summary>
 [SupportedOSPlatform("windows")]
 public sealed partial class AuthenticodeSigners : ISignerLookup
 {
@@ -18,11 +13,29 @@ public sealed partial class AuthenticodeSigners : ISignerLookup
         try
         {
             if (!IsTrusted(path)) return null;
-#pragma warning disable SYSLIB0057   // CreateFromSignedFile is the documented way to read the Authenticode signer
+#pragma warning disable SYSLIB0057
             using var cert = new X509Certificate2(X509Certificate.CreateFromSignedFile(path));
 #pragma warning restore SYSLIB0057
             var name = cert.GetNameInfo(X509NameType.SimpleName, false);
             return string.IsNullOrEmpty(name) ? null : name;
+        }
+        catch (Exception e) when (e is System.Security.Cryptography.CryptographicException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    public string? SubjectOf(string path)
+    {
+        if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
+        try
+        {
+            if (!IsTrusted(path)) return null;
+#pragma warning disable SYSLIB0057
+            using var cert = new X509Certificate2(X509Certificate.CreateFromSignedFile(path));
+#pragma warning restore SYSLIB0057
+            var subject = AppRelease.NormalizeSubject(cert.SubjectName.Decode(X500DistinguishedNameFlags.UseNewLines | X500DistinguishedNameFlags.DoNotUsePlusSign));
+            return subject.Length == 0 ? null : subject;
         }
         catch (Exception e) when (e is System.Security.Cryptography.CryptographicException or IOException or UnauthorizedAccessException)
         {
@@ -40,15 +53,15 @@ public sealed partial class AuthenticodeSigners : ISignerLookup
             var data = new WinTrustData
             {
                 cbStruct = (uint)Marshal.SizeOf<WinTrustData>(),
-                dwUIChoice = 2,            // WTD_UI_NONE
-                fdwRevocationChecks = 0,   // WTD_REVOKE_NONE
-                dwUnionChoice = 1,         // WTD_CHOICE_FILE
+                dwUIChoice = 2,
+                fdwRevocationChecks = 0,
+                dwUnionChoice = 1,
                 pFile = fileInfo,
-                dwStateAction = 0,         // WTD_STATEACTION_IGNORE
-                dwProvFlags = 0x1000,      // WTD_CACHE_ONLY_URL_RETRIEVAL: never go online
+                dwStateAction = 0,
+                dwProvFlags = 0x1000,
             };
             var action = GenericVerifyV2;
-            return WinVerifyTrust(-1, ref action, ref data) == 0;   // INVALID_HANDLE_VALUE: no UI parent
+            return WinVerifyTrust(-1, ref action, ref data) == 0;
         }
         finally
         {

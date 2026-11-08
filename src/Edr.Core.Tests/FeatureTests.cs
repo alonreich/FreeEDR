@@ -19,7 +19,6 @@ public class ProfileTests
     [Fact]
     public void Profiles_never_name_a_user_account()
     {
-        // Per-user folders come from ProfilesRoot + wildcards, never from one account's name
         var me = Environment.UserName;
         foreach (var p in Profiles.All)
             foreach (var e in p.Entries.Concat(p.Detect.Select(d => new ProfileEntry("detect", Image: d))))
@@ -130,7 +129,6 @@ public class SummaryTests
     }
 }
 
-/// <summary>Engine internals that run without Windows services: scan parsing and Wail2Ban counting (report-only, no firewall).</summary>
 public class EngineInternalsTests
 {
     [Fact]
@@ -177,7 +175,7 @@ public class EngineInternalsTests
             var w = new Wail2Ban(ctx);
             var t = DateTime.Now;
             w.AddFailure("203.0.113.50", "Security", t, replay: false);
-            w.AddFailure("203.0.113.50", "RdpCoreTS", t.AddSeconds(1), replay: false);   // same failure logged twice: counted once
+            w.AddFailure("203.0.113.50", "RdpCoreTS", t.AddSeconds(1), replay: false);
             w.AddFailure("203.0.113.50", "Security", t.AddSeconds(10), replay: false);
             w.AddFailure("203.0.113.50", "Security", t.AddSeconds(20), replay: false);
             var events = File.ReadAllLines(ctx.Paths.EventsFile).Select(l => (JsonObject)JsonNode.Parse(l)!).ToList();

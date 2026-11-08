@@ -3,14 +3,8 @@ using System.Text.RegularExpressions;
 
 namespace Edr.Core;
 
-/// <summary>
-/// The engine's allow decisions (Test-RealtimeExcluded, Test-SigmaExcluded, Test-DefenderExcluded) as pure functions,
-/// so they are tested without Sysmon. Ancestors are supplied lazily (the process chain is read only when an allow
-/// with "ancestors" needs it); signatures through <see cref="ISignerLookup"/>.
-/// </summary>
 public static class Detection
 {
-    /// <summary>A parent pattern matches one of the first N ancestors; with parentSigner that file must carry that valid signature.</summary>
     public static bool ParentMatches(JsonObject x, string parent, Func<int, IReadOnlyList<string>>? ancestors, ISignerLookup signers)
     {
         var n = x.Int("ancestors");
@@ -45,7 +39,7 @@ public static class Detection
                            (x.Str("parent").Length > 0 && PatternRules.IsSpecific(x.Str("parent"), "parent", x.Str("parentSigner"))) ||
                            (x.Str("detail").Length > 0 && PatternRules.IsSpecific(x.Str("detail"), "detail")) ||
                            (x.Str("signer").Length > 0 && !PatternRules.IsUnsafeSigner(x.Str("signer")));
-            if (!specific) continue;   // never a blanket "ignore everything"
+            if (!specific) continue;
             return x;
         }
         return null;
@@ -78,16 +72,9 @@ public static class Detection
         return false;
     }
 
-    /// <summary>"Proc: C:\x.exe ¦ ..." parsing shared with the tray.</summary>
     public static SigmaProcess SigmaProcessOf(string details) => SigmaProcess.FromDetails(details);
 }
 
-/// <summary>
-/// Identity-based trust for FreeEDR's own processes, which are never reported: FreeEDR's executables live in the
-/// admin-only install folder, so their exact path is their identity. A child of the engine / control helper / installer
-/// is trusted only when it runs elevated; a child of the (unelevated) tray only when it is one of the few programs the
-/// tray starts. Anything that only imitates FreeEDR's names is reported ("near miss").
-/// </summary>
 public static partial class OwnProcess
 {
     public enum Verdict { NotOwn, Own, NearMiss }
@@ -103,10 +90,8 @@ public static partial class OwnProcess
         var parent = F("ParentImage");
         var pCmd = F("ParentCommandLine");
 
-        // 1. FreeEDR's own executables (also the installer writing the tray's Run value)
         if (IsOwnExe(img, rootFull) is not null) return Verdict.Own;
 
-        // 2. A child of FreeEDR's own executables
         var parentExe = IsOwnExe(parent, rootFull);
         if (parentExe is not null)
         {
@@ -114,12 +99,10 @@ public static partial class OwnProcess
             if (Ps.Eq(parentExe, EdrPaths.TrayExe) && IsTrayChild(img)) return Verdict.Own;
         }
 
-        // 3. Imitation: a command line naming FreeEDR's programs that failed the checks above
         if (OwnNameRx().IsMatch(cmd) || OwnNameRx().IsMatch(pCmd)) return Verdict.NearMiss;
         return Verdict.NotOwn;
     }
 
-    /// <summary>The file name when the path is exactly one of FreeEDR's executables under the install folder.</summary>
     public static string? IsOwnExe(string path, string rootFull)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
@@ -138,8 +121,6 @@ public static partial class OwnProcess
         return SystemUserRx().IsMatch(user);
     }
 
-    /// <summary>The programs the tray starts: Explorer (open location), Notepad (logs), winget, terminals for updates,
-    /// Python/pip (CVE updates), Defender's command-line scanner, the browser handler.</summary>
     public static bool IsTrayChild(string image)
     {
         if (string.IsNullOrWhiteSpace(image)) return false;

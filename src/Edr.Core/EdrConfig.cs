@@ -3,24 +3,17 @@ using System.Text.RegularExpressions;
 
 namespace Edr.Core;
 
-/// <summary>Wail2Ban settings: the only part of FreeEDR that really blocks (inbound firewall rules).</summary>
 public sealed class Wail2BanConfig
 {
-    /// <summary>true = ban attackers in Windows Firewall; false = report only.</summary>
     public bool Block { get; set; } = true;
-    /// <summary>Block inbound Remote Desktop from every IPv6 address (failures there are not counted). Off by default.</summary>
     public bool BlockRdpIpv6 { get; set; }
     public int WindowSeconds { get; set; } = 1800;
     public int FailCount { get; set; } = 5;
-    public int MaxBanPublicSec { get; set; } = 7_776_000;   // 90 days
-    public int MaxBanPrivateSec { get; set; } = 604_800;    // 7 days (W7)
+    public int MaxBanPublicSec { get; set; } = 7_776_000;
+    public int MaxBanPrivateSec { get; set; } = 604_800;
     public int MaxTrackedIps { get; set; } = 50_000;
 }
 
-/// <summary>
-/// config\edr-config.json. FreeEDR only detects and logs; Wail2Ban is the single part that enforces (it can be set to
-/// report only). Unknown or obsolete keys (enforce, scanTime, userProfile) are dropped when the file is rewritten.
-/// </summary>
 public sealed partial class EdrConfig
 {
     public const string DefaultFeed = "https://raw.githubusercontent.com/Neo23x0/signature-base/master/iocs/hash-iocs.txt";
@@ -29,11 +22,8 @@ public sealed partial class EdrConfig
     public List<string> QuietProcesses { get; set; } = ["FortniteClient*", "FortniteLauncher*"];
     public string IocFeedUrl { get; set; } = DefaultFeed;
     public string SigmaLookback { get; set; } = "2d";
-    /// <summary>"audit" = Defender ASR rules + Controlled folder access in audit mode (reported, never blocked);
-    /// "untouched" = FreeEDR does not change Defender's settings and only reads its log.</summary>
     public string DefenderMode { get; set; } = "audit";
     public bool AllowProfilesInitialized { get; set; }
-    /// <summary>First install time (ISO 8601): the tray's 7-day learning period starts here.</summary>
     public string InstalledAt { get; set; } = "";
     public Wail2BanConfig Wail2Ban { get; set; } = new();
 
@@ -57,7 +47,6 @@ public sealed partial class EdrConfig
         {
             if (w.ContainsKey("block")) c.Wail2Ban.Block = w.Truthy("block");
             c.Wail2Ban.BlockRdpIpv6 = w.Truthy("blockRdpIpv6");
-            // The same ranges as a save (Apply): a value set by hand or imported is used exactly as the dashboard shows it
             c.Wail2Ban.WindowSeconds = Limits.WindowSeconds.Clamp(w.Int("windowSeconds"), c.Wail2Ban.WindowSeconds);
             c.Wail2Ban.FailCount = Limits.FailCount.Clamp(w.Int("failCount"), c.Wail2Ban.FailCount);
             c.Wail2Ban.MaxBanPublicSec = Limits.MaxBanSeconds.Clamp(w.Int("maxBanPublicSec"), c.Wail2Ban.MaxBanPublicSec);
@@ -90,10 +79,6 @@ public sealed partial class EdrConfig
 
     public void Save(string path) => JsonFile.WriteAtomic(path, ToJson());
 
-    /// <summary>
-    /// Applies a validated "set-config" request (from the elevated helper). Only known keys with valid values change.
-    /// Returns true when Defender's mode changed (the caller re-applies the Defender settings).
-    /// </summary>
     public bool Apply(JsonObject req)
     {
         var defenderBefore = DefenderMode;
@@ -114,9 +99,6 @@ public sealed partial class EdrConfig
         return DefenderMode != defenderBefore;
     }
 
-    /// <summary>Why a malware hash feed address is refused ("" = usable). One rule for the dashboard, the helper and every
-    /// read of the file, so an address that is saved is never dropped later: an absolute https:// URL with a host, not
-    /// MalwareBazaar (its list needs an account key and is refused).</summary>
     public static string FeedProblem(string? url)
     {
         if (string.IsNullOrWhiteSpace(url)) return "Enter an address.";
@@ -128,12 +110,9 @@ public sealed partial class EdrConfig
 
     public static bool IsValidFeed(string? url) => FeedProblem(url).Length == 0;
 
-    /// <summary>The feed address carries something private (a key in the query, a user name or password): it is masked in
-    /// the dashboard and left out of logs.</summary>
     public static bool FeedHasSecret(string? url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Query.Length > 1 || u.UserInfo.Length > 0 || u.Fragment.Length > 1);
 
-    /// <summary>The address for logs and messages: user name / password, query and fragment replaced by "(hidden)".</summary>
     public static string RedactUrl(string? url)
     {
         if (string.IsNullOrEmpty(url) || !Uri.TryCreate(url, UriKind.Absolute, out var u)) return url ?? "";
@@ -142,7 +121,6 @@ public sealed partial class EdrConfig
         return $"{u.Scheme}://{(u.UserInfo.Length > 0 ? "(hidden)@" : "")}{host}{u.AbsolutePath}{(u.Query.Length > 1 || u.Fragment.Length > 1 ? "?(hidden)" : "")}";
     }
 
-    /// <summary>A copy of a settings request with the feed address redacted (for the audit log line).</summary>
     public static JsonObject Redacted(JsonObject req)
     {
         var c = (JsonObject)req.DeepClone();
@@ -150,8 +128,6 @@ public sealed partial class EdrConfig
         return c;
     }
 
-    /// <summary>The PC settings the Settings page edits, as stored now (the keys of <see cref="UserDefaults"/>): the
-    /// baseline a save is compared against, so a value is never changed just because it was shown.</summary>
     public JsonObject UserJson()
     {
         var o = ToJson();
@@ -161,20 +137,16 @@ public sealed partial class EdrConfig
         return o;
     }
 
-    /// <summary>The settings a user can change on the Settings page, at their out-of-the-box values.</summary>
     public static JsonObject UserDefaults()
     {
         var d = new EdrConfig().ToJson();
         d.Remove("installedAt");
         d.Remove("allowProfilesInitialized");
-        // Quiet mode only holds back the tray's pop-ups: it is a per-account preference (the PC value is the starting list)
         d.Remove("quietProcesses");
         ((JsonObject)d["wail2ban"]!).Remove("maxTrackedIps");
         return d;
     }
 
-    /// <summary>The values in <paramref name="now"/> that differ from <paramref name="before"/> (nested objects compared per
-    /// key, arrays as a whole): what a settings save must send, so it never overwrites a value it did not change.</summary>
     public static JsonObject Changes(JsonObject before, JsonObject now)
     {
         var d = new JsonObject();
@@ -191,17 +163,14 @@ public sealed partial class EdrConfig
         return d;
     }
 
-    /// <summary>A quiet-mode entry: a program name with wildcards, never a folder (1-127 characters, no \ or /).</summary>
     public static bool IsQuietName(string s) => s.Length is > 0 and < 128 && !s.Contains('\\') && !s.Contains('/');
 
     public static bool IsTime(string s) => TimeRx().IsMatch(s) && TimeSpan.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, out var t) && t < TimeSpan.FromDays(1);
 
     private static int Positive(int v, int fallback) => v > 0 ? v : fallback;
 
-    /// <summary>One numeric range for every reader and writer of the file (the dashboard, the helper, the engine).</summary>
     public readonly record struct Range(int Min, int Max)
     {
-        /// <summary>0 or missing = <paramref name="fallback"/>; anything else into the range.</summary>
         public int Clamp(int v, int fallback) => v <= 0 ? fallback : Math.Clamp(v, Min, Max);
     }
 
@@ -212,7 +181,6 @@ public sealed partial class EdrConfig
         public static readonly Range MaxBanSeconds = new(300, 31_536_000);
     }
 
-    /// <summary>The scheduled scan slot before and after <paramref name="now"/> (Get-ScanSlots).</summary>
     public static (DateTime Prev, DateTime Next) ScanSlots(IEnumerable<string> times, DateTime now)
     {
         var spans = times.Select(t => TimeSpan.TryParse(t, System.Globalization.CultureInfo.InvariantCulture, out var s) ? s : (TimeSpan?)null)
