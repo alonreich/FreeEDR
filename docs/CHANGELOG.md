@@ -15,6 +15,7 @@ tag and "Unreleased" is empty):
 ### What's new for you
 
 ### Technical
+- `Fixtures\live-2026-11-01`: normalized synthetic event fixture telemetry (paths and IPs) in `events.jsonl` and `model.json`.
 - `release.yml`: the changelog commit is titled `Release <version>: changelog` again (`${env:VERSION}`; `$env:VERSION:` made PowerShell read the colon as part of the name, so 2026.11.8's commit is titled "Release  changelog").
 
 ## 2026.11.8 - 2026-11-08
