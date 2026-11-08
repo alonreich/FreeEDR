@@ -57,7 +57,10 @@ jobs:
             gh api -X DELETE "repos/$env:REPO/releases/$($r.id)"
             if ($LASTEXITCODE) { throw "could not remove the leftover draft v$v" }
           }
-          git push origin --delete "release-staging/v$v" 2>$null
+          if (git ls-remote --heads origin "refs/heads/release-staging/v$v") {
+            git push origin --delete "release-staging/v$v"
+            if ($LASTEXITCODE) { throw "could not remove the leftover branch release-staging/v$v" }
+          }
           "VERSION=$v" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           "STAGING=release-staging/v$v" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           Write-Host "Releasing FreeEDR $v (previous: $(if ($last) { $last } else { 'none' }))$(if ($env:DRY_RUN -eq 'true') { ' - DRY RUN' })"
@@ -171,6 +174,7 @@ jobs:
           gh release delete "v$env:VERSION" --yes
           if ($LASTEXITCODE) { throw "could not remove the dry-run draft" }
           git push origin --delete $env:STAGING
+          if ($LASTEXITCODE) { throw "could not remove $env:STAGING" }
           Write-Host "Dry run passed: build, tests, upload and verification of v$env:VERSION work. Nothing was published; $env:BRANCH is unchanged."
 
       - name: Bring the release commit to the branch (before publishing, so the changelog never lags a release)
@@ -196,6 +200,8 @@ jobs:
             Start-Sleep -Seconds 5
           }
           git push origin --delete $env:STAGING
+          if ($LASTEXITCODE) { Write-Warning "could not remove $env:STAGING (the release is published; delete the branch by hand)" }
+          exit 0
 
       - name: Keep installers of the five newest verified releases only (tags, notes and history stay)
         if: ${{ !inputs.dry_run }}
@@ -212,6 +218,7 @@ jobs:
             }
           }
           Write-Host "Installers kept: $(($verified | Select-Object -First ([int]$env:KEEP) | ForEach-Object tag_name) -join ', ')"
+          exit 0
 
       - name: Clean up an unfinished release (failed or cancelled)
         if: ${{ failure() || cancelled() }}
@@ -220,7 +227,7 @@ jobs:
           if ($env:PUBLISHED -eq '1') { Write-Warning "v$env:VERSION is published; only a later step failed. Nothing is removed."; exit 0 }
           $drafts = @(gh api "repos/$env:REPO/releases?per_page=100" --paginate --slurp | Out-String | ConvertFrom-Json | ForEach-Object { $_ } | Where-Object { $_.tag_name -eq "v$env:VERSION" -and $_.draft })
           foreach ($d in $drafts) { gh api -X DELETE "repos/$env:REPO/releases/$($d.id)"; Write-Host "Draft v$env:VERSION removed: nothing was published" }
-          git push origin --delete $env:STAGING 2>$null
+          if ($env:STAGING -and (git ls-remote --heads origin "refs/heads/$env:STAGING")) { git push origin --delete $env:STAGING }
           if ($env:BRANCH_PUSHED -eq '1' -and $env:PROMOTED -eq '1') {
             git fetch origin $env:BRANCH
             git checkout -B undo "origin/$env:BRANCH"
@@ -230,6 +237,7 @@ jobs:
             if ($LASTEXITCODE) { Write-Warning "could not push the undo of the changelog promotion to $env:BRANCH"; exit 1 }
             Write-Host "The changelog promotion on $env:BRANCH was undone: its entries are back under Unreleased"
           }
+          exit 0
 
       - name: Keep the build log
         if: always()
