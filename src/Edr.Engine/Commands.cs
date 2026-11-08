@@ -25,9 +25,31 @@ internal sealed class Commands(Context ctx, Wail2Ban w2b, Scanner scanner)
         }
     }
 
+    /// <summary>What the last <see cref="Execute"/> wants the caller to know (the pipe passes it to the dashboard), or "".</summary>
+    public string LastNote { get; private set; } = "";
+
+    /// <summary>The last request was valid but (a step of it) could not be carried out, e.g. Defender kept an allow or a
+    /// scan could not start yet: the caller says "not done" with <see cref="LastNote"/>, never "refused as too broad".</summary>
+    public bool LastFailed { get; private set; }
+
     /// <summary>Validates and runs one request (from control\ / inbox\ or the pipe). False = refused (not allowed for this
-    /// caller, or not a valid request); true = accepted (a no-op such as resuming what is not paused counts as done).</summary>
+    /// caller, or not a valid request) or not completed (<see cref="LastFailed"/>); true = done (a no-op such as resuming
+    /// what is not paused counts as done).</summary>
     public bool Execute(JsonObject cmd, bool trusted)
+    {
+        LastNote = "";
+        LastFailed = false;
+        return Run(cmd, trusted);
+    }
+
+    private bool NotDone(string why)
+    {
+        LastFailed = true;
+        LastNote = why;
+        return false;
+    }
+
+    private bool Run(JsonObject cmd, bool trusted)
     {
         var action = cmd.Str("action");
         if (!trusted && !PatternRules.InboxActions.Contains(action)) { ctx.Log.Warn($"Ignored '{action}' from an unelevated caller (needs admin)"); return false; }
@@ -61,8 +83,17 @@ internal sealed class Commands(Context ctx, Wail2Ban w2b, Scanner scanner)
                           extra: new() { ["kind"] = "audit", ["rubric"] = b, ["action"] = "resume", ["user"] = user });
                 break;
             }
-            case "scan-now": scanner.StartManual(); break;
-            case "block": Flag(cmd); break;
+            case "scan-now":
+            {
+                var (started, why) = scanner.StartManual();
+                if (!started) return NotDone(why);
+                LastNote = why;   // e.g. "a scan is already running"
+                break;
+            }
+            case "block":
+                Flag(cmd);
+                if (LastFailed) return false;
+                break;
             case "unblock": Unflag(cmd.Str("id")); break;
             case "batch":
                 if (cmd["ops"] is not JsonArray ops || ops.Count > PatternRules.MaxBatch) { ctx.Log.Warn("Refused batch (missing or over the cap)"); return false; }
@@ -71,12 +102,14 @@ internal sealed class Commands(Context ctx, Wail2Ban w2b, Scanner scanner)
                 {
                     if (!PatternRules.BatchActions.Contains(op.Str("action"))) continue;
                     op["user"] = user;   // every step is recorded under the batch's (verified) caller
-                    all &= Execute(op, trusted);
+                    all &= Run(op, trusted);
                 }
                 return all;
             case "unban": Unban(Ip.Normalize(cmd.Str("ip"))!); break;
             case "exclude": Exclude(cmd, user); break;
-            case "unexclude": Unexclude(cmd.Str("id"), user); break;
+            case "unexclude":
+                if (!Unexclude(cmd.Str("id"), user)) return NotDone("Microsoft Defender did not remove the allow: it is still active and stays listed. The reason is in Activity > Messages.");
+                break;
             case "note":   // an event from FreeEDR's elevated helper or installer: the engine is the only writer of events.jsonl
             {
                 var extra = new JsonObject { ["kind"] = cmd.Str("kind"), ["by"] = user };
@@ -123,9 +156,17 @@ internal sealed class Commands(Context ctx, Wail2Ban w2b, Scanner scanner)
                 if (ctx.Cfg.Wail2Ban.Block)
                 {
                     entry["enforce"] = true;
-                    Firewall.RemoveBan(ip);
-                    try { Firewall.AddBan(ip, "never"); }
-                    catch (Exception e) when (e is IOException or ArgumentException) { ctx.Event("wail2ban", "High", $"Failed to block {ip}", detail: e.Message, extra: new() { ["ip"] = ip }); return; }
+                    // An existing (temporary) block is turned permanent in place, never removed first: when the firewall
+                    // refuses the change, the address stays blocked as it was
+                    try { Firewall.MakePermanent(ip); }
+                    catch (Exception e) when (e is IOException or ArgumentException)
+                    {
+                        var still = Firewall.HasBan(ip) ? " Its current temporary block stays in place." : "";
+                        ctx.Event("wail2ban", "High", $"Failed to block {ip}", detail: e.Message + still, extra: new() { ["ip"] = ip });
+                        LastFailed = true;
+                        LastNote = $"Windows Firewall did not accept the permanent block for {ip}.{still}";
+                        return;
+                    }
                     entry["note"] = "Blocked permanently in Windows Firewall by you.";
                     ctx.AppEvent($"Blocked {ip} permanently (by user)", 1000);
                 }
@@ -223,7 +264,8 @@ internal sealed class Commands(Context ctx, Wail2Ban w2b, Scanner scanner)
                 var cidr = c.Str("cidr");
                 ctx.Excl.Add("wail2ban", new() { ["cidr"] = cidr, ["note"] = c.Str("note") }, user);
                 foreach (var b in ctx.Blocks.Items.Where(b => b.Str("ip").Length > 0 && Ip.InCidr(b.Str("ip"), cidr)).ToList()) Unflag(b.Str("id"));
-                foreach (var b in w2b.Banned.OfType<JsonObject>().Select(o => o.Str("ip")).Where(ip => Ip.InCidr(ip, cidr)).ToList()) { Firewall.RemoveBan(b); w2b.Forget(b); }
+                // The firewall's own rules, not the ban list of the last status write: a ban made seconds ago is removed too
+                foreach (var b in Firewall.BanRules().Select(r => r.Ip).Where(ip => Ip.InCidr(ip, cidr)).ToList()) { Firewall.RemoveBan(b); w2b.Forget(b); }
                 w2b.RemoveExpiredBans();
                 break;
             }
@@ -238,14 +280,28 @@ internal sealed class Commands(Context ctx, Wail2Ban w2b, Scanner scanner)
         }
     }
 
-    private void Unexclude(string id, string user)
+    /// <summary>Removes one Defender allow (kind, path) → (ok, error). Tests replace it.</summary>
+    internal Func<string, string, (bool Ok, string Error)> RemoveDefenderAllow { get; set; } = Defender.RemoveAllow;
+
+    private bool Unexclude(string id, string user)
     {
-        if (ctx.Excl.Find(id) is not { } hit) return;
+        var removeDefenderAllow = RemoveDefenderAllow;
+        if (ctx.Excl.Find(id) is not { } hit) return true;
         if (hit.List == "defender")
         {
-            var (ok, err) = Defender.RemoveAllow(hit.Entry.Str("kind"), hit.Entry.Str("path"));
-            if (!ok) ctx.Log.Error($"Remove Defender exclusion failed: {err}");
+            // Removed from FreeEDR's list only once Defender no longer has it: an allow that stays active stays listed,
+            // so it can be removed again from the dashboard and by the uninstaller
+            var kind = hit.Entry.Str("kind").Length > 0 ? hit.Entry.Str("kind") : "asr";
+            var (ok, err) = removeDefenderAllow(kind, hit.Entry.Str("path"));
+            if (!ok)
+            {
+                ctx.Log.Error($"Remove Defender exclusion failed: {err}");
+                ctx.Event("system", "Medium", "Could not remove a Microsoft Defender allow", detail: $"{hit.Entry.Str("path")} ({kind}): {err}. It is still active in Microsoft Defender and stays listed under Allowed & trusted; try again later.",
+                          extra: new() { ["kind"] = "status" });
+                return false;
+            }
         }
         ctx.Excl.Remove(hit.List, hit.Entry, user);
+        return true;
     }
 }

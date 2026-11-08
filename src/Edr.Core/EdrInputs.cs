@@ -53,6 +53,15 @@ public sealed class EdrInputs
         return x;
     }
 
+    /// <summary>The event history was deleted (reset): what was kept from evicted events goes too.</summary>
+    public void ClearHistory()
+    {
+        EvictedCounts.Clear();
+        LastBans.Clear();
+        EvictedPinned.Clear();
+        Claude = null;
+    }
+
     public void RecordEvicted(Rec e)
     {
         var b = e.S("blade");
@@ -204,11 +213,42 @@ public sealed class EventTail(string path, int? capacity = null, int budget = Ev
 
     public int Capacity { get; } = capacity ?? (int.TryParse(Environment.GetEnvironmentVariable("EDR_EVENT_CAP"), out var c) ? c : DefaultCapacity);
     public long Offset { get; private set; }
+    private string? _fileId;
 
-    /// <summary>Appends new events to <paramref name="events"/>; returns them. Clears or trims the list on rotation/cap.</summary>
+    /// <summary>The last <see cref="ReadNew"/> found the history deleted (factory reset or clean install) and emptied the list.</summary>
+    public bool WasReset { get; private set; }
+
+    /// <summary>
+    /// The events file is gone or shorter than what was read. A rotation always leaves an <c>events-*.jsonl</c> archive
+    /// next to it (the engine keeps 5), so the events read so far stay (trimmed); with no archive the whole history was
+    /// deleted (reset to defaults, clean install), so nothing read before may be shown any more.
+    /// </summary>
+    private bool HistoryDeleted()
+    {
+        var dir = Path.GetDirectoryName(path);
+        try { return dir is null || !Directory.Exists(dir) || !Directory.EnumerateFiles(dir, "events-*.jsonl").Any(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+    }
+
+    private void Reset(List<Rec> events, EdrInputs? inputs)
+    {
+        events.Clear();
+        inputs?.ClearHistory();
+        Offset = 0;
+        WasReset = true;
+    }
+
+    /// <summary>Appends new events to <paramref name="events"/>; returns them. Trims the list on rotation/cap; empties it
+    /// when the history was deleted (<see cref="WasReset"/>).</summary>
     public IReadOnlyList<Rec> ReadNew(List<Rec> events, EdrInputs? inputs = null, bool drainAll = false)
     {
-        if (!File.Exists(path)) return [];
+        WasReset = false;
+        if (!File.Exists(path))
+        {
+            if ((Offset > 0 || events.Count > 0) && HistoryDeleted()) Reset(events, inputs);
+            else Offset = 0;   // rotated, the new file is not written yet: start it from the beginning
+            return [];
+        }
         var added = new List<Rec>();
         do
         {
@@ -218,8 +258,14 @@ public sealed class EventTail(string path, int? capacity = null, int budget = Ev
             using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
                 len = fs.Length;
-                if (len < Offset)
+                // Another file than the one read so far (rotated, or deleted and written again), even one already longer
+                // than the old read position; or the same file cut shorter
+                var id = OperatingSystem.IsWindows() ? Native.Win32.FileIdOf(fs.SafeFileHandle) : null;
+                var replaced = id is not null && _fileId is not null && id != _fileId;
+                if (id is not null) _fileId = id;
+                if (replaced || len < Offset)
                 {
+                    if (HistoryDeleted()) Reset(events, inputs);
                     Offset = 0;
                     while (events.Count > 5000)
                     {

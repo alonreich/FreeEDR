@@ -14,8 +14,9 @@ namespace Edr.Control;
 /// acting it shows the decoded request in its own elevated confirmation window (UIPI keeps unelevated programs from
 /// clicking it) and always works on the installed folder (EdrPaths.DefaultRoot, admin-only): there is no --root.
 /// The confirmation shows the whole request or the request is refused (exit code 6): no step or value is cut.
-/// Exit codes: 0 done, 2 refused (invalid request), 3 failed, 4 declined in the confirmation, 5 not elevated,
-/// 6 too large to confirm in one window.
+/// Exit codes: 0 done (or queued in control\ for the engine), 2 refused (invalid request), 3 failed, 4 declined in the
+/// confirmation, 5 not elevated, 6 too large to confirm in one window, 7 sent but the engine did not answer in time (it
+/// may still be carried out), 8 valid but the engine could not carry it out (the reason is an event in Activity).
 /// </summary>
 internal static partial class Program
 {
@@ -61,38 +62,58 @@ internal static partial class Program
         }
     }
 
-    /// <summary>The administrator confirms the decoded request (default button: No).</summary>
-    private static bool Confirmed(string summary, bool weakens)
-    {
-        var text = $"FreeEDR is about to make this change as administrator:\n\n{summary}\n\n" +
-                   "Continue only if you started it from the FreeEDR dashboard just now.";
-        const uint yesNo = 0x4, warning = 0x30, question = 0x20, defaultNo = 0x100, setForeground = 0x10000, topmost = 0x40000;
-        var flags = yesNo | defaultNo | setForeground | topmost | (weakens ? warning : question);
-        return MessageBoxW(0, text, "FreeEDR - confirm administrator change", flags) == 6;   // IDYES
-    }
+    /// <summary>The administrator confirms the decoded request (default: No). A scrolling window that always fits the
+    /// screen (<see cref="ConfirmWindow"/>), so a long request is never shown cut off.</summary>
+    private static bool Confirmed(string summary, bool weakens) =>
+        ConfirmWindow.Ask("FreeEDR - confirm administrator change", "FreeEDR is about to make this change as administrator:", summary,
+                          "Continue only if you started it from the FreeEDR dashboard just now.", weakens);
 
-    [System.Runtime.InteropServices.LibraryImport("user32.dll", StringMarshalling = System.Runtime.InteropServices.StringMarshalling.Utf16)]
-    private static partial int MessageBoxW(nint hWnd, string text, string caption, uint type);
-
-    /// <summary>Engine verbs: over the engine's pipe (the engine identifies this elevated caller and answers); when the
-    /// engine is not running, dropped into control\ for its next start.</summary>
+    /// <summary>
+    /// Engine verbs: over the engine's pipe (the engine identifies this elevated caller and answers). When the engine is
+    /// not running, or answers that it was too busy to start the request before this helper's deadline (it then never
+    /// runs it), the request goes into control\ for the engine's next pass. A request that was sent but not answered in
+    /// time may still run, so it is never queued a second time (exit 7).
+    /// </summary>
     private static int Drop(EdrPaths paths, JsonObject cmd)
     {
         cmd["user"] = Environment.UserName;   // the administrator who confirmed it, never what the payload claims
-        var (reached, ok, message) = EnginePipe.SendAsync(cmd, 30_000).GetAwaiter().GetResult();
-        if (reached)
+        var r = EnginePipe.SendAsync(cmd, 30_000).GetAwaiter().GetResult();
+        var log = new TextLog(paths.EngineLog);
+        if (r.Answered)
         {
-            if (!ok) new TextLog(paths.EngineLog).Warn($"Control helper: the engine refused '{cmd.Str("action")}': {message}");
-            return ok ? 0 : 2;
+            if (r.Ok) return 0;
+            log.Warn($"Control helper: the engine {(r.Failed ? "could not carry out" : "refused")} '{cmd.Str("action")}': {r.Message}");
+            return r.Failed ? 8 : 2;
         }
+        if (r.Unanswered)
+        {
+            log.Warn($"Control helper: '{cmd.Str("action")}' was sent but the engine did not answer in time ({r.Message}); it may still be carried out");
+            return 7;
+        }
+        if (r.Busy) log.Info($"Control helper: the engine was busy; '{cmd.Str("action")}' is queued in control\\");
         CommandDrop.Write(paths.ControlDir, cmd);
         return 0;
     }
 
+    /// <summary>Stops the service and waits until it really has stopped (a command or scan step may take a while).</summary>
+    private static bool StopEngine() => Services.Stop(EdrPaths.ServiceName, 90);
+
+    /// <summary>Starts the service; one that is still stopping is waited for and started again.</summary>
+    private static bool StartEngine()
+    {
+        if (Services.Start(EdrPaths.ServiceName, 30)) return true;
+        Services.WaitFor(EdrPaths.ServiceName, Services.State.Stopped, 60);
+        return Services.Start(EdrPaths.ServiceName, 30);
+    }
+
+    /// <summary>True only when the engine stopped and runs again; it is started in every case.</summary>
     private static bool RestartEngine()
     {
-        Services.Stop(EdrPaths.ServiceName, 30);
-        return Services.Start(EdrPaths.ServiceName, 30);
+        var stopped = StopEngine();
+        if (!stopped) new TextLog(new EdrPaths().EngineLog).Error("Control helper: the engine did not stop within 90 seconds");
+        var started = StartEngine();
+        if (!started) new TextLog(new EdrPaths().EngineLog).Error("Control helper: the engine did not start again");
+        return stopped && started;
     }
 
     private static int SetConfig(EdrPaths paths, JsonObject req, bool restart)
@@ -118,14 +139,37 @@ internal static partial class Program
     }
 
     /// <summary>Factory reset: settings, allows (the recommended trusted apps again), verdicts, bans, strikes, state, events and every account's tray state.</summary>
+    /// <summary>Only with the engine really stopped (it would write its state back over the reset), and the engine is
+    /// started again whatever happens, so a failed reset never leaves protection off.</summary>
     private static int RestoreDefaults(EdrPaths paths)
     {
-        Services.Stop(EdrPaths.ServiceName, 30);
         var log = new TextLog(paths.EngineLog);
-        foreach (var n in FactoryReset.Apply(paths, everything: false)) log.Info($"Restore defaults: {n}");
-        new TextLog(paths.EngineLog).Audit($"[FORENSIC-AUDIT] [{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}] [USER: {Environment.UserName}] [RUBRIC: all] [ACTION: RESTORE-DEFAULTS]");
-        Win32.WriteAppEvent(EdrPaths.EventSource, $"Forensic Audit: factory reset by '{Environment.UserName}'", 3000);
-        return Services.Start(EdrPaths.ServiceName, 30) ? 0 : 3;
+        if (!StopEngine())
+        {
+            log.Error("Restore defaults: the engine did not stop within 90 seconds - nothing was reset");
+            StartEngine();
+            return 3;
+        }
+        var started = false;
+        try
+        {
+            foreach (var n in FactoryReset.Apply(paths, everything: false)) log.Info($"Restore defaults: {n}");
+            log.Audit($"[FORENSIC-AUDIT] [{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}] [USER: {Environment.UserName}] [RUBRIC: all] [ACTION: RESTORE-DEFAULTS]");
+            Win32.WriteAppEvent(EdrPaths.EventSource, $"Forensic Audit: factory reset by '{Environment.UserName}'", 3000);
+        }
+        catch (Exception e)
+        {
+            log.Error($"Restore defaults stopped part-way: {e.GetType().Name}: {e.Message}");
+            started = StartEngine();
+            if (started) EngineNote.Send(paths, "High", "Reset to defaults did not finish", detail: $"{e.Message}. Some settings, allows or files may still be as before. Try the reset again.");
+            return 3;
+        }
+        finally
+        {
+            if (!started) started = StartEngine();
+            if (!started) log.Error("Restore defaults: the engine did not start again");
+        }
+        return started ? 0 : 3;
     }
 
     private static int UpdateTool(EdrPaths paths, string name)

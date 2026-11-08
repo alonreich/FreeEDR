@@ -37,6 +37,8 @@ public sealed class Controller
         Prefs = new Preferences(state.Paths.PreferencesFile);
         Insights = new Insights(Path.Combine(state.Paths.LocalDir, "insights.json"));
         Winget = new WingetCheck(state);
+        Commands.Slow = () => Say("Still waiting for the administrator step: its confirmation window may still be open, or a download is still running. " +
+                                  "FreeEDR tells you the result when it finishes.");
     }
 
     public string UserProfile => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -66,7 +68,7 @@ public sealed class Controller
         if (!await Dialogs.Confirm(title, question, yes, danger: danger, note: "Windows asks for administrator approval.")) return false;
         var r = await Commands.Ops(list);
         Say(Commands.Explain(r), r != CommandResult.Done);
-        if (r == CommandResult.Done) { await Task.Delay(1500); Refresh(); }
+        if (r is CommandResult.Done or CommandResult.Incomplete or CommandResult.Unconfirmed) { await Task.Delay(1500); Refresh(); }   // something may have changed
         return r == CommandResult.Done;
     }
 
@@ -407,7 +409,7 @@ public sealed class Controller
             blade = "edr";
         }
         var r = await Commands.User(new() { ["action"] = "resume", ["blade"] = blade });
-        Say(r == CommandResult.Done ? $"{Catalog.PauseNames.GetValueOrDefault(blade, blade)} is active again within a few seconds." : Commands.Explain(r), r != CommandResult.Done);
+        Say(r == CommandResult.Done ? $"{Catalog.PauseNames.GetValueOrDefault(blade, blade)} is active again within a few seconds." : UserReply(r), r != CommandResult.Done);
         await Task.Delay(2500);
         Refresh();
     }
@@ -417,8 +419,15 @@ public sealed class Controller
         if (State.Status?.Child("scan")?.T("running") == true) { Say("A scan is already running. You will be told when it finishes."); return; }
         if (State.PauseState("edr") == "paused") { Say("Detection is paused - resume it first.", true); return; }
         var r = await Commands.User(new() { ["action"] = "scan-now" });
-        Say(r == CommandResult.Done ? "Scan started: malware hashes, event logs and the vulnerability check run in the background." : Commands.Explain(r), r != CommandResult.Done);
+        // The engine says when it did not start one (paused, or one was started less than 2 minutes ago) or one runs already
+        Say(r == CommandResult.Done
+                ? Commands.LastMessage.Length > 0 ? Commands.LastMessage : "Scan started: malware hashes, event logs and the vulnerability check run in the background."
+                : UserReply(r), r != CommandResult.Done);
     }
+
+    /// <summary>A request without UAC that was not done: the engine's own reason when it gave one.</summary>
+    private string UserReply(CommandResult r) =>
+        r is CommandResult.Incomplete or CommandResult.Refused && Commands.LastMessage.Length > 0 ? $"Not done: {Commands.LastMessage}" : Commands.Explain(r);
 
     public async Task RestartEngine()
     {
@@ -440,9 +449,10 @@ public sealed class Controller
 
     public async Task FactoryReset()
     {
-        if (!await Dialogs.Confirm("Reset FreeEDR", "Put FreeEDR's PC settings back to the defaults?\n\nThis removes all your allows, verdicts and Wail2Ban bans, clears the alert history and the reviewed marks of every account, and turns the recommended trusted apps back on.\n\nKept as they are: the Microsoft Defender choice (Audit or Off), each account's \"Just for you\" choices, the logs, scan results and the event-log archive.", "Reset everything", danger: true, note: "Windows asks for administrator approval. This cannot be undone.")) return;
+        if (!await Dialogs.Confirm("Reset FreeEDR", "Put FreeEDR's PC settings back to the defaults?\n\nThis removes all your allows (also the Microsoft Defender allows added from FreeEDR), verdicts and Wail2Ban bans, clears the alert history and the reviewed marks of every account, and turns the recommended trusted apps back on.\n\nKept as they are: the Microsoft Defender choice (Audit or Off), each account's \"Just for you\" choices, the logs, scan results and the event-log archive.", "Reset everything", danger: true, note: "Windows asks for administrator approval. This cannot be undone.")) return;
         var r = await Commands.Admin(new() { ["action"] = "restore-defaults" });
-        Say(r == CommandResult.Done ? "FreeEDR was reset to its defaults." : Commands.Explain(r), r != CommandResult.Done);
+        Say(r == CommandResult.Done ? "FreeEDR was reset to its defaults." : r == CommandResult.Failed
+            ? "The reset did not finish (the engine was started again). The engine log has the details (Settings > Open logs); try the reset again." : Commands.Explain(r), r != CommandResult.Done);
         Refresh();
     }
 

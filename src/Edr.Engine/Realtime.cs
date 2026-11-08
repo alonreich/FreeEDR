@@ -33,7 +33,13 @@ internal sealed class Realtime : IDisposable
     public int IocCount => _ioc.Count;
     public IReadOnlyList<string> YaraRuleNames => _yaraRuleFiles.Select(Path.GetFileName).Select(s => s ?? "").ToList();
 
-    private sealed record YaraJob(string Blade, string Severity, string Title, string Image, string Detail, JsonObject Extra);
+    /// <summary><paramref name="OnlyIfHit"/>: the behaviour alert was allowed, so only a YARA match is reported (no "not
+    /// scanned" alert for an allowed program).</summary>
+    private sealed record YaraJob(string Blade, string Severity, string Title, string Image, string Detail, JsonObject Extra, bool OnlyIfHit = false);
+
+    /// <summary>YARA jobs for allowed programs never take more than half the queue: the alerts that were not allowed
+    /// keep their YARA scan under load.</summary>
+    public const int AllowedYaraShare = 100;
 
     public Realtime(Context ctx) => _ctx = ctx;
 
@@ -103,17 +109,19 @@ internal sealed class Realtime : IDisposable
         foreach (var job in _yaraQueue.GetConsumingEnumerable(_stop.Token).AsEnumerableSafe())
         {
             var blade = job.Blade; var sev = job.Severity; var title = job.Title; var detail = job.Detail;
+            var hit = false;
             try
             {
                 var r = ScanFile(job.Image);
-                if (r.Hit is not null) { blade = "yara"; sev = "Critical"; title = $"YARA match: {r.Hit}"; job.Extra["yaraRule"] = r.Hit; }
-                else if (r.NotScanned is not null) NotScanned(job, r.NotScanned, ref detail);
+                if (r.Hit is not null) { hit = true; blade = "yara"; sev = "Critical"; title = $"YARA match: {r.Hit}"; job.Extra["yaraRule"] = r.Hit; }
+                else if (r.NotScanned is not null && !job.OnlyIfHit) NotScanned(job, r.NotScanned, ref detail);
             }
             catch (Exception e)
             {
                 _ctx.Log.Warn($"YARA scan failed: {e.Message}");
-                NotScanned(job, $"the scan failed ({e.GetType().Name})", ref detail);
+                if (!job.OnlyIfHit) NotScanned(job, $"the scan failed ({e.GetType().Name})", ref detail);
             }
+            if (job.OnlyIfHit && !hit) continue;   // allowed behaviour, no match: nothing to report
             _ctx.Event(blade, sev, title, job.Image, detail, job.Extra);
         }
     }
@@ -264,9 +272,15 @@ internal sealed class Realtime : IDisposable
 
         List<string>? anc = null;
         IReadOnlyList<string> AncestorsOf(int n) => (anc ??= Ancestors(r)).Take(Math.Max(1, n)).ToList();
-        if (Detection.RealtimeExcluded(_ctx.Excl["realtimePath"], _ctx.Excl["realtime"], rule, image, parent, detail, AncestorsOf, _signers) is not null) return;
-
         var hash = r["Hashes"].Length > 0 ? Ps.Rx(",.*$").Replace(Ps.Rx("^.*SHA256=").Replace(r["Hashes"], ""), "") : "";
+        if (Detection.RealtimeExcluded(_ctx.Excl["realtimePath"], _ctx.Excl["realtime"], rule, image, parent, detail, AncestorsOf, _signers) is { } allow)
+        {
+            // A real-time allow hides the behaviour alert only: a known-malware hash or a YARA match of the program is
+            // still reported (what "Allow everything it starts" promises), unless an IOC / YARA allow covers it
+            AllowedMalwareCheck(r, rule, image, parent, detail, hash, allow);
+            return;
+        }
+
         var blade = "realtime";
         var sev = Catalog.RuleSeverity.TryGetValue(rule, out var s) ? s : r.Id is 19 or 20 or 21 ? "High" : "Medium";
         var title = rule;
@@ -280,14 +294,13 @@ internal sealed class Realtime : IDisposable
 
         if (!_ctx.State.IsPaused("malware"))
         {
-            if (hash.Length > 0 && _ioc.TryGetValue(hash, out var name) && !_ctx.Excl["ioc"].Any(x => Ps.Eq(x.Str("sha256"), hash)))
+            if (KnownMalware(hash) is { } name)
             {
                 blade = "ioc"; sev = "Critical";
                 title = name.Length > 0 ? $"Known malware: {name}" : $"Known malware hash ({rule})";
                 extra["threat"] = name;
             }
-            if (image.Length > 0 && !image.StartsWith(EdrPaths.SystemRoot + "\\", StringComparison.OrdinalIgnoreCase) && File.Exists(image) &&
-                !_ctx.Excl["yara"].Any(x => Ps.Like(image, x.Str("image"))))
+            if (YaraCandidate(image))
             {
                 if (_yaraQueue.TryAdd(new YaraJob(blade, sev, title, image, detail, extra))) return;
                 extra["yaraSkipped"] = true;   // queue overflow under a flood: report without YARA rather than block intake
@@ -295,6 +308,39 @@ internal sealed class Realtime : IDisposable
             }
         }
         _ctx.Event(blade, sev, title, image, detail, extra);
+    }
+
+    /// <summary>The IOC name (may be empty) when the hash is known malware and no IOC allow covers it; else null.</summary>
+    private string? KnownMalware(string hash) =>
+        hash.Length > 0 && _ioc.TryGetValue(hash, out var name) && !_ctx.Excl["ioc"].Any(x => Ps.Eq(x.Str("sha256"), hash)) ? name : null;
+
+    /// <summary>A program YARA checks: outside %SystemRoot%, still there, no YARA allow for it.</summary>
+    private bool YaraCandidate(string image) =>
+        image.Length > 0 && !image.StartsWith(EdrPaths.SystemRoot + "\\", StringComparison.OrdinalIgnoreCase) && File.Exists(image) &&
+        !_ctx.Excl["yara"].Any(x => Ps.Like(image, x.Str("image")));
+
+    /// <summary>
+    /// The behaviour alert was allowed: the program is still checked against the malware hashes (at once) and YARA (in
+    /// the background, at most <see cref="AllowedYaraShare"/> queued, results cached per file version), and only a hit is
+    /// reported, as an "ioc" / "yara" alert that names the allow. Not while Anti-Malware is paused.
+    /// </summary>
+    private void AllowedMalwareCheck(EventRecord r, string rule, string image, string parent, string detail, string hash, JsonObject allow)
+    {
+        if (_ctx.State.IsPaused("malware")) return;
+        var extra = new JsonObject
+        {
+            ["rule"] = rule, ["sha256"] = hash, ["parent"] = parent, ["user"] = r["User"], ["sysmonId"] = r.Id,
+            ["allowedBehaviour"] = allow.Str("id").Length > 0 ? allow.Str("id") : "built-in",
+        };
+        var note = "The program's behaviour is allowed in FreeEDR, but the program itself matched a malware check.";
+        if (KnownMalware(hash) is { } name)
+        {
+            extra["threat"] = name;
+            _ctx.Event("ioc", "Critical", name.Length > 0 ? $"Known malware: {name}" : $"Known malware hash ({rule})", image, $"{detail}\n{note}", extra);
+            return;
+        }
+        if (YaraCandidate(image) && _yaraQueue.Count < AllowedYaraShare)
+            _yaraQueue.TryAdd(new YaraJob("realtime", "Medium", rule, image, $"{detail}\n{note}", extra, OnlyIfHit: true));
     }
 
     public void Dispose()

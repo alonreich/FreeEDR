@@ -25,7 +25,15 @@ Wail2Ban is **the only part of FreeEDR that enforces** anything. Everything else
   *Was this you?* on Home.
 * **Never banned**: this PC's own addresses (refreshed every 5 minutes; exact match, W1), `0.0.0.0`,
   `255.255.255.255`, `::`, and every trusted address/network (`exclusions.json` → `wail2ban[].cidr`; Network ▸ Trusted).
-  "Unban and watch again" clears an address from the bans, verdicts, trusted list and strikes.
+  "Unban and watch again" clears an address from the bans, verdicts, trusted list and strikes. Trusting an address or
+  network removes every current block inside it, read from the firewall's own rules (`Firewall.BanRules`), so a block
+  made seconds before is removed too.
+* **Ban IP** (user verdict): an existing temporary block for the address is made permanent in place
+  (`Firewall.MakePermanent`: `netsh ... set rule ... new description="Expire: never"`); it is never removed first, so
+  if the firewall refuses the change the address stays blocked as before (High "Failed to block", and the dashboard
+  says the ban was not done).
+* netsh runs with both output streams drained in the background and a 30 s limit (`Firewall.RunBounded`): a hung
+  netsh is ended and counted as failed, it can never block the engine's main loop.
 * **Engine restart**: the last window of 4625 refills the counters only (no events), skipping failures older than the
   address's last ban (Q11); the event log bookmarks resume the live subscriptions without loss.
 * **IPv6 Remote Desktop** (`wail2ban.blockRdpIpv6`, off by default): rules `Block RDP IPv6 (TCP/UDP 3389)` block inbound

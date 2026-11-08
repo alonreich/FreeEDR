@@ -161,7 +161,7 @@ internal sealed class Engine : IDisposable
                     {
                         Safely("Exclusions reload", _ctx.Excl.ReloadIfChanged);
                         Safely("Commands", () => _commands.RunQueued(_intake));
-                        Safely("Pipe requests", () => _pipe.Drain(_commands.Execute));
+                        Safely("Pipe requests", () => _pipe.Drain(RunPipeRequest));
                         if (DateTime.Now >= nextStatus) { nextStatus = DateTime.Now.AddSeconds(15); Safely("Status", WriteStatus); }
                         SaveBookmarks();
                         sinceCadence = 0;
@@ -178,7 +178,7 @@ internal sealed class Engine : IDisposable
                 }
                 Safely("Exclusions reload", _ctx.Excl.ReloadIfChanged);
                 Safely("Commands", () => _commands.RunQueued(_intake));
-                Safely("Pipe requests", () => _pipe.Drain(_commands.Execute));
+                Safely("Pipe requests", () => _pipe.Drain(RunPipeRequest));
                 if (now >= nextMinute)
                 {
                     nextMinute = now.AddSeconds(60);
@@ -216,6 +216,13 @@ internal sealed class Engine : IDisposable
             _ctx.Log.Audit("Engine stopped");
         }
         return 0;
+    }
+
+    /// <summary>A pipe request on the main loop: the caller also gets the command's note and whether it failed.</summary>
+    private PipeServer.Outcome RunPipeRequest(JsonObject cmd, bool admin)
+    {
+        var ok = _commands.Execute(cmd, admin);
+        return new PipeServer.Outcome(ok, _commands.LastNote, _commands.LastFailed);
     }
 
     private void Handle(Item it)

@@ -60,6 +60,11 @@ public static partial class Win32
         return null;
     }
 
+    /// <summary>Volume serial + file index of an open file: which file this is, whatever its name, size or timestamps
+    /// (unlike the creation time, which "tunneling" carries over to a file re-created under the same name). Null if unknown.</summary>
+    public static string? FileIdOf(Microsoft.Win32.SafeHandles.SafeFileHandle h) =>
+        GetFileInformationByHandle(h.DangerousGetHandle(), out var fi) ? $"{fi.VolumeSerialNumber:X8}:{fi.FileIndexHigh:X8}{fi.FileIndexLow:X8}" : null;
+
     [StructLayout(LayoutKind.Sequential)]
     private struct ByHandleFileInformation
     {

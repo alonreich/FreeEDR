@@ -14,6 +14,9 @@ namespace Edr.Engine;
 /// </summary>
 internal sealed class Scanner(Context ctx)
 {
+    /// <summary>Records one scan step; <paramref name="skipped"/> = it did not run (paused), so its earlier results stay.</summary>
+    internal delegate void StepFn(string name, bool ok, string message, bool skipped = false);
+
     private Task<JsonObject>? _task;
     private CancellationTokenSource? _cts;
     private DateTime _started;
@@ -44,13 +47,26 @@ internal sealed class Scanner(Context ctx)
         return true;
     }
 
-    public bool StartManual()
+    public static readonly TimeSpan ManualInterval = TimeSpan.FromMinutes(2);
+
+    /// <summary>"Scan now". Started = a scan runs now (a new one, or the one already running; Message says which, ""
+    /// for a new one). Not started: Message says why (also as an event, so a request from inbox\ is answered too).</summary>
+    public (bool Started, string Message) StartManual()
     {
-        if ((DateTime.Now - _lastManual).TotalMinutes < 2) return false;
+        if (ctx.State.IsPaused("edr")) return NotStarted("Detection is paused - resume it first.");
+        if (Running) return (true, "A scan is already running. You will be told when it finishes.");
+        var wait = _lastManual + ManualInterval - DateTime.Now;
+        if (wait > TimeSpan.Zero)
+            return NotStarted($"A scan was started less than {ManualInterval.TotalMinutes:0} minutes ago. Try again in {Math.Max(1, (int)Math.Ceiling(wait.TotalSeconds))} seconds.");
+        if (!Start("manual")) return NotStarted("The scan could not start.");
         _lastManual = DateTime.Now;
-        if (ctx.State.IsPaused("edr")) { ctx.Event("system", "Info", "Scan not started: EDR is paused", extra: new() { ["kind"] = "status" }); return false; }
-        if (!Start("manual")) ctx.Event("system", "Info", "A scan is already running", extra: new() { ["kind"] = "status" });
-        return true;
+        return (true, "");
+    }
+
+    private (bool, string) NotStarted(string why)
+    {
+        ctx.Event("system", "Info", "Scan not started", detail: why, extra: new() { ["kind"] = "status" });
+        return (false, why);
     }
 
     public void Stop(string why)
@@ -87,9 +103,11 @@ internal sealed class Scanner(Context ctx)
             ["steps"] = new JsonArray(), ["sigma"] = new JsonArray(), ["vulns"] = new JsonArray(), ["tools"] = new JsonArray(), ["toolCheck"] = null,
         };
         var log = new TextLog(ctx.Paths.ScanLog, 2L * 1024 * 1024);
-        void Step(string name, bool ok, string message)
+        void Step(string name, bool ok, string message, bool skipped = false)
         {
-            result.Arr("steps").Add((JsonNode)new JsonObject { ["name"] = name, ["ok"] = ok, ["message"] = message, ["time"] = DateTime.Now.ToString("s", CultureInfo.InvariantCulture) });
+            var s = new JsonObject { ["name"] = name, ["ok"] = ok, ["message"] = message, ["time"] = DateTime.Now.ToString("s", CultureInfo.InvariantCulture) };
+            if (skipped) s["skipped"] = true;   // paused: did not run, so its previous results stay
+            result.Arr("steps").Add((JsonNode)s);
             log.Write(ok ? 'I' : 'E', $"{name}: {message}");
         }
         log.Info("=== Scan started");
@@ -107,10 +125,10 @@ internal sealed class Scanner(Context ctx)
         return result;
     }
 
-    private void IocFeed(Action<string, bool, string> step, CancellationToken ct)
+    private void IocFeed(StepFn step, CancellationToken ct)
     {
         const string name = "IOC hash feed update";
-        if (ctx.State.IsPaused("malware")) { step(name, true, "Skipped: Anti-Malware is paused"); return; }
+        if (ctx.State.IsPaused("malware")) { step(name, true, "Skipped: Anti-Malware is paused", skipped: true); return; }
         var f = ctx.Paths.IocFile;
         var tmp = f + ".download";
         var code = 0;
@@ -136,9 +154,9 @@ internal sealed class Scanner(Context ctx)
         }
     }
 
-    private void Sigma(JsonObject result, Action<string, bool, string> step, TextLog log, CancellationToken ct)
+    private void Sigma(JsonObject result, StepFn step, TextLog log, CancellationToken ct)
     {
-        if (ctx.State.IsPaused("sigma")) { step("Sigma rules update", true, "Skipped: Sigma scanning is paused"); step("Sigma event-log scan", true, "Skipped: Sigma scanning is paused"); return; }
+        if (ctx.State.IsPaused("sigma")) { step("Sigma rules update", true, "Skipped: Sigma scanning is paused", skipped: true); step("Sigma event-log scan", true, "Skipped: Sigma scanning is paused", skipped: true); return; }
         var haya = ctx.Paths.HayabusaExe;
         if (!File.Exists(haya)) { step("Sigma event-log scan", false, $"hayabusa.exe not found in {ctx.Paths.HayabusaDir}"); return; }
         var (updated, updateMsg) = UpdateSigmaRules(haya, log, ct);
@@ -206,10 +224,10 @@ internal sealed class Scanner(Context ctx)
             : $"{total} high/critical hits in the last {ctx.Cfg.SigmaLookback}");
     }
 
-    private void Osv(JsonObject result, Action<string, bool, string> step, TextLog log, CancellationToken ct)
+    private void Osv(JsonObject result, StepFn step, TextLog log, CancellationToken ct)
     {
         const string name = "Python vulnerability scan (OSV)";
-        if (ctx.State.IsPaused("cve")) { step(name, true, "Skipped: CVE vulnerability scanning is paused"); return; }
+        if (ctx.State.IsPaused("cve")) { step(name, true, "Skipped: CVE vulnerability scanning is paused", skipped: true); return; }
         var osv = ctx.Paths.OsvExe;
         if (!File.Exists(osv)) { step(name, false, "osv-scanner.exe not found"); return; }
         var targets = new List<(string Dir, string Owner)>();
@@ -230,16 +248,9 @@ internal sealed class Scanner(Context ctx)
             // OSV-Scanner parses files in users' folders: sandboxed like YARA and Hayabusa
             var run = Sandbox.RunCapture(osv, ["scan", "source", "-r", dir, "--format", "json"], 1200, 2048, ctx.Paths.BinDir, SandboxEnv(SandboxWork()), ct, 64_000_000);
             ct.ThrowIfCancellationRequested();
-            if (!run.Started) { failed.Add(dir); log.Error($"OSV sandbox could not start: {run.Error}"); continue; }
-            var (exit, output) = (run.Exit, run.Output);
-            var jsonStart = output.IndexOf('{');
-            var jsonEnd = output.LastIndexOf('}');
-            var o = jsonStart >= 0 && jsonEnd > jsonStart ? JsonFile.Parse(output[jsonStart..(jsonEnd + 1)]) as JsonObject : null;
-            if (o is null)
-            {
-                if (exit is 0 || output.Trim().Length == 0) continue;   // nothing found
-                failed.Add(dir); log.Error($"OSV scan of {dir} failed (exit {exit})"); continue;
-            }
+            var (o, problem) = OsvParser.Outcome(run);
+            if (problem is not null) { failed.Add(dir); log.Error($"OSV scan of {dir} failed: {problem}"); continue; }
+            if (o is null) continue;   // exit 0 without a report: nothing found
             foreach (var v in OsvParser.Rows(o, owner, ref noFix)) result.Arr("vulns").Add((JsonNode)v);
         }
         if (failed.Count > 0) step(name, false, $"no result for {string.Join(", ", failed)} - kept the previous list (see data\\scan.log)");
@@ -326,7 +337,7 @@ internal sealed class Scanner(Context ctx)
 
     private static Dictionary<string, string> SandboxEnv(string work) => new() { ["TEMP"] = work, ["TMP"] = work };
 
-    private void ToolVersions(JsonObject result, Action<string, bool, string> step, CancellationToken ct)
+    private void ToolVersions(JsonObject result, StepFn step, CancellationToken ct)
     {
         var tools = new Tools(ctx.Paths);
         var ok = 0;
@@ -347,6 +358,10 @@ internal sealed class Scanner(Context ctx)
     }
 
     // ---- results -> alerts (engine thread) -------------------------------------------------------------
+
+    /// <summary>The scan result replaces cve-current.json: its OSV step ran (not paused) and every folder gave a result.</summary>
+    internal static bool OsvListReplaced(JsonObject res) =>
+        res.Objects("steps").Any(s => s.Str("name").Contains("OSV", StringComparison.Ordinal) && s.Truthy("ok") && !s.Truthy("skipped"));
 
     private void Complete(JsonObject? res)
     {
@@ -390,8 +405,9 @@ internal sealed class Scanner(Context ctx)
             }
             ctx.State.SetSeen("sigmaSeen", seen, 20000);
             ctx.State.SetSeen("defSeen", defSeen, 2000);
-            // The CVE list shows the latest scan only (patched packages disappear); events are just for history
-            if (res.Objects("steps").Any(s => s.Str("name").Contains("OSV", StringComparison.Ordinal) && s.Truthy("ok")))
+            // The CVE list shows the latest scan only (patched packages disappear); events are just for history. A paused
+            // (skipped) OSV step did not look, so the list it would replace stays
+            if (OsvListReplaced(res))
                 JsonFile.WriteAtomic(ctx.Paths.CveFile, new JsonObject { ["scanned"] = DateTime.Now.ToString("s", CultureInfo.InvariantCulture), ["items"] = res["vulns"]?.DeepClone() ?? new JsonArray() });
             var cveSeen = ctx.State.Seen("cveSeen");
             foreach (var v in res.Objects("vulns"))
@@ -486,6 +502,22 @@ internal static class Csv
 /// <summary>OSV-Scanner JSON -> one row per vulnerability group with a released fix newer than the installed version.</summary>
 internal static class OsvParser
 {
+    /// <summary>
+    /// One sandboxed OSV-Scanner run → its JSON report, or nothing found, or why it failed. Only exit code 0 without a
+    /// report means "nothing found"; a timeout, a cancelled run, a sandbox that did not start or any other exit code
+    /// without a readable report is a failed folder (its earlier vulnerabilities stay listed), never a clean one.
+    /// </summary>
+    public static (JsonObject? Report, string? Problem) Outcome(Sandbox.Result run)
+    {
+        if (!run.Started) return (null, $"the sandbox could not start ({run.Error})");
+        if (run.Error.Length > 0) return (null, run.Error == "timeout" ? "it timed out" : run.Error);
+        var output = run.Output;
+        var jsonStart = output.IndexOf('{');
+        var jsonEnd = output.LastIndexOf('}');
+        if (jsonStart >= 0 && jsonEnd > jsonStart && JsonFile.Parse(output[jsonStart..(jsonEnd + 1)]) is JsonObject o) return (o, null);
+        return run.Exit == 0 ? (null, null) : (null, $"exit {run.Exit}{(output.Trim().Length == 0 ? ", no output" : "")}");
+    }
+
     public static IEnumerable<JsonObject> Rows(JsonObject o, string? owner, ref int noFix)
     {
         var rows = new List<JsonObject>();

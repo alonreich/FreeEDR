@@ -6,8 +6,9 @@ using Edr.Core;
 
 namespace Edr.Tray.Services;
 
-/// <summary>Result of a request to the engine.</summary>
-public enum CommandResult { Done, Cancelled, Refused, Failed, TooLarge, Busy }
+/// <summary>Result of a request to the engine. Unconfirmed: sent, but no answer came in time (it may still be carried
+/// out). Incomplete: valid, but the engine could not carry it out (all of it); <see cref="Commands.LastMessage"/> says why.</summary>
+public enum CommandResult { Done, Cancelled, Refused, Failed, TooLarge, Busy, Unconfirmed, Incomplete }
 
 /// <summary>
 /// Requests to the engine. Weakening changes (allow, verdicts, pause, settings) go through Windows' UAC prompt to the
@@ -19,6 +20,25 @@ public sealed class Commands(TrayState state)
     private bool _busy;
 
     public bool Busy => _busy;
+
+    /// <summary>The engine's own words about the last <see cref="User"/> request ("" = none), e.g. why a scan did not start.</summary>
+    public string LastMessage { get; private set; } = "";
+
+    /// <summary>Called once when an administrator step runs longer than <see cref="SlowAfter"/> (its confirmation window is
+    /// still open, or a tool download continues). The tray keeps waiting for the helper's real result.</summary>
+    public Action? Slow { get; set; }
+
+    public static readonly TimeSpan SlowAfter = TimeSpan.FromMinutes(2);
+    /// <summary>After this long without a result the tray stops waiting and says the outcome is unknown (the helper's own
+    /// steps are bounded well below it: a tool download times out after 10 minutes).</summary>
+    public static readonly TimeSpan GiveUpAfter = TimeSpan.FromMinutes(30);
+
+    /// <summary>The helper's exit code as a result (see FreeEDR-Control.exe).</summary>
+    public static CommandResult FromExitCode(int code) => code switch
+    {
+        0 => CommandResult.Done, 2 => CommandResult.Refused, 4 => CommandResult.Cancelled, 6 => CommandResult.TooLarge,
+        7 => CommandResult.Unconfirmed, 8 => CommandResult.Incomplete, _ => CommandResult.Failed,
+    };
 
     public async Task<CommandResult> Admin(JsonObject cmd)
     {
@@ -36,12 +56,16 @@ public sealed class Commands(TrayState state)
             psi.ArgumentList.Add(b64);
             using var p = Process.Start(psi);
             if (p is null) return CommandResult.Failed;
-            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-            try { await p.WaitForExitAsync(cts.Token); }
-            catch (OperationCanceledException) { try { p.Kill(); } catch (InvalidOperationException) { } return CommandResult.Failed; }
+            // The elevated helper cannot be stopped from here (and must not be: its confirmation may still be answered,
+            // or its work still be running), so the tray waits for its real result and stays "busy" until then
+            var exit = p.WaitForExitAsync();
+            if (await Task.WhenAny(exit, Task.Delay(SlowAfter)) != exit)
+            {
+                Slow?.Invoke();
+                if (await Task.WhenAny(exit, Task.Delay(GiveUpAfter - SlowAfter)) != exit) { state.Dirty = true; return CommandResult.Unconfirmed; }
+            }
             state.Dirty = true;
-            // 4: declined in the helper's own confirmation; 6: more than its window can show in full
-            return p.ExitCode switch { 0 => CommandResult.Done, 2 => CommandResult.Refused, 4 => CommandResult.Cancelled, 6 => CommandResult.TooLarge, _ => CommandResult.Failed };
+            return FromExitCode(p.ExitCode);
         }
         catch (Win32Exception e) when (e.NativeErrorCode == 1223) { return CommandResult.Cancelled; }   // UAC declined
         catch (Win32Exception) { return CommandResult.Failed; }
@@ -68,13 +92,17 @@ public sealed class Commands(TrayState state)
     /// reachable through inbox\ (read at its next start); when even that fails, through the elevated helper.</summary>
     public async Task<CommandResult> User(JsonObject cmd)
     {
+        LastMessage = "";
         if (cmd.Str("user").Length == 0) cmd["user"] = Environment.UserName;
-        var (reached, ok, _) = await EnginePipe.SendAsync(cmd, 5_000);
-        if (reached)
+        var r = await EnginePipe.SendAsync(cmd, 5_000);
+        if (r.Answered)
         {
             state.Dirty = true;
-            return ok ? CommandResult.Done : CommandResult.Refused;
+            LastMessage = r.Ok && r.Message == "done" ? "" : r.Message;
+            return r.Ok ? CommandResult.Done : r.Failed ? CommandResult.Incomplete : CommandResult.Refused;
         }
+        if (r.Unanswered) return CommandResult.Unconfirmed;   // it may still run: never sent a second time
+        // The engine is not running, or was too busy and dropped the request: it reads inbox\ on its next pass
         try
         {
             CommandDrop.Write(state.Paths.InboxDir, cmd);
@@ -90,7 +118,9 @@ public sealed class Commands(TrayState state)
         CommandResult.Refused => "FreeEDR refused this change (it would be too broad or is not valid). Nothing was changed.",
         CommandResult.TooLarge => $"Too many changes for one administrator approval (at most {RequestSummary.MaxLines}; a trusted app counts as one). Select fewer items and try again.",
         CommandResult.Busy => "Another administrator action is still in progress. Please wait for it to finish.",
-        _ => "The change could not be completed. Nothing was changed.",
+        CommandResult.Unconfirmed => "The request was sent, but FreeEDR did not confirm it in time. It may still be carried out: check the lists in a minute before you try again.",
+        CommandResult.Incomplete => "FreeEDR could not carry out all of this change. The reason is in Activity > Messages.",
+        _ => "The change could not be completed. The engine log has the details (Settings > Open logs).",
     };
 }
 

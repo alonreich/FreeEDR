@@ -46,10 +46,15 @@ public static class EngineNote
         };
         if (tool.Length > 0) cmd["tool"] = Fit(tool, 64);
         if (ok is { } b) cmd["ok"] = b;
-        var (reached, accepted, message) = EnginePipe.SendAsync(cmd, 10_000).GetAwaiter().GetResult();
-        if (reached && accepted) return;
-        if (reached) new TextLog(paths.EngineLog).Warn($"Engine refused an event ({title}): {message}");
-        else CommandDrop.Write(paths.ControlDir, cmd);
+        var r = EnginePipe.SendAsync(cmd, 10_000).GetAwaiter().GetResult();
+        if (r.Answered)
+        {
+            if (!r.Ok) new TextLog(paths.EngineLog).Warn($"Engine refused an event ({title}): {r.Message}");
+            return;
+        }
+        // Sent without an answer: the engine may still write it, so it is not queued a second time (no duplicate)
+        if (r.Unanswered) { new TextLog(paths.EngineLog).Warn($"Engine did not confirm an event in time ({title}): {r.Message}"); return; }
+        CommandDrop.Write(paths.ControlDir, cmd);   // engine not running, or busy (it dropped the request): its next pass reads it
     }
 
     private static string Fit(string s, int max) => s.Length <= max ? s : s[..(max - 3)] + "...";

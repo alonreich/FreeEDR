@@ -61,6 +61,17 @@ public static class Firewall
         if (rc != 0) throw new IOException($"netsh could not add the block rule for {n} (exit {rc})");
     }
 
+    /// <summary>A user ban: an existing block for the address becomes permanent in place (its description is changed;
+    /// the rule is never removed first, so a refused change leaves it blocked as before); without one a permanent block
+    /// is added. Throws <see cref="IOException"/> when the firewall refuses.</summary>
+    public static void MakePermanent(string ip)
+    {
+        var n = Ip.Normalize(ip) ?? throw new ArgumentException("invalid address", nameof(ip));
+        if (!HasBan(n)) { AddBan(n, "never"); return; }
+        var rc = Netsh($"advfirewall firewall set rule name=\"{EdrPaths.FwRulePrefix} {n}\" new description=\"Expire: never\"");
+        if (rc != 0) throw new IOException($"netsh could not make the block for {n} permanent (exit {rc})");
+    }
+
     public static bool RemoveBan(string ip)
     {
         var n = Ip.Normalize(ip);
@@ -91,16 +102,27 @@ public static class Firewall
         foreach (var name in RdpIpv6Rules) if (RuleExists(name)) Netsh($"advfirewall firewall delete rule name=\"{name}\"");
     }
 
-    private static int Netsh(string args)
+    public const int NetshTimeoutMs = 30_000;
+
+    /// <summary>Runs netsh.exe; -1 when it did not finish within <see cref="NetshTimeoutMs"/> (it is then killed).</summary>
+    private static int Netsh(string args) => RunBounded(Path.Combine(EdrPaths.System32, "netsh.exe"), args, NetshTimeoutMs);
+
+    /// <summary>Starts a console program and waits at most <paramref name="timeoutMs"/>: both output streams are drained
+    /// in the background, so neither a hung program nor a full pipe can block the caller (the engine's main loop).</summary>
+    internal static int RunBounded(string exe, string args, int timeoutMs)
     {
-        var psi = new ProcessStartInfo(Path.Combine(EdrPaths.System32, "netsh.exe"), args)
+        var psi = new ProcessStartInfo(exe, args)
         {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
         };
         using var p = Process.Start(psi)!;
-        p.StandardOutput.ReadToEnd();
-        p.StandardError.ReadToEnd();
-        if (!p.WaitForExit(30_000)) { try { p.Kill(); } catch (InvalidOperationException) { } return -1; }
+        var drain = Task.WhenAll(p.StandardOutput.ReadToEndAsync(), p.StandardError.ReadToEndAsync());
+        if (!p.WaitForExit(timeoutMs))
+        {
+            try { p.Kill(true); } catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            return -1;
+        }
+        drain.Wait(5000);
         return p.ExitCode;
     }
 }

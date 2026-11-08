@@ -93,6 +93,52 @@ public class PipeTests
         finally { s.Dispose(); EnginePipe.AcceptOwner = accept; EnginePipe.Name = "FreeEDR-Engine"; }
     }
 
+    // ---- QA round 3: a request the engine was too busy for never runs after the caller heard "busy" -----------
+
+    [Fact]
+    public async Task A_request_the_engine_was_too_busy_for_is_dropped_never_run_later()
+    {
+        var me = WindowsIdentity.GetCurrent();
+        var accept = EnginePipe.AcceptOwner;
+        EnginePipe.AcceptOwner = o => o == me.User;
+        var (s, _, _) = NewServer();
+        try
+        {
+            // The main loop does not drain (busy): the caller's 3 s deadline is passed to the engine
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var r = await EnginePipe.SendAsync(new JsonObject { ["action"] = "scan-now" }, 3000);
+            Assert.True(r.Reached, r.Message);
+            Assert.True(r.Busy, r.Message);
+            Assert.False(r.Answered);
+            Assert.False(r.Unanswered);   // answered "busy" before the deadline, so the caller may queue it elsewhere
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), $"answered after {sw.Elapsed}");
+            var ran = false;
+            s.Drain((_, _) => ran = true);   // the main loop is free again
+            Assert.False(ran);
+        }
+        finally { s.Dispose(); EnginePipe.AcceptOwner = accept; EnginePipe.Name = "FreeEDR-Engine"; }
+    }
+
+    [Fact]
+    public async Task A_request_that_could_not_be_carried_out_says_why()
+    {
+        var me = WindowsIdentity.GetCurrent();
+        var accept = EnginePipe.AcceptOwner;
+        EnginePipe.AcceptOwner = o => o == me.User;
+        var (s, _, _) = NewServer();
+        try
+        {
+            var send = EnginePipe.SendAsync(new JsonObject { ["action"] = "scan-now" }, 10_000);
+            while (!send.IsCompleted) { s.Drain((_, _) => new PipeServer.Outcome(false, "A scan was started less than 2 minutes ago.", true)); await Task.Delay(20, TestContext.Current.CancellationToken); }
+            var r = await send;
+            Assert.True(r.Answered, r.Message);
+            Assert.False(r.Ok);
+            Assert.True(r.Failed);
+            Assert.Equal("A scan was started less than 2 minutes ago.", r.Message);
+        }
+        finally { s.Dispose(); EnginePipe.AcceptOwner = accept; EnginePipe.Name = "FreeEDR-Engine"; }
+    }
+
     // ---- fairness: no account can take the pipe from the others (audit round 2, finding 5) -------------------
 
     [Fact]

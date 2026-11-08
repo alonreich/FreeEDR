@@ -71,6 +71,17 @@ files it reads in [architecture/DATA_FILES.md](../architecture/DATA_FILES.md) §
   apps' *Apply changes* is enabled only while a switch differs from what is applied (tooltip says why, also disabled).
 * Bounded memory: `EventTail` keeps 10,000 events (`EDR_EVENT_CAP`), evicted events keep their group counts, last bans
   and pinned "Was this you?" items (`EdrInputs.RecordEvicted`).
+* `EventTail` follows the events file by identity (volume + file index, `Win32.FileIdOf`), not only by length: another
+  file (rotation, or a file deleted and written again) is read from its start even when it is already longer than the
+  old read position. When the file is gone or replaced and no `events-*.jsonl` archive exists, the history was deleted
+  (reset to defaults, clean install): the list and the evicted aggregates are emptied (`WasReset`, `EdrInputs.ClearHistory`)
+  so the old alerts do not come back as unreviewed. A rotation always leaves an archive, so its events stay.
+* Elevated requests (`Services\Commands.Admin`): the tray waits for the helper's real exit code (`FromExitCode`) and
+  stays busy until then; it never tries to end the elevated helper. After 2 minutes (`SlowAfter`; its window still
+  open, or a tool download) it says it is still waiting (`Commands.Slow`); after 30 minutes it reports *Unconfirmed*.
+  Results: *Unconfirmed* (exit 7 / no pipe answer: may still be carried out, do not repeat yet), *Incomplete* (exit 8 /
+  the engine's `failed`: the reason is an event in Activity). `Commands.User` (resume, scan-now) shows the engine's own
+  reason (`LastMessage`), e.g. why a scan did not start.
 * Closing the dashboard hides it; *Hide the tray icon* exits the tray (protection keeps running).
 
 * Crash recovery: `Win32.RegisterRestart("--restarted")` at start (not in `--dev` / screenshot runs): Windows restarts

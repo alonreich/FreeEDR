@@ -130,6 +130,7 @@ public sealed class TrayState
         if (_tail is not null)
         {
             var added = _tail.ReadNew(w.Events, w, drainAll: _first);
+            if (_tail.WasReset) Dirty = true;   // history deleted (reset to defaults): the old alerts are gone from the dashboard too
             if (added.Count > 0) { Dirty = true; if (!_first) fresh.AddRange(added); }
         }
         _first = false;

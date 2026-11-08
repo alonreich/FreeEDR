@@ -50,21 +50,47 @@ public static class EnginePipe
         catch (Exception e) when (e is UnauthorizedAccessException or IOException or InvalidOperationException or SystemException) { return false; }
     }
 
-    /// <summary>Sends one request. Reached = false: no (trusted) engine is listening, the caller uses its fallback.</summary>
-    public static async Task<(bool Reached, bool Ok, string Message)> SendAsync(JsonObject cmd, int timeoutMs = 10_000)
+    /// <summary>
+    /// The engine's answer to one request.
+    /// Reached = false: no (trusted) engine took the request; the caller uses its fallback (drop folder).
+    /// Busy: the engine was too busy to start it before the caller's deadline and has dropped it (it never runs), so the
+    /// caller may queue it in a drop folder. Unanswered: the request was sent but no answer came in time; it may still
+    /// run, so it must not be sent again. Failed: valid, but the engine could not carry it out (Message says why).
+    /// </summary>
+    public readonly record struct Reply(bool Reached, bool Ok, string Message, bool Busy = false, bool Unanswered = false, bool Failed = false)
+    {
+        public void Deconstruct(out bool reached, out bool ok, out string message) { reached = Reached; ok = Ok; message = Message; }
+
+        /// <summary>The engine decided (done, refused or failed): nothing else may be sent for this request.</summary>
+        public bool Answered => Reached && !Busy && !Unanswered;
+    }
+
+    /// <summary>The engine answers "busy" this long before the caller's deadline at the latest, so the answer arrives in time.</summary>
+    public const int AnswerMarginMs = 1000;
+
+    /// <summary>Sends one request and waits at most <paramref name="timeoutMs"/>. The engine is told the caller's deadline
+    /// ("wait"): a request it cannot start by then is dropped and answered "busy", never run after the caller gave up.</summary>
+    public static async Task<Reply> SendAsync(JsonObject cmd, int timeoutMs = 10_000)
     {
         using var cts = new CancellationTokenSource(timeoutMs);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var sent = false;
         try
         {
             await using var c = new NamedPipeClientStream(".", Name, PipeDirection.InOut, PipeOptions.Asynchronous);
             await c.ConnectAsync(Math.Min(2000, timeoutMs), cts.Token);
-            if (!TrustedServer(c)) return (false, false, "the pipe is not owned by the engine");
-            await WriteLineAsync(c, new JsonObject { ["op"] = "command", ["cmd"] = cmd.DeepClone() }, cts.Token);
+            if (!TrustedServer(c)) return new(false, false, "the pipe is not owned by the engine");
+            var wait = (int)Math.Max(250, timeoutMs - clock.ElapsedMilliseconds - AnswerMarginMs);
+            await WriteLineAsync(c, new JsonObject { ["op"] = "command", ["cmd"] = cmd.DeepClone(), ["wait"] = wait }, cts.Token);
+            sent = true;
             var reply = await ReadLineAsync(c, cts.Token);
-            if (reply is null) return (true, false, "no answer from the engine");
-            return (true, reply.Truthy("ok"), reply.Str("message"));
+            if (reply is null) return new(true, false, "no answer from the engine", Unanswered: true);
+            return new(true, reply.Truthy("ok"), reply.Str("message"), Busy: reply.Truthy("busy"), Failed: reply.Truthy("failed"));
         }
-        catch (Exception e) when (e is TimeoutException or OperationCanceledException or IOException or UnauthorizedAccessException) { return (false, false, e.Message); }
+        catch (Exception e) when (e is TimeoutException or OperationCanceledException or IOException or UnauthorizedAccessException)
+        {
+            return sent ? new(true, false, $"the engine did not answer in time ({e.Message})", Unanswered: true) : new(false, false, e.Message);
+        }
     }
 
     /// <summary>Keeps a subscription open (reconnecting every 5 s) and calls <paramref name="changed"/> on each notice.</summary>

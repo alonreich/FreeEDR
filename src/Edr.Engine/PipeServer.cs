@@ -20,7 +20,21 @@ namespace Edr.Engine;
 /// </summary>
 internal sealed class PipeServer(Context ctx) : IDisposable
 {
-    private sealed record Request(JsonObject Cmd, bool Admin, string User, TaskCompletionSource<(bool Ok, string Message)> Done);
+    /// <summary>The engine's answer to a request it ran: Ok, a note for the caller ("" = none), Failed = valid but not carried out.</summary>
+    public readonly record struct Outcome(bool Ok, string Note, bool Failed);
+
+    private sealed class Request(JsonObject cmd, bool admin, string user)
+    {
+        public readonly JsonObject Cmd = cmd;
+        public readonly bool Admin = admin;
+        public readonly string User = user;
+        public readonly TaskCompletionSource<Outcome> Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>0 queued, 1 taken by the main loop, 2 abandoned (the caller's deadline passed first: never runs).</summary>
+        public int State;
+    }
+
+    /// <summary>A request waits at most this long for the main loop (less when the caller's deadline is earlier).</summary>
+    public static readonly TimeSpan MaxQueueWait = TimeSpan.FromSeconds(25);
 
     public const int MaxClients = 16;
     public const int ReservedForCommands = 4;
@@ -48,18 +62,23 @@ internal sealed class PipeServer(Context ctx) : IDisposable
     /// <summary>Status or events changed (any thread).</summary>
     public void Changed() => Interlocked.Exchange(ref _changed, 1);
 
-    /// <summary>Runs the queued requests on the engine's main loop.</summary>
-    public void Drain(Func<JsonObject, bool, bool> execute)
+    /// <summary>Runs the queued requests on the engine's main loop (tests: an executor without notes).</summary>
+    public void Drain(Func<JsonObject, bool, bool> execute) => Drain((c, a) => new Outcome(execute(c, a), "", false));
+
+    /// <summary>Runs the queued requests on the engine's main loop. A request whose caller already got "busy" is skipped.</summary>
+    public void Drain(Func<JsonObject, bool, Outcome> execute)
     {
         while (_requests.TryDequeue(out var r))
         {
+            if (Interlocked.CompareExchange(ref r.State, 1, 0) != 0) continue;   // abandoned: the caller was told it did not run
             try
             {
                 r.Cmd["user"] = r.User;   // the verified caller, never what the request claims
-                var ok = execute(r.Cmd, r.Admin);
-                r.Done.TrySetResult((ok, ok ? "done" : r.Admin ? "refused: not a valid request" : "refused: needs administrator approval"));
+                var o = execute(r.Cmd, r.Admin);
+                var note = o.Note.Length > 0 ? o.Note : o.Ok ? "done" : r.Admin ? "refused: not a valid request" : "refused: needs administrator approval";
+                r.Done.TrySetResult(o with { Note = note });
             }
-            catch (Exception e) { r.Done.TrySetResult((false, e.Message)); }
+            catch (Exception e) { r.Done.TrySetResult(new Outcome(false, e.Message, true)); }
         }
     }
 
@@ -124,13 +143,26 @@ internal sealed class PipeServer(Context ctx) : IDisposable
                 case "command" when msg["cmd"] is JsonObject cmd:
                 {
                     using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
-                    timeout.CancelAfter(TimeSpan.FromSeconds(30));
+                    timeout.CancelAfter(TimeSpan.FromSeconds(60));
                     var (admin, user) = Caller(s);
-                    var done = new TaskCompletionSource<(bool, string)>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    _requests.Enqueue(new Request((JsonObject)cmd.DeepClone(), admin, user, done));
-                    var finished = await Task.WhenAny(done.Task, Task.Delay(TimeSpan.FromSeconds(25), timeout.Token));
-                    var (ok, text) = finished == done.Task ? done.Task.Result : (false, "the engine is busy; try again");
-                    await EnginePipe.WriteLineAsync(s, new JsonObject { ["ok"] = ok, ["message"] = text }, timeout.Token);
+                    var req = new Request((JsonObject)cmd.DeepClone(), admin, user);
+                    _requests.Enqueue(req);
+                    // Answer before the caller's own deadline ("wait"); a request still queued then is abandoned, so it
+                    // never runs after the caller was told "busy" (and queued it elsewhere, or gave up)
+                    var waitMs = msg.Int("wait") is > 0 and var w ? Math.Min(w, (int)MaxQueueWait.TotalMilliseconds) : (int)MaxQueueWait.TotalMilliseconds;
+                    var finished = await Task.WhenAny(req.Done.Task, Task.Delay(waitMs, timeout.Token));   // a stopping engine ends the wait
+                    if (finished != req.Done.Task) Interlocked.CompareExchange(ref req.State, 2, 0);
+                    JsonObject reply;
+                    if (Volatile.Read(ref req.State) == 2)   // abandoned (deadline, or the engine is stopping): it never runs
+                        reply = new JsonObject { ["ok"] = false, ["busy"] = true, ["message"] = _stop.IsCancellationRequested ? "the engine is stopping and did not run the request" : "the engine was busy and did not run the request" };
+                    else
+                    {
+                        var o = await req.Done.Task.WaitAsync(timeout.Token);   // taken by the main loop: its answer follows
+                        reply = new JsonObject { ["ok"] = o.Ok, ["message"] = o.Note };
+                        if (o.Failed) reply["failed"] = true;
+                    }
+                    using (var write = new CancellationTokenSource(TimeSpan.FromSeconds(5)))   // also while the engine stops
+                        await EnginePipe.WriteLineAsync(s, reply, write.Token);
                     break;
                 }
             }
@@ -208,6 +240,6 @@ internal sealed class PipeServer(Context ctx) : IDisposable
     public void Dispose()
     {
         _stop.Cancel();
-        while (_requests.TryDequeue(out var r)) r.Done.TrySetResult((false, "the engine is stopping"));
+        while (_requests.TryDequeue(out var r)) Interlocked.CompareExchange(ref r.State, 2, 0);   // never run; their callers hear "busy"
     }
 }

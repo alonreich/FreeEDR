@@ -83,6 +83,14 @@ them is serious (High or Critical), otherwise grey. Home's tiles and its sentenc
 * **Open file location**, **Copy details**.
 * Changes that weaken detection (allow, flag, pause, settings) show one confirmation and one Windows administrator (UAC)
   prompt; several steps are sent together. They take effect within a few seconds. Resume and Scan now need no prompt.
+  After the UAC prompt FreeEDR shows the whole change in its own window (it scrolls when the change is long); only
+  **Yes** carries it out, and Enter, Esc or closing the window mean No. The dashboard waits for the real result: if it
+  takes longer than 2 minutes (the window is still open, or a tool download is running) it says so and keeps waiting.
+  If FreeEDR could not confirm a change in time, the message says it may still be carried out - check the lists before
+  you repeat it. *Scan now* says why when no scan starts (detection paused, or a scan started less than 2 minutes ago).
+* Allows hide alerts about what a program **does**. A program that is a known piece of malware (malware hash list) or
+  matches a YARA rule is still reported, also when it was started by a program you allowed (*Allow everything X
+  starts*); only an allow of that malware hash or YARA finding itself silences it.
 * **Never allow `pwsh.exe` / `powershell.exe` itself for all rules**: that hides every PowerShell attack.
 
 ## 3. Trusted apps (no alerts for apps you trust)
@@ -163,9 +171,12 @@ window and opens its page - a second click opens the page of the running one; cl
 **Help**: user guide, the welcome tour again (it opens in front of the dashboard, once). *Skip tour* (or closing the
 welcome window) keeps the current choices and the tour does not come back at the next sign-in.
 
-**Danger zone**: *Reset FreeEDR to defaults* (PC settings, allow lists, verdicts, bans, events and every account's
-reviewed lists; the Microsoft Defender choice, each account's *Just for you* choices, the install date, logs and event
-archive stay; for a completely fresh start use Setup's *Clean install*).
+**Danger zone**: *Reset FreeEDR to defaults* (PC settings, allow lists - also the Microsoft Defender allows added from
+FreeEDR, removed from Defender - verdicts, bans, events and every account's reviewed lists; the Microsoft Defender
+choice, each account's *Just for you* choices, the install date, logs and event archive stay; for a completely fresh
+start use Setup's *Clean install*). The open dashboard empties its alert list at once. A Defender allow Defender would
+not remove stays listed, so you can remove it later; if the reset cannot finish, the engine is started again and the
+message says so.
 
 The dashboard reopens where and as large as you left it (on a screen that is still attached; a maximized window keeps
 its normal size for later).

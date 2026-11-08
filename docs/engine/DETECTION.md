@@ -70,8 +70,13 @@ Order per record:
    scripts without passing raises High "Command line imitates FreeEDR's own scripts" (once per command line).
 3. Stale-rule check: a rule name not in `config\sysmonconfig.xml` → `oldRule` + health "restart the PC" (E10).
 4. Detail text per event ID (command line, connection, driver signature, injected target, LSASS access mask, file,
-   registry value, WMI). Allows (`Detection.RealtimeExcluded`, §6) → drop. The process chain is read only when an allow
-   needs it.
+   registry value, WMI). Allows (`Detection.RealtimeExcluded`, §6) → the behaviour alert is dropped, **but the program
+   is still checked for malware** (QA audit 2026-11-07 round 3, finding 1; what *Allow everything X starts* promises):
+   not `malware`-paused, a known-malware hash (no IOC allow) raises the `ioc` Critical alert at once, and a file YARA
+   would check (step 6) goes to the YARA worker as an *only-if-hit* job (at most `Realtime.AllowedYaraShare` = 100 in
+   the queue, so alerts that were not allowed keep their YARA scans); only a match is reported (`yara`, Critical), a
+   clean or not-scanned result stays silent. Both alerts carry `allowedBehaviour` = the allow's id. The process chain
+   is read only when an allow needs it.
 5. EID 1: the grandparent and up are stored as `ancestors` for "allowed by" in the tray.
 6. Not `malware`-paused: IOC lookup (SHA256 from `Hashes`, IOC allows) → `ioc`, Critical, "Known malware: <name>". Files
    outside `%SystemRoot%` that no YARA allow covers go to the **YARA worker** (bounded queue of 200): `yara64.exe -C
@@ -123,14 +128,20 @@ Steps (result `data\scan-result.json`, log `data\scan.log`):
 * **C. CVE**: `osv-scanner scan source -r <dir> --format json` for every account's `AppData\Local\Programs\Python` and
   Store Python packages; one row per vulnerability group with a released fix newer than the installed version, with
   `owner` (SID), `python` and `fixPackage` (pip for libraries vendored in `pip\_vendor`). A folder with no readable
-  result fails the step and the CVE list keeps its previous content (Q1).
+  result fails the step and the CVE list keeps its previous content (Q1): only exit code 0 without a report means
+  "nothing found"; a timeout, a cancelled run, a sandbox that did not start or any other exit code without a report is
+  a failed folder (`OsvParser.Outcome`, QA round 3, finding 7). A paused step is recorded `skipped` and never replaces
+  the list either (finding 6).
 * **D. Tool versions**: GitHub `releases/latest` for the four tools → "EDR tool update" Info events once per new version
   (`kind = tool`, `tool` = name): the Updates page offers a one-click update ([COMMANDS_AND_IPC.md](COMMANDS_AND_IPC.md) `update-tool`).
 
 `Scanner.Complete` (engine thread): a result older than the scan start is ignored; one alert per detected event (key
 title|computer|channel|recordId, 20,000 kept, E6); Hayabusa's "(Sysmon Alert)" repeats are dropped; Hayabusa's
 "Antivirus - …" / "Defender Alert" findings become `defender` events once (de-duplicated against live Defender events,
-key threat|minute); Sigma allows; `cve-current.json` rewritten only when the OSV step succeeded; CVE events once per id.
+key threat|minute); Sigma allows; `cve-current.json` rewritten only when the OSV step ran and succeeded
+(`Scanner.OsvListReplaced`: not `skipped`); CVE events once per id. Scan now: `Scanner.StartManual` returns whether a
+scan runs and why not (detection paused, or a manual scan started less than 2 minutes ago), as an Info event
+"Scan not started" and as the pipe answer the dashboard shows.
 
 ## 5. Defender and health
 * Defender events: 1116 (malware; Severe → Critical, High → High, else Medium), 1121 (ASR blocked), 1123 (CFA blocked),

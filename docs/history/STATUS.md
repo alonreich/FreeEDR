@@ -87,6 +87,30 @@ fail=0 warn=1 skip=0`; the WARN is the known OSV step for the Microsoft Store Py
 | L6 | The first working Sigma scan raised "UEFI Persistence Via Wpbbin" although the built-in *wpbbin* trusted app allows it: Security-log (4688) hits name the parent `ParentProcessName`, which `SigmaProcess.FromDetails` did not read (only Sysmon's `ParentImage`), so no Sigma allow with a parent could match a Security-log hit | **Resolved**: installed 2026-11-07 11:24 (`INSTALL RESULT: SUCCESS`; `TEST RESULT: OK  pass=148 fail=0 warn=1 skip=0`, the WARN = Store-Python OSV). The alert raised before can be marked reviewed |
 | L7 | The same scan reported 3 log clears ("Log Cleared", "Important Log File Cleared") from 2026-11-06 - the clears behind L4 | Real events, not false positives: the owner should confirm they were their own |
 
+## QA audit, round 3 (2026-11-07) - 14 items, built, not installed
+| Rank | Finding | Fix |
+|---|---|---|
+| 1 | A real-time allow (e.g. *Allow everything X starts*) also skipped the malware-hash and YARA checks, although the dialog promises they still run | `Realtime.AllowedMalwareCheck`: an allowed event is still checked; a known hash → `ioc` Critical at once, a YARA match → `yara` Critical (only-if-hit jobs, ≤ 100 in the queue); both carry `allowedBehaviour` |
+| 2 | Restore defaults left Defender allows active but deleted their records (dashboard and uninstaller could no longer remove them); a failed single removal did the same | `FactoryReset.RemoveDefenderAllows` for both reset kinds, refused ones stay listed; `Commands.Unexclude` keeps a Defender allow Defender kept (Medium event, "not carried out") |
+| 3 | A pipe request answered "busy" after 25 s still ran later, while the tray said "refused, nothing was changed" | Client deadline in the request (`wait`); a request not started by then is abandoned (never runs) and answered `busy`; the helper then queues it in `control\`; `failed` answers carry the engine's reason |
+| 4 | The tray gave up on the elevated helper after 2 minutes (could not end it), reported failure and allowed a second helper | Waits for the real exit code (busy meanwhile), "still waiting" after 2 minutes, *Unconfirmed* after 30; exit codes 7 (unanswered) / 8 (not carried out) |
+| 5 | Reset / restart could leave the engine stopped (reset threw after the stop; stop timeout ignored; start while still stopping) | Helper: stop waits 90 s, reset only when stopped, engine started again in every case (retry after a pending stop) |
+| 6 | Pausing CVE scanning emptied the vulnerability list at the next scan | Skipped steps are recorded `skipped`; `Scanner.OsvListReplaced` ignores them |
+| 7 | An OSV timeout / crash without output counted as "nothing found" | `OsvParser.Outcome`: only exit 0 without a report is clean |
+| 8 | After a reset the open dashboard kept up to 5,000 old alerts, all unreviewed again | `EventTail` follows the file's identity; gone/replaced with no archive = history deleted → list and aggregates emptied (`WasReset`) |
+| 9 | *Ban IP* removed an existing temporary block before adding the permanent one (a refused add unblocked the address) | `Firewall.MakePermanent`: `netsh set rule ... new description` in place |
+| 10 | Trusting an address within ~60 s of its ban left the firewall block | `exclude wail2ban` reads `Firewall.BanRules()` instead of the last status list |
+| 11 | The confirmation was a message box that cannot scroll: a long request could run off the screen | `Native\ConfirmWindow`: scrolling read-only text, always inside the work area, default/Enter/Esc/close = No; manifest: common controls 6, DPI aware |
+| 12 | *Scan now* said "Scan started" when the engine ignored it (within 2 minutes) | `Scanner.StartManual` returns why; the pipe passes it; "Scan not started" event |
+| 13 | Helper / installer messages could be written twice (10 s client timeout vs. 25 s server wait) | Same deadline rule; unanswered notes are not queued again |
+| 14 | netsh output was read before the 30 s timeout started (a hung netsh blocked the main loop) | `Firewall.RunBounded`: background draining, real timeout, kill |
+
+Verified: C# tests 201 (200 passed, 1 known SKIP), dev build 2026-11-07 23:54 (WARN = unsigned only), `TEST RESULT: OK
+pass=148 fail=0 warn=2 skip=0` (WARNs: not installed yet, Store-Python OSV).
+Not verified on this PC (needs an elevated, installed engine): `netsh ... set rule ... new description` against a real
+ban, the helper's window after a real UAC prompt (the window itself is tested in `QaRound3Tests`), restore-defaults
+with a locked file.
+
 ## Tray UI/UX audit, round 2 (2026-11-07 night) - 9 items, installed 2026-11-07 23:24 (`INSTALL RESULT: SUCCESS`; after install `TEST RESULT: OK  pass=149 fail=0 warn=1 skip=0`, the WARN = Store-Python OSV)
 | Rank | Finding | Fix |
 |---|---|---|
