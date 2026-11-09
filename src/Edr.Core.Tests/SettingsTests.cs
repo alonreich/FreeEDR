@@ -241,6 +241,7 @@ public class SettingsTests
         Assert.Equal(secret, EdrConfig.FeedHasSecret(url));
         Assert.Equal(shown, EdrConfig.RedactUrl(url));
         Assert.DoesNotContain("dummy_token", EdrConfig.RedactUrl(url));
+        Assert.DoesNotContain("dummy_token", EdrConfig.RedactUrl(url));
         var req = new JsonObject { ["iocFeedUrl"] = url, ["sigmaLookback"] = "2d" };
         Assert.Equal(shown, EdrConfig.Redacted(req).Str("iocFeedUrl"));
         Assert.Equal(url, req.Str("iocFeedUrl"));
