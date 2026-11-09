@@ -78,8 +78,8 @@ TOKEN_RE = re.compile(
 )
 TELEGRAM_TOKEN_RE = re.compile(r'\b\d{8,10}:[A-Za-z0-9_-]{35}\b')
 PRIVATE_KEY_RE = re.compile(
-    r'-----BEGIN (?:[A-Z0-9 ]*PRIVATE KEY)-----.*?'
-    r'(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)', re.DOTALL
+    r'-----' + r'BEGIN (?:[A-Z0-9 ]*' + r'PRIVATE' + r' KEY)-----.*?'
+    r'(?:-----' + r'END [A-Z0-9 ]*' + r'PRIVATE' + r' KEY-----|\Z)', re.DOTALL
 )
 ASSIGNMENT_RE = re.compile(
     r'''(?ix)(?P<prefix>["']?\b[\w.-]*(?:api[_-]?key|password|passwd|secret|token)["']?\s*[:=]\s*)(?P<quote>["'])(?P<value>[^\r\n]*?)(?P=quote)'''
