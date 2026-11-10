@@ -179,6 +179,7 @@ public sealed class Controller
                 if (!Shell.ShowInExplorer(a.Arg!)) Say($"The file no longer exists: {a.Arg}", true);
                 break;
             case ActionKind.CopyDetails: await CopyDetails(rows[0]); break;
+            case ActionKind.ExplainForDummies: await ExplainForDummies(rows[0]); break;
         }
     }
 
@@ -396,6 +397,32 @@ public sealed class Controller
         catch (Exception) { Say("Could not copy to the clipboard (another program holds it). Try again.", true); }
     }
 
+    public async Task ExplainForDummies(Row r)
+    {
+        var e = r.Ev ?? r.Entry;
+        if (e is null) return;
+        var related = State.Inputs.Events
+            .Where(x => x != e && (x.S("process") == e.S("process") || x.S("blade") == e.S("blade")))
+            .Take(10)
+            .ToList();
+        var prompt = ExplainPrompt.Build(e, DateTimeOffset.Now, related);
+        var copied = false;
+        try
+        {
+            if (Clipboard?.Invoke() is { } cb)
+            {
+                await cb.SetTextAsync(prompt);
+                copied = true;
+            }
+        }
+        catch (Exception) { }
+
+        Shell.OpenUrl("https://gemini.google.com/app");
+        Say(copied
+            ? "Prompt copied to clipboard! Opening Gemini in your browser - paste it in."
+            : "Opening Gemini in your browser. Could not copy prompt to clipboard.", !copied);
+    }
+
     public async Task Pause(string blade, int minutes)
     {
         var name = Catalog.PauseNames.GetValueOrDefault(blade, blade);
@@ -584,6 +611,9 @@ public sealed class Controller
         var ev = State.Inputs.Events.LastOrDefault(e => e.S("id") == arg);
         switch (verb)
         {
+            case "explain" when ev is not null:
+                await ExplainForDummies(new Row { Kind = "event", Cols = [], Ev = ev });
+                break;
             case "review" when ev is not null:
                 Insights.CountReview(ev);
                 State.SetReviewed([ev], true);

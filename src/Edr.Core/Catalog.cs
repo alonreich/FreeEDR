@@ -84,6 +84,9 @@ public static class Catalog
         ["google-drive"] = "Google Drive", ["razer"] = "Razer (Synapse / Cortex / App Engine)", ["installers"] = "Software installers (one-time RunOnce entries)",
         ["wpbbin"] = "OEM Motherboard Boot Binary (wpbbin.exe)", ["freeedr-build"] = "FreeEDR Project Build Output",
         ["edge"] = "Microsoft Edge & WebView (browser updates)", ["zoom"] = "Zoom Workplace (meeting launcher)",
+        ["teams"] = "Microsoft Teams", ["slack"] = "Slack", ["webex"] = "Cisco Webex",
+        ["vscode"] = "Visual Studio Code (Microsoft)", ["git"] = "Git for Windows",
+        ["docker"] = "Docker Desktop", ["chrome"] = "Google Chrome", ["dropbox"] = "Dropbox",
     };
 
     public static readonly Dictionary<string, string> RuleSeverity = new(StringComparer.OrdinalIgnoreCase)

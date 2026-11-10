@@ -99,6 +99,27 @@ public class ActionTests
         Assert.Equal(ActionKind.ItWasMe, acts[0].Kind);
         Assert.Equal(ActionKind.Flag, acts[1].Kind);
         Assert.Contains(acts, a => a.Kind == ActionKind.AllowSubnet);
+        Assert.Contains(acts, a => a.Kind == ActionKind.ExplainForDummies);
+    }
+
+    [Fact]
+    public void ExplainPrompt_builds_full_context_and_instructions()
+    {
+        var ev = R("""{"id":"test-1","blade":"realtime","rule":"Encoded PowerShell command","title":"Encoded PowerShell command","severity":"High","process":"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe","parent":"C:\\tools\\launcher.exe","detail":"powershell -EncodedCommand SQBF...","time":"2026-11-10 10:00:00"}""");
+        var now = new DateTimeOffset(2026, 11, 10, 10, 0, 0, TimeSpan.FromHours(2));
+        var related = new[] { R("""{"blade":"realtime","title":"Process Created","process":"C:\\tools\\launcher.exe","detail":"launcher started","time":"2026-11-10 09:59:50"}""") };
+        var prompt = ExplainPrompt.Build(ev, now, related);
+
+        Assert.Contains("=== SYSTEM & FREEEDR CONTEXT ===", prompt);
+        Assert.Contains("FreeEDR", prompt);
+        Assert.Contains("2026-11-10 10:00:00 +02:00", prompt);
+        Assert.Contains("UTC offset: +02:00", prompt);
+        Assert.Contains("=== DETECTED INCIDENT TELEMETRY ===", prompt);
+        Assert.Contains("Encoded PowerShell command", prompt);
+        Assert.Contains("=== RECENT SURROUNDING / RELATED LOGS ===", prompt);
+        Assert.Contains("Process Created", prompt);
+        Assert.Contains("=== USER QUESTION & INSTRUCTIONS ===", prompt);
+        Assert.Contains(ExplainPrompt.UserInstruction, prompt);
     }
 }
 

@@ -85,9 +85,9 @@ public sealed class Notifier
         var body = e.S("blade") == "system" ? e.S("detail") : (proc.Length > 0 ? proc + " - " : "") + (Hints.For(e).What is { Length: > 0 } w ? Short(w, 160) : "Open FreeEDR to see what it means and what to do.");
         var pinned = Ps.Match(e.S("title"), Catalog.ConfirmPattern);
         var buttons = new List<(string Label, string Args)>();
-        if (pinned) { buttons.Add(("Yes, it was me", $"me|{id}")); buttons.Add(("Review", $"open|{id}")); }
+        if (pinned) { buttons.Add(("Yes, it was me", $"me|{id}")); buttons.Add(("🤔 Explain for Dummies", $"explain|{id}")); buttons.Add(("Review", $"open|{id}")); }
         else if (e.S("blade") == "system") buttons.Add(("Open FreeEDR", "page|home"));
-        else { buttons.Add(("Review", $"open|{id}")); buttons.Add(("Mark reviewed", $"review|{id}")); }
+        else { buttons.Add(("Review", $"open|{id}")); buttons.Add(("🤔 Explain for Dummies", $"explain|{id}")); buttons.Add(("Mark reviewed", $"review|{id}")); }
         var scenario = rank >= 4 ? "reminder" : "";
         Show((rank >= 4 ? "Critical: " : "") + e.S("title"), body, $"open|{id}", buttons, scenario);
     }

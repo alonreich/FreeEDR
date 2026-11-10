@@ -319,7 +319,7 @@ internal sealed class Installer(EdrPaths paths, string source, SetupOptions opt,
                 foreach (var l in new[] { "realtime", "sigma" }) foreach (var e in ((JsonArray)x[l]!).OfType<JsonObject>().Where(e => e.Str("profile") == id).ToList()) ((JsonArray)x[l]!).Remove(e);
                 AddProfile(p);
             }
-            foreach (var p in Profiles.All.Where(p => p.Id is "wpbbin" or "freeedr-build" or "edge" or "zoom" && p.Default && Profiles.IsInstalled(p) && !HasProfile(p.Id))) { AddProfile(p); log.Ok($"Trusted app: {p.Name}"); }
+            foreach (var p in Profiles.All.Where(p => p.Id is ("wpbbin" or "freeedr-build" or "edge" or "zoom" or "teams" or "slack" or "webex" or "vscode" or "git" or "docker" or "chrome" or "dropbox") && p.Default && Profiles.IsInstalled(p) && !HasProfile(p.Id))) { AddProfile(p); log.Ok($"Trusted app: {p.Name}"); }
             log.Ok("Trusted apps kept as you set them");
         }
         JsonFile.WriteAtomic(paths.ExclusionsFile, x);

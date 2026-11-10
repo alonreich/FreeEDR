@@ -83,7 +83,8 @@ public sealed class DetailView : Border
         foreach (var a in acts.Where(a => a.Kind != ActionKind.CopyDetails))
         {
             var cls = a.Style.Length > 0 ? a.Style : a.Primary ? "primary" : "";
-            var b = Ui.Btn(a.Label, cls + " small", () => _ = _c.Run(a, _rows), icon: IconFor(a.Kind));
+            var tip = a.Kind == ActionKind.ExplainForDummies ? "Copy prompt with incident context and ask Gemini to explain it simply" : null;
+            var b = Ui.Btn(a.Label, cls + " small", () => _ = _c.Run(a, _rows), icon: IconFor(a.Kind), tip: tip);
             b.IsEnabled = a.Enabled && !_c.Commands.Busy;
             b.Margin = new Thickness(0, 0, 6, 6);
             wrap.Children.Add(b);

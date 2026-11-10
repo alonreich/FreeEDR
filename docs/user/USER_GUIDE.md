@@ -133,11 +133,20 @@ switch differs from what is applied; one confirmation, one administrator prompt)
 | FreeEDR Project Build Output | FreeEDR's own installer and build outputs | on |
 | Microsoft Edge & WebView | RunOnce cleanup entries during browser updates | on |
 | Zoom Workplace | Temporary web meeting launcher run from Downloads | on |
+| Microsoft Teams | Updates, audio/video helpers and background processes | on |
+| Slack | Desktop app, updater and background helpers (signed by Slack Technologies) | on |
+| Cisco Webex | Webex meeting launcher, collaboration host and updates | on |
+| Visual Studio Code (Microsoft) | Editor, terminal shell launches, internal git/node workers and updates | on |
+| Git for Windows | Git commands (git, bash, sh) and developer helper scripts | on |
+| Docker Desktop | Docker backend, virtualization services and helper PowerShell scripts | on |
+| Google Chrome | Chrome browser and background GoogleUpdate tasks | on |
+| Dropbox | Sync client and updater (signed by Dropbox, Inc.) | on |
 
 "On" is applied once by the installer, only for apps found on the PC; after that only you change it.
 
 ## 4. Notifications
-* Native Windows notifications with buttons: **Review**, **Mark reviewed**, **Yes, it was me**.
+* Native Windows notifications with buttons: **Review**, **Mark reviewed**, **Yes, it was me**, and **🤔 Explain for Dummies** (copies the incident telemetry & context and opens Gemini for an oversimplified explanation).
+* In the FreeEDR app: every alert detail view and context menu includes **🤔 Explain for Dummies** to instantly get AI explanation with complete machine, timeline, and surrounding log context.
 * **Settings ▸ Notifications** (this account only): *Only critical alerts* · *Important alerts* (default: high and
   critical detections, Wail2Ban bans, failed scans) · *Everything* (also medium alerts and every scan result). "Was this
   you?" questions, sensor problems and tool updates always notify.

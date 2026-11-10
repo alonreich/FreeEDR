@@ -13,9 +13,13 @@ tag and "Unreleased" is empty):
 ## Unreleased
 
 ### What's new for you
+- FreeEDR now includes an "🤔 Explain for Dummies" button on every alert, detail view, context menu, and toast notification that automatically prepares an oversimplified AI prompt with full incident context, timeline, and surrounding logs and opens Gemini in your browser.
+- FreeEDR now includes smart trusted app profiles out of the box for common enterprise and developer apps (Microsoft Teams, Slack, Cisco Webex, Visual Studio Code, Git for Windows, Docker Desktop, Google Chrome, and Dropbox), preventing false-positive alerts on standard tools.
 - FreeEDR now includes trusted app profiles for Microsoft Edge updates and Zoom web launchers out of the box, preventing false-positive alerts when Edge cleans up update tasks or Zoom launches meetings from Downloads.
 
 ### Technical
+- Added `ExplainPrompt` builder (`src\Edr.Core\ExplainPrompt.cs`), `ActionKind.ExplainForDummies` in `src\Edr.Core\Actions.cs`, and handling in `src\Edr.Tray\Controller.cs`, `DetailView.cs`, and `Notifier.cs`.
+- Added `teams`, `slack`, `webex`, `vscode`, `git`, `docker`, `chrome`, and `dropbox` default profiles to `src\Edr.Core\Profiles.cs`, `src\Edr.Core\Catalog.cs`, and `src\Edr.Setup\Installer.cs`.
 - Added `edge` and `zoom` default profiles to `src\Edr.Core\Profiles.cs`, `src\Edr.Core\Catalog.cs`, and `src\Edr.Setup\Installer.cs`.
 - `Fixtures\live-2026-11-01`: normalized synthetic event fixture telemetry (paths and IPs) in `events.jsonl` and `model.json`.
 - `release.yml`: the changelog commit is titled `Release <version>: changelog` again (`${env:VERSION}`; `$env:VERSION:` made PowerShell read the colon as part of the name, so 2026.11.8's commit is titled "Release  changelog").

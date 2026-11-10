@@ -6,7 +6,7 @@ public enum ActionKind
 {
     Flag, ItWasMe, Allow, AllowRule, AllowParent, AllowSigner, AllowParentEverywhere, AllowSubnet, TrustApp, MarkReviewed, MarkUnreviewed,
     BackToDetected, MoveToAllowed, AllowInDefender, OpenWindowsSecurity, BanIp, RemoveAllow, UpdateCve, ReadAdvisory, IgnoreCve, UpdateApp,
-    UpdateAllApps, HideApp, ShowApp, UpdateAgain, UpdateTool, OpenUrl, ScanWithDefender, VirusTotal, OpenLocation, CopyDetails,
+    UpdateAllApps, HideApp, ShowApp, UpdateAgain, UpdateTool, OpenUrl, ScanWithDefender, VirusTotal, OpenLocation, CopyDetails, ExplainForDummies,
 }
 
 public sealed record TrayAction(ActionKind Kind, string Label, bool Primary = false, bool Enabled = true, string? Arg = null, string Style = "");
@@ -109,6 +109,10 @@ public static class ActionBuilder
             acts.Add(new(ActionKind.ScanWithDefender, "Scan with Microsoft Defender", Arg: e.S("process")));
             acts.Add(new(ActionKind.VirusTotal, "Look up on VirusTotal", Arg: e.S("process")));
             acts.Add(new(ActionKind.OpenLocation, "Open file location", Arg: e.S("process")));
+        }
+        if (e is not null && n == 1)
+        {
+            acts.Add(new(ActionKind.ExplainForDummies, "🤔 Explain for Dummies", Arg: e.S("id")));
         }
         acts.Add(new(ActionKind.CopyDetails, "Copy details"));
         return acts;
