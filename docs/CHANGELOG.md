@@ -13,11 +13,13 @@ tag and "Unreleased" is empty):
 ## Unreleased
 
 ### What's new for you
+- Settings has been completely upgraded: an instant search bar finds any setting across the dashboard, quiet mode features one-click game auto-detection and removable chips, popup notifications now offer a direct button to silence notifications for whichever game or app is in focus, and themes and notifications switch with clean segmented controls.
 - FreeEDR now includes an "🤔 Explain for Dummies" button on every alert, detail view, context menu, and toast notification that automatically prepares an oversimplified AI prompt with full incident context, timeline, and surrounding logs and opens Gemini in your browser.
 - FreeEDR now includes smart trusted app profiles out of the box for common enterprise and developer apps (Microsoft Teams, Slack, Cisco Webex, Visual Studio Code, Git for Windows, Docker Desktop, Google Chrome, and Dropbox), preventing false-positive alerts on standard tools.
 - FreeEDR now includes trusted app profiles for Microsoft Edge updates and Zoom web launchers out of the box, preventing false-positive alerts when Edge cleans up update tasks or Zoom launches meetings from Downloads.
 
 ### Technical
+- Enhanced Settings UI (`SettingsPage.cs`): added instant search filtering, segmented theme/notification pill controls, responsive quiet mode chips with `Win32.RunningApplications` auto-detection and D3D full-screen game detection (`SHQueryUserNotificationState`), foreground process detection in `Notifier.cs` with toast quiet action button, sanitized exception messages in `Controller.TestFeed`, and updated `SettingsBackup.cs` with user preferences.
 - Added `ExplainPrompt` builder (`src\Edr.Core\ExplainPrompt.cs`), `ActionKind.ExplainForDummies` in `src\Edr.Core\Actions.cs`, and handling in `src\Edr.Tray\Controller.cs`, `DetailView.cs`, and `Notifier.cs`.
 - Added `teams`, `slack`, `webex`, `vscode`, `git`, `docker`, `chrome`, and `dropbox` default profiles to `src\Edr.Core\Profiles.cs`, `src\Edr.Core\Catalog.cs`, and `src\Edr.Setup\Installer.cs`.
 - `src\Edr.Engine\Archive.cs`: clear transient subscription errors once source subscription succeeds or receives events so temporary startup delays do not latch permanent errors in `status.json`.
