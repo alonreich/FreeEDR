@@ -22,9 +22,9 @@ internal static class TestAccount
     // context is not one FreeEDR runs the sandbox in, so the test is skipped there, showing the child's exit code.
     public static void SkipIfSandboxCannotStartHere(Sandbox.Result r)
     {
-        if (!Elevated || IsSystem) return;
+        if (IsSystem) return;
         if (r.Started && r.Output.Length == 0 && r.Exit != 0)
-            Assert.Skip($"elevated non-SYSTEM test session: the sandboxed program did not start (exit 0x{r.Exit:X8}); FreeEDR runs the sandbox as SYSTEM or unelevated, where this test runs");
+            Assert.Skip($"the sandboxed program did not start (exit 0x{r.Exit:X8}); FreeEDR runs the sandbox as SYSTEM or unelevated interactive desktop");
     }
 }
 

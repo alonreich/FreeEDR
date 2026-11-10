@@ -83,6 +83,7 @@ public static class Catalog
         ["vcpkg"] = "Visual Studio Build Tools (vcpkg shell)", ["onedrive"] = "Microsoft OneDrive", ["office"] = "Microsoft Office updates (Click-to-Run)",
         ["google-drive"] = "Google Drive", ["razer"] = "Razer (Synapse / Cortex / App Engine)", ["installers"] = "Software installers (one-time RunOnce entries)",
         ["wpbbin"] = "OEM Motherboard Boot Binary (wpbbin.exe)", ["freeedr-build"] = "FreeEDR Project Build Output",
+        ["edge"] = "Microsoft Edge & WebView (browser updates)", ["zoom"] = "Zoom Workplace (meeting launcher)",
     };
 
     public static readonly Dictionary<string, string> RuleSeverity = new(StringComparer.OrdinalIgnoreCase)

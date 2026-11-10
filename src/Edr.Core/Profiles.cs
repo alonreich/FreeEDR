@@ -91,6 +91,15 @@ public static class Profiles
                 "Installers (Visual C++, .NET, Python, ...) add a one-time \"RunOnce\" start-up entry to finish setup. Off by default: malware can use RunOnce too.",
                 [],
                 [new("realtime", Rule: "Startup entry added or changed (Run key)", Detail: @"*\CurrentVersion\RunOnce\*")]),
+            new("edge", "Microsoft Edge & WebView (browser updates)", true, "app",
+                "Microsoft Edge and WebView updates: cleanup tasks in RunOnce (msedge_cleanup).",
+                [$@"{pf86}\Microsoft\Edge\Application\msedge.exe", $@"{pf}\Microsoft\Edge\Application\msedge.exe", $@"{pf86}\Microsoft\EdgeWebView\Application\msedgewebview.exe"],
+                [new("realtime", Rule: "Startup entry added or changed (Run key)", Image: @"*\Microsoft\Edge*\Application\*\Installer\setup.exe", Detail: "*msedge_cleanup*"),
+                 new("realtime", Rule: "Startup entry added or changed (Run key)", Image: $@"{sysRoot}\System32\runonce.exe", Detail: "*msedge_cleanup*")]),
+            new("zoom", "Zoom Workplace (meeting launcher)", true, "app",
+                "Zoom temporary web joiner / launcher executed from Downloads when joining a meeting from a browser.",
+                [],
+                [new("realtime", Rule: "Executable launched from Downloads", Image: @"*Downloads\Zoom*.exe")]),
         ];
     }
 

@@ -131,6 +131,8 @@ switch differs from what is applied; one confirmation, one administrator prompt)
 | Software installers | One-time `RunOnce` start-up entries | off (malware can use RunOnce too) |
 | OEM Motherboard Boot Binary (wpbbin.exe) | The UEFI platform binary started at boot by smss.exe | on |
 | FreeEDR Project Build Output | FreeEDR's own installer and build outputs | on |
+| Microsoft Edge & WebView | RunOnce cleanup entries during browser updates | on |
+| Zoom Workplace | Temporary web meeting launcher run from Downloads | on |
 
 "On" is applied once by the installer, only for apps found on the PC; after that only you change it.
 
