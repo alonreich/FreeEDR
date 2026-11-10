@@ -147,11 +147,11 @@ public sealed class HomePage : UserControl
         return grid;
     }
 
-    private Control Tile(string icon, string name, string blade, string page, SectionModel? sec, string what)
+    private Control Tile(string icon, string name, string blade, string page, SectionModel? sec, string what, SectionModel? sec2 = null)
     {
         var st = _c.State.PauseState(blade == "cve" ? "cve" : blade);
         var engine = _c.State.EngineAlive;
-        var attention = sec?.Attention ?? 0;
+        var attention = (sec?.Attention ?? 0) + (sec2?.Attention ?? 0);
         var open = sec?.Count ?? 0;
         IBrush color; string status;
         if (!engine || st == "error") { color = Palette.Danger; status = st == "error" ? "Not working" : "Engine stopped"; }
