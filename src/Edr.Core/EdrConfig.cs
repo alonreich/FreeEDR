@@ -183,13 +183,13 @@ public sealed partial class EdrConfig
         return d;
     }
 
-    public static bool IsQuietName(string s)
+    public static bool IsQuietName(string? s)
     {
         var clean = CleanQuietName(s);
         return clean.Length is > 0 and < 128 && clean != "*" && !clean.Contains('\\') && !clean.Contains('/');
     }
 
-    public static string CleanQuietName(string s)
+    public static string CleanQuietName(string? s)
     {
         var t = (s ?? "").Trim();
         if (t.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) t = t[..^4].Trim();

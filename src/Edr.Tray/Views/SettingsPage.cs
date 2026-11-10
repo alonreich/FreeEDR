@@ -17,6 +17,7 @@ namespace Edr.Tray.Views;
 public sealed class SettingsPage : UserControl
 {
     private readonly Controller _c;
+    private readonly Action<string, string?>? _navigate;
     private readonly StackPanel _root = new() { Spacing = 12, Margin = new Thickness(20, 16, 20, 20), MaxWidth = 980, HorizontalAlignment = HorizontalAlignment.Left };
     private readonly StackPanel _dynamic = new() { Spacing = 12 };
     private readonly ScrollViewer _scroll = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
@@ -56,9 +57,10 @@ public sealed class SettingsPage : UserControl
 
     public event Action? UnsavedChanged;
 
-    public SettingsPage(Controller c)
+    public SettingsPage(Controller c, Action<string, string?>? navigate = null)
     {
         _c = c;
+        _navigate = navigate;
         Grid.SetIsSharedSizeScope(_root, true);
         _scroll.Content = _root;
         var dock = new DockPanel();
@@ -131,7 +133,7 @@ public sealed class SettingsPage : UserControl
             }
             else
             {
-                _c.Navigate("home", null);
+                _navigate?.Invoke("home", null);
             }
         }
     }
@@ -763,7 +765,7 @@ public sealed class SettingsPage : UserControl
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 Content = Ui.Stack(14, rows).Also(s => s.Margin = new Thickness(0, 6, 0, 2)),
             };
-            ex.Header.Tag = summary;
+            if (ex.Header is Control hc) hc.Tag = summary;
             AutomationProperties.SetName(ex, $"Advanced: {summary}");
             ex.PropertyChanged += (_, e) => { if (e.Property == Expander.IsExpandedProperty) _prefs.SetAdvancedOpen(key, ex.IsExpanded); };
             _groups.Add((key, ex, count));

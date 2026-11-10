@@ -76,7 +76,7 @@ public partial class MainWindow : Window
             new("FreeEDR tools", () => [], "", () => ToolPanel.Build(c)),
         ]);
         _allowed = new AllowedPage(c);
-        _settings = new SettingsPage(c);
+        _settings = new SettingsPage(c, Navigate);
         _snackTimer.Tick += (_, _) => { if (SnackHeld) _snackTimer.Stop(); else HideSnack(); };
         _snack = new Border
         {
