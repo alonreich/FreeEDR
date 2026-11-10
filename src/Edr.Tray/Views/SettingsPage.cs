@@ -273,11 +273,16 @@ public sealed class SettingsPage : UserControl
         {
             b.IsCheckedChanged += (_, _) =>
             {
-                if (b.IsChecked != true || _c.Prefs.Theme == t) return;
+                if (b.IsChecked != true)
+                {
+                    if (_c.Prefs.Theme == t) b.IsChecked = true;
+                    return;
+                }
+                if (_c.Prefs.Theme == t) return;
+                _c.Prefs.Theme = t;
                 _themeSystem.IsChecked = t == "system";
                 _themeDark.IsChecked = t == "dark";
                 _themeLight.IsChecked = t == "light";
-                _c.Prefs.Theme = t;
                 App.Instance?.ApplyTheme(t);
             };
         }
@@ -289,11 +294,16 @@ public sealed class SettingsPage : UserControl
         {
             b.IsCheckedChanged += (_, _) =>
             {
-                if (b.IsChecked != true || _c.Prefs.NotifyLevel == lvl) return;
+                if (b.IsChecked != true)
+                {
+                    if (_c.Prefs.NotifyLevel == lvl) b.IsChecked = true;
+                    return;
+                }
+                if (_c.Prefs.NotifyLevel == lvl) return;
+                _c.Prefs.NotifyLevel = lvl;
                 _notifyCrit.IsChecked = lvl == "critical";
                 _notifyImp.IsChecked = lvl == "important";
                 _notifyAll.IsChecked = lvl == "all";
-                _c.Prefs.NotifyLevel = lvl;
                 _c.Say(_c.Prefs.SaveError.Length > 0 ? $"Not saved: {_c.Prefs.SaveError}" : "Notifications: saved for your account.", _c.Prefs.SaveError.Length > 0);
             };
         }
@@ -874,7 +884,12 @@ public sealed class SettingsPage : UserControl
         }
         Item("Engine log", _c.OpenEngineLog, "Opens the main FreeEDR service log in Notepad.");
         Item("Scan log", _c.OpenScanLog, "Opens the scheduled scanner output log in Notepad.");
-        Item("Show the logs folder", () => { if (!Shell.ShowInExplorer(_c.State.Paths.EngineLog)) _c.Say("The engine log does not exist yet.", true); }, "Opens the directory containing FreeEDR log files in File Explorer.");
+        Item("Show the logs folder", () =>
+        {
+            var log = _c.State.Paths.EngineLog;
+            var target = File.Exists(log) ? log : (Path.GetDirectoryName(log) is { } d && Directory.Exists(d) ? d : _c.State.Paths.DataDir);
+            if (!Shell.ShowInExplorer(target)) _c.Say("The logs folder does not exist yet.", true);
+        }, "Opens the directory containing FreeEDR log files in File Explorer.");
         logs.Flyout = menu;
         return Section("", "Troubleshoot", "Check that FreeEDR works.",
             Ui.Wrap(
@@ -1025,9 +1040,10 @@ public sealed class SettingsPage : UserControl
         if (file is null) return;
         try
         {
-            await using (var s = await file.OpenWriteAsync())
-            await using (var w = new StreamWriter(s, new System.Text.UTF8Encoding(true)))
-                await w.WriteAsync(_c.AuditCsv());
+            await using var s = await file.OpenWriteAsync();
+            s.SetLength(0);
+            await using var w = new StreamWriter(s, new System.Text.UTF8Encoding(true));
+            await w.WriteAsync(_c.AuditCsv());
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

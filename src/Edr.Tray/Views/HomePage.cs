@@ -142,7 +142,7 @@ public sealed class HomePage : UserControl
         Add(Tile("", "Anti-Malware", "malware", "activity:malware", m?.Sec["malware"], "Malware fingerprints, YARA rules and Microsoft Defender's findings."));
         Add(Tile("", "Event logs", "sigma", "activity:sigma", m?.Sec["sigma"], "Thousands of Sigma rules over the Windows event logs, twice a day."));
         Add(Tile("", "Wail2Ban", "wail2ban", "network", m?.Sec["wail2ban"], s.Config.Wail2Ban.Block ? "Blocks computers that keep failing to sign in." : "Reports password guessing (report-only)."));
-        Add(Tile("", "Updates", "cve", "updates", m?.Sec["cve"], "Python vulnerabilities with a fix, and app updates."));
+        Add(Tile("", "Updates", "cve", "updates", m?.Sec["cve"], "Python vulnerabilities with a fix, and app updates.", m?.Sec["apps"]));
         Add(SensorTile());
         return grid;
     }

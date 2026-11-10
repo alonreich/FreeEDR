@@ -122,11 +122,16 @@ public static class Shell
 
     public static bool ShowInExplorer(string path)
     {
+        if (Directory.Exists(path))
+        {
+            var psi = new ProcessStartInfo(Path.Combine(EdrPaths.SystemRoot, "explorer.exe"));
+            psi.ArgumentList.Add(path);
+            try { Process.Start(psi); return true; } catch (Win32Exception) { return false; }
+        }
         if (!File.Exists(path)) return false;
-        var psi = new ProcessStartInfo(Path.Combine(EdrPaths.SystemRoot, "explorer.exe"));
-        psi.ArgumentList.Add("/select,");
-        psi.ArgumentList.Add(path);
-        try { Process.Start(psi); return true; } catch (Win32Exception) { return false; }
+        var psiFile = new ProcessStartInfo(Path.Combine(EdrPaths.SystemRoot, "explorer.exe"));
+        psiFile.ArgumentList.Add($"/select,{path}");
+        try { Process.Start(psiFile); return true; } catch (Win32Exception) { return false; }
     }
 
     public static bool Notepad(string path)
