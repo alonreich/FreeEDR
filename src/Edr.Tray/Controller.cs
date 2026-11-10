@@ -534,21 +534,30 @@ public sealed class Controller
             }
             return count >= 100 ? (true, $"Works: {count:N0} malware hashes.") : (false, $"Only {count} SHA256 hash lines found - FreeEDR needs at least 100 (signature-base format: one hash per line).");
         }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException) { return (false, $"Could not download it: {e.Message}"); }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException) { return (false, $"Could not download it: {EdrConfig.RedactUrl(e.Message)}"); }
     }
 
-    public Task<JsonObject> CreateBackup() => Task.Run(() => SettingsBackup.Create(EdrConfig.Load(State.Paths.ConfigFile), JsonFile.ReadObject(State.Paths.ExclusionsFile)));
+    public Task<JsonObject> CreateBackup() => Task.Run(() =>
+    {
+        var prefs = new JsonObject
+        {
+            ["notifyLevel"] = Prefs.NotifyLevel,
+            ["theme"] = Prefs.Theme,
+            ["updateCheck"] = Prefs.UpdateCheck,
+        };
+        return SettingsBackup.Create(EdrConfig.Load(State.Paths.ConfigFile), JsonFile.ReadObject(State.Paths.ExclusionsFile), prefs);
+    });
 
-    public async Task ImportBackup(JsonObject? backup)
+    public async Task<bool> ImportBackup(JsonObject? backup)
     {
         var paths = State.Paths;
         var plan = await Task.Run(() => SettingsBackup.PlanImport(backup, EdrConfig.Load(paths.ConfigFile), JsonFile.ReadObject(paths.ExclusionsFile)));
-        if (plan.Problem.Length > 0) { await Dialogs.Info("Import settings", plan.Problem, true); return; }
+        if (plan.Problem.Length > 0) { await Dialogs.Info("Import settings", plan.Problem, true); return false; }
         var notes = new List<string>();
         if (plan.AlreadyThere > 0) notes.Add($"{plan.AlreadyThere} allows are already here.");
         if (plan.Refused > 0) notes.Add($"{plan.Refused} allows in the file are too broad for FreeEDR's rules and are skipped.");
         var quiet = SettingsBackup.QuietOf(backup) is { } q && !q.SequenceEqual(QuietList, StringComparer.Ordinal) ? q : null;
-        if (plan.Empty && quiet is null) { await Dialogs.Info("Import settings", "Nothing to change: this PC already has these settings and allows. " + string.Join(" ", notes)); return; }
+        if (plan.Empty && quiet is null) { await Dialogs.Info("Import settings", "Nothing to change: this PC already has these settings and allows. " + string.Join(" ", notes)); return false; }
         var batches = SettingsBackup.Batches(plan.Ops);
         var approvals = batches.Count + (plan.ConfigChanges.Count > 0 ? 1 : 0);
         var what = new List<string>();
@@ -556,18 +565,31 @@ public sealed class Controller
         if (plan.Ops.Count > 0) what.Add($"{plan.Ops.Count} allows");
         if (quiet is not null) what.Add("your quiet-mode list");
         if (!await Dialogs.Confirm("Import settings", $"This backup changes {string.Join(" and ", what)}. {string.Join(" ", notes)}\n\nEach step shows exactly what it changes before you approve it.",
-                                   "Import", note: approvals == 0 ? null : approvals == 1 ? "Windows asks for administrator approval." : $"Windows asks for administrator approval {approvals} times (at most {RequestSummary.MaxLines} changes each).")) return;
+                                   "Import", note: approvals == 0 ? null : approvals == 1 ? "Windows asks for administrator approval." : $"Windows asks for administrator approval {approvals} times (at most {RequestSummary.MaxLines} changes each).")) return false;
         if (quiet is not null) Prefs.QuietProcesses = quiet;
-        if (plan.ConfigChanges.Count > 0 && !await SaveSettings(plan.ConfigChanges)) return;
+        if (SettingsBackup.PrefsOf(backup) is { } userPrefs)
+        {
+            if (userPrefs.Str("notifyLevel") is "critical" or "important" or "all" && userPrefs.Str("notifyLevel") is { Length: > 0 } nl)
+                Prefs.NotifyLevel = nl;
+            if (userPrefs.Str("theme") is "dark" or "light" or "system" && userPrefs.Str("theme") is { Length: > 0 } th)
+            {
+                Prefs.Theme = th;
+                App.Instance?.ApplyTheme(th);
+            }
+            if (userPrefs["updateCheck"] is JsonValue uv && uv.TryGetValue<bool>(out var uc))
+                Prefs.UpdateCheck = uc;
+        }
+        if (plan.ConfigChanges.Count > 0 && !await SaveSettings(plan.ConfigChanges)) return false;
         var done = 0;
         foreach (var b in batches)
         {
             var r = await Commands.Admin(b);
-            if (r != CommandResult.Done) { Say($"Import stopped after {done} of {batches.Count} allow steps: {Commands.Explain(r)}", true); Refresh(); return; }
+            if (r != CommandResult.Done) { Say($"Import stopped after {done} of {batches.Count} allow steps: {Commands.Explain(r)}", true); Refresh(); return false; }
             done++;
         }
         Say($"Imported: {string.Join(" and ", what)}.");
         Refresh();
+        return true;
     }
 
     public IReadOnlyList<string> QuietList => Prefs.QuietProcesses ?? State.Config.QuietProcesses;
@@ -636,6 +658,16 @@ public sealed class Controller
             case "update":
                 navigate("settings", null);
                 if (Updater.Info is { } info) await ShowWhatsNew(info);
+                return;
+            case "quiet" when arg.Length > 0:
+                var qList = (Prefs.QuietProcesses ?? State.Config.QuietProcesses).ToList();
+                if (!qList.Any(q => q.Equals(arg, StringComparison.OrdinalIgnoreCase)))
+                {
+                    qList.Add(arg);
+                    Prefs.QuietProcesses = qList;
+                    Say($"Quiet mode enabled: FreeEDR will not show pop-ups while {arg} is running.");
+                    Refresh();
+                }
                 return;
         }
         await Task.CompletedTask;

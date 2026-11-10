@@ -67,12 +67,19 @@ public sealed class UpdatePanel : UserControl
                 buttons.Add(Ui.Btn("Stop download", "", u.Cancel, tip: "What was downloaded is kept; the next try continues from there."));
                 break;
         }
-        if (!u.Busy) buttons.Add(Ui.Btn("Check now", "", () => _ = u.Check(manual: true), icon: ""));
-        buttons.Add(Ui.Btn("What's new in my version", "ghost", () => _ = _c.ShowWhatsNew()));
-        if (info is not null) buttons.Add(Ui.Btn("Release page", "ghost", () => Shell.OpenUrl(info.PageUrl)));
+        if (!u.Busy) buttons.Add(Ui.Btn("Check now", "", () => _ = u.Check(manual: true), icon: "", tip: "Checks GitHub immediately for newer signed FreeEDR releases."));
+        buttons.Add(Ui.Btn("What's new in my version", "ghost", () => _ = _c.ShowWhatsNew(), tip: "Shows the release notes and improvements included in your installed version."));
+        if (info is not null) buttons.Add(Ui.Btn("Release page", "ghost", () => Shell.OpenUrl(info.PageUrl), tip: "Opens the GitHub release page for this version in your default web browser."));
         stack.Children.Add(Ui.Wrap([.. buttons]));
 
-        var auto = new CheckBox { Content = "Check for new versions automatically (once a day, in the background)", IsChecked = _c.Prefs.UpdateCheck };
+        var auto = new CheckBox
+        {
+            Content = "Check for new versions automatically (once a day, in the background)",
+            IsChecked = _c.Prefs.UpdateCheck,
+            IsEnabled = !u.DevInstall
+        };
+        ToolTip.SetTip(auto, u.DevInstall ? "Automatic update checks are disabled in development builds." : "Checks once every 24 hours in the background for signed FreeEDR releases.");
+        Avalonia.Automation.AutomationProperties.SetHelpText(auto, u.DevInstall ? "Automatic update checks are disabled in development builds." : "Checks once every 24 hours in the background for signed FreeEDR releases.");
         auto.IsCheckedChanged += (_, _) => _c.Prefs.UpdateCheck = auto.IsChecked == true;
         stack.Children.Add(auto);
         Content = Ui.Card(stack);

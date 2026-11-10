@@ -264,4 +264,92 @@ public static partial class Win32
         using var id = System.Security.Principal.WindowsIdentity.GetCurrent();
         return id.User?.Value == EdrPaths.SystemSid;
     }
+
+    [LibraryImport("user32.dll")]
+    public static partial nint GetForegroundWindow();
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    public static partial uint GetWindowThreadProcessId(nint hWnd, out uint processId);
+
+    [LibraryImport("shell32.dll")]
+    public static partial int SHQueryUserNotificationState(out int pquns);
+
+    public static bool IsFullScreenGameRunning() =>
+        SHQueryUserNotificationState(out var state) == 0 && state is 3 or 4; // QUNS_RUNNING_D3D_FULL_SCREEN or QUNS_PRESENTATION_MODE
+
+    public static (int Pid, string ProcessName, string Path) ForegroundProcess()
+    {
+        var hwnd = GetForegroundWindow();
+        if (hwnd == 0) return (0, "", "");
+        GetWindowThreadProcessId(hwnd, out var pid);
+        if (pid <= 4) return ((int)pid, "", "");
+        var (path, _) = ImageAndStart((int)pid);
+        var name = path.Length > 0 ? System.IO.Path.GetFileNameWithoutExtension(path) : "";
+        if (name.Length == 0)
+        {
+            try { using var p = System.Diagnostics.Process.GetProcessById((int)pid); name = p.ProcessName; } catch { }
+        }
+        return ((int)pid, name, path);
+    }
+
+    public readonly record struct AppProcess(int Pid, string Name, string Title, string Path, bool IsGame);
+
+    public static List<AppProcess> RunningApplications()
+    {
+        var list = new List<AppProcess>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ignore = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "FreeEDR-Tray", "FreeEDR-Engine", "FreeEDR-Control", "FreeEDR-Installer",
+            "explorer", "System", "Idle", "svchost", "smss", "csrss", "wininit", "services",
+            "lsass", "winlogon", "fontdrvhost", "dwm", "SearchHost", "StartMenuExperienceHost",
+            "TextInputHost", "ShellExperienceHost", "ApplicationFrameHost", "LockApp", "conhost",
+            "RuntimeBroker", "taskhostw", "sihost", "ctfmon", "SecurityHealthSystray", "SecurityHealthService"
+        };
+
+        try
+        {
+            foreach (var p in System.Diagnostics.Process.GetProcesses())
+            {
+                using (p)
+                {
+                    try
+                    {
+                        var pid = p.Id;
+                        if (pid <= 4) continue;
+                        var name = p.ProcessName;
+                        if (string.IsNullOrEmpty(name) || ignore.Contains(name) || !seen.Add(name)) continue;
+                        var title = "";
+                        try { title = p.MainWindowTitle; } catch { }
+                        var path = "";
+                        try { path = p.MainModule?.FileName ?? ""; } catch { }
+                        if (path.Length == 0) (path, _) = ImageAndStart(pid);
+                        var isGame = IsGameHeuristic(name, path);
+                        list.Add(new AppProcess(pid, name, title, path, isGame));
+                    }
+                    catch (Exception) { }
+                }
+            }
+        }
+        catch (Exception) { }
+
+        return list.OrderByDescending(x => x.IsGame).ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    public static bool IsGameHeuristic(string name, string path)
+    {
+        if (string.IsNullOrEmpty(name)) return false;
+        var p = (path ?? "").Replace('/', '\\').ToLowerInvariant();
+        if (p.Contains(@"\steamapps\") || p.Contains(@"\epic games\") || p.Contains(@"\riot games\") ||
+            p.Contains(@"\battle.net\") || p.Contains(@"\gog galaxy\") || p.Contains(@"\ubisoft game launcher\") ||
+            p.Contains(@"\xboxgames\") || p.Contains(@"\gamingservices\"))
+            return true;
+
+        var n = name.ToLowerInvariant();
+        return n.Contains("game") || n.Contains("fortnite") || n.Contains("valorant") ||
+               n.Contains("minecraft") || n.Contains("roblox") || n.Contains("cyberpunk") ||
+               n.Contains("league") || n.Contains("overwatch") || n.Contains("dota") ||
+               n.Contains("cs2") || n.Contains("apex") || n.Contains("genshin") ||
+               n.Contains("destiny") || n.Contains("warzone") || n.Contains("pubg");
+    }
 }

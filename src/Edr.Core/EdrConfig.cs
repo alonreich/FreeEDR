@@ -110,15 +110,35 @@ public sealed partial class EdrConfig
 
     public static bool IsValidFeed(string? url) => FeedProblem(url).Length == 0;
 
-    public static bool FeedHasSecret(string? url) =>
-        Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Query.Length > 1 || u.UserInfo.Length > 0 || u.Fragment.Length > 1);
+    public static bool FeedHasSecret(string? url)
+    {
+        if (string.IsNullOrEmpty(url) || !Uri.TryCreate(url, UriKind.Absolute, out var u)) return false;
+        if (u.Query.Length > 1 || u.UserInfo.Length > 0 || u.Fragment.Length > 1) return true;
+        var p = u.AbsolutePath;
+        return p.Contains("/token/", StringComparison.OrdinalIgnoreCase) ||
+               p.Contains("/key/", StringComparison.OrdinalIgnoreCase) ||
+               p.Contains("/auth/", StringComparison.OrdinalIgnoreCase) ||
+               p.Split('/').Any(seg => seg.Length >= 24 && seg.All(c => char.IsAsciiLetterOrDigit(c) || c == '_' || c == '-'));
+    }
 
     public static string RedactUrl(string? url)
     {
         if (string.IsNullOrEmpty(url) || !Uri.TryCreate(url, UriKind.Absolute, out var u)) return url ?? "";
         if (!FeedHasSecret(url)) return url;
         var host = u.IsDefaultPort ? u.Host : $"{u.Host}:{u.Port}";
-        return $"{u.Scheme}://{(u.UserInfo.Length > 0 ? "(hidden)@" : "")}{host}{u.AbsolutePath}{(u.Query.Length > 1 || u.Fragment.Length > 1 ? "?(hidden)" : "")}";
+        var segments = u.AbsolutePath.Split('/');
+        for (var i = 0; i < segments.Length; i++)
+        {
+            var seg = segments[i];
+            if (seg.Length >= 24 && seg.All(c => char.IsAsciiLetterOrDigit(c) || c == '_' || c == '-'))
+                segments[i] = "(hidden)";
+            else if (i > 0 && (segments[i - 1].Equals("token", StringComparison.OrdinalIgnoreCase) ||
+                               segments[i - 1].Equals("key", StringComparison.OrdinalIgnoreCase) ||
+                               segments[i - 1].Equals("auth", StringComparison.OrdinalIgnoreCase)))
+                segments[i] = "(hidden)";
+        }
+        var safePath = string.Join('/', segments);
+        return $"{u.Scheme}://{(u.UserInfo.Length > 0 ? "(hidden)@" : "")}{host}{safePath}{(u.Query.Length > 1 || u.Fragment.Length > 1 ? "?(hidden)" : "")}";
     }
 
     public static JsonObject Redacted(JsonObject req)
@@ -163,7 +183,18 @@ public sealed partial class EdrConfig
         return d;
     }
 
-    public static bool IsQuietName(string s) => s.Length is > 0 and < 128 && !s.Contains('\\') && !s.Contains('/');
+    public static bool IsQuietName(string s)
+    {
+        var clean = CleanQuietName(s);
+        return clean.Length is > 0 and < 128 && clean != "*" && !clean.Contains('\\') && !clean.Contains('/');
+    }
+
+    public static string CleanQuietName(string s)
+    {
+        var t = (s ?? "").Trim();
+        if (t.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) t = t[..^4].Trim();
+        return t;
+    }
 
     public static bool IsTime(string s) => TimeRx().IsMatch(s) && TimeSpan.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, out var t) && t < TimeSpan.FromDays(1);
 

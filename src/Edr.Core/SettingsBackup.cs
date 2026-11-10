@@ -18,18 +18,23 @@ public static class SettingsBackup
         public bool Empty => ConfigChanges.Count == 0 && Ops.Count == 0;
     }
 
-    public static JsonObject Create(EdrConfig cfg, JsonObject? exclusions)
+    public static JsonObject Create(EdrConfig cfg, JsonObject? exclusions, JsonObject? preferences = null)
     {
         var settings = cfg.UserJson();
         var allows = new JsonObject();
         foreach (var l in Lists)
             allows[l] = new JsonArray((exclusions?[l] as JsonArray ?? []).OfType<JsonObject>().Select(e => (JsonNode)Fields(e)).ToArray());
-        return new JsonObject
+        var res = new JsonObject
         {
             ["format"] = Format, ["version"] = Version, ["created"] = DateTime.Now.ToString("s", CultureInfo.InvariantCulture),
             ["settings"] = settings, ["allows"] = allows,
         };
+        if (preferences is not null) res["preferences"] = preferences.DeepClone();
+        return res;
     }
+
+    public static JsonObject? PrefsOf(JsonObject? backup) =>
+        backup is not null && backup.Str("format") == Format && backup["preferences"] is JsonObject p ? (JsonObject)p.DeepClone() : null;
 
     public static List<string>? QuietOf(JsonObject? backup) =>
         backup is not null && backup.Str("format") == Format && backup["settings"] is JsonObject s && s["quietProcesses"] is JsonArray q

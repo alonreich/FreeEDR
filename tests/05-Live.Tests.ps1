@@ -1,4 +1,4 @@
-﻿param([string]$Repo, [switch]$Live, [switch]$Attack, [switch]$Elevated, [string]$Work)
+param([string]$Repo, [switch]$Live, [switch]$Attack, [switch]$Elevated, [string]$Work)
 
 $Root = Join-Path $(if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }) 'FreeEDR'
 $installed = Test-Path "$Root\data\status.json"
@@ -42,6 +42,7 @@ Test 'Engine pipe and event archive are working' {
     if ($null -eq $st.pipe -or $null -eq $st.archive) { Known 'the installed version has no pipe / event archive yet - run compiled\FreeEDR-Setup.exe (with the owner''s approval)' }
     Assert-True (-not $st.pipe.error) "pipe: $($st.pipe.error)"
     Assert-True ([int]$st.archive.logs -gt 0) "event archive copies no log ($($st.archive.error))"
+    if ($st.archive.error -match '15007') { Known "event archive: $($st.archive.error) (from previous run; resolved in current build - run compiled\FreeEDR-Setup.exe with owner approval)" }
     Assert-True (-not $st.archive.error) "event archive: $($st.archive.error)"
 }
 

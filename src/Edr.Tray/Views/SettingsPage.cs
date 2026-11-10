@@ -9,6 +9,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using System.Text.Json.Nodes;
 using Edr.Core;
+using Edr.Core.Native;
 using Edr.Tray.Services;
 
 namespace Edr.Tray.Views;
@@ -16,10 +17,18 @@ namespace Edr.Tray.Views;
 public sealed class SettingsPage : UserControl
 {
     private readonly Controller _c;
-    private readonly StackPanel _root = new() { Spacing = 12, Margin = new Thickness(20, 16, 20, 20), MaxWidth = 980 };
+    private readonly StackPanel _root = new() { Spacing = 12, Margin = new Thickness(20, 16, 20, 20), MaxWidth = 980, HorizontalAlignment = HorizontalAlignment.Left };
     private readonly StackPanel _dynamic = new() { Spacing = 12 };
     private readonly ScrollViewer _scroll = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
     private readonly ContentControl _barHost = new();
+    private readonly TextBox _search = new()
+    {
+        PlaceholderText = "Search settings (e.g. quiet, ipv6, defender, theme, scan)...",
+        Width = 460,
+        HorizontalAlignment = HorizontalAlignment.Left,
+        Margin = new Thickness(0, 4, 0, 4),
+    };
+    private readonly Button _clearSearch;
     private Form? _form;
     private string _shown = "";
     private bool _wasUnsaved;
@@ -27,11 +36,21 @@ public sealed class SettingsPage : UserControl
     private DateTime _savedAt = DateTime.MinValue;
     private string _notice = "";
 
-    private readonly ComboBox _level = new() { ItemsSource = new[] { "Only critical alerts", "Important alerts (recommended)", "Everything" }, Width = 300 };
-    private readonly ComboBox _theme = new() { ItemsSource = new[] { "Same as Windows", "Dark", "Light" }, Width = 200 };
-    private readonly TextBox _quiet = new() { PlaceholderText = "FortniteClient*, obs64*", MinWidth = 360, MaxWidth = 560 };
+    private readonly WrapPanel _quietChips = new() { Orientation = Orientation.Horizontal };
+    private readonly StackPanel _gameSuggestions = new() { Spacing = 6, IsVisible = false };
+    private readonly ComboBox _runningAppsCombo = new() { Width = 340, PlaceholderText = "Select a running app to silence..." };
+    private readonly TextBox _quietCustom = new() { PlaceholderText = "Type program name (e.g. obs64*)...", Width = 260 };
+    private readonly TextBlock _quietErrorText = new() { Foreground = Palette.ErrorText, FontSize = 11.5, IsVisible = false, TextWrapping = Avalonia.Media.TextWrapping.Wrap, MaxWidth = 560 };
     private readonly TextBlock _learning = Ui.T("", "muted").Also(t => { t.TextWrapping = Avalonia.Media.TextWrapping.Wrap; t.MaxWidth = 560; });
     private readonly Field _quietField;
+
+    private readonly ToggleButton _themeSystem = new() { Content = "Same as Windows", Classes = { "chip" } };
+    private readonly ToggleButton _themeDark = new() { Content = "Dark", Classes = { "chip" } };
+    private readonly ToggleButton _themeLight = new() { Content = "Light", Classes = { "chip" } };
+
+    private readonly ToggleButton _notifyCrit = new() { Content = "Critical only", Classes = { "chip" } };
+    private readonly ToggleButton _notifyImp = new() { Content = "Important (recommended)", Classes = { "chip" } };
+    private readonly ToggleButton _notifyAll = new() { Content = "All alerts", Classes = { "chip" } };
 
     public bool HasUnsaved => _form?.Changes().Count > 0;
 
@@ -48,15 +67,32 @@ public sealed class SettingsPage : UserControl
         dock.Children.Add(_scroll);
         Content = dock;
 
+        _clearSearch = Ui.Btn("✕", "ghost small", () => _search.Text = "", tip: "Clear search query");
+        _clearSearch.IsVisible = false;
+        AutomationProperties.SetName(_search, "Search all settings");
+        _search.TextChanged += (_, _) =>
+        {
+            _clearSearch.IsVisible = !string.IsNullOrWhiteSpace(_search.Text);
+            FilterSettings(_search.Text);
+        };
+
         _quietField = new Field
         {
-            IsDefault = () => QuietList(_quiet.Text).SequenceEqual(new EdrConfig().QuietProcesses, StringComparer.OrdinalIgnoreCase),
-            Reset = () => _quiet.Text = string.Join(", ", new EdrConfig().QuietProcesses),
-            Error = () => QuietError(QuietList(_quiet.Text)),
+            IsDefault = () => _c.QuietList.SequenceEqual(new EdrConfig().QuietProcesses, StringComparer.OrdinalIgnoreCase),
+            Reset = () =>
+            {
+                _c.Prefs.QuietProcesses = new EdrConfig().QuietProcesses;
+                BuildQuietChips();
+            },
+            Error = () => "",
         };
         _quietField.DefaultLink.Click += (_, _) => _quietField.Reset();
+
+        var searchRow = Ui.Row(8, Ui.Icon("", 16, Palette.Muted), _search, _clearSearch);
+
         _root.Children.Add(Ui.Stack(4, Ui.T("Settings", "h1"),
-            Ui.T("\"Just for you\" applies at once and only to your account. The PC settings below apply to everyone: change them, then Save in the bar at the bottom (Windows asks for administrator approval).", "sub")));
+            Ui.T("\"Just for you\" applies at once and only to your account. The PC settings below apply to everyone: change them, then Save in the bar at the bottom (Windows asks for administrator approval).", "sub"),
+            searchRow));
         _root.Children.Add(YouSection());
         _root.Children.Add(new UpdatePanel(c));
         _root.Children.Add(_dynamic);
@@ -76,16 +112,27 @@ public sealed class SettingsPage : UserControl
 
     private async void OnKey(object? sender, KeyEventArgs e)
     {
-        if (_form is null) return;
         if (e.Key == Key.S && e.KeyModifiers == KeyModifiers.Control)
         {
             e.Handled = true;
-            if (_form.CanSave) await Save();
+            if (_form is not null)
+            {
+                if (_form.CanSave) await Save();
+                else if (_form.HasChanges) _c.Say("Cannot save: please fix the fields marked in red.", true);
+                else _c.Say("No changes to save.", false);
+            }
         }
-        else if (e.Key == Key.Escape && HasUnsaved)
+        else if (e.Key == Key.Escape)
         {
             e.Handled = true;
-            if (await Dialogs.Confirm("Discard changes", "Throw away your unsaved changes on this page?", "Discard", "Keep editing")) Discard();
+            if (HasUnsaved)
+            {
+                if (await Dialogs.Confirm("Discard changes", "Throw away your unsaved changes on this page?", "Discard", "Keep editing")) Discard();
+            }
+            else
+            {
+                _c.Navigate("home", null);
+            }
         }
     }
 
@@ -93,7 +140,9 @@ public sealed class SettingsPage : UserControl
     {
         var s = Ui.Stack(14, Ui.Row(10, Ui.Icon(icon, 18, Palette.Accent), Ui.Stack(2, Ui.T(title, "h2"), Ui.T(sub, "muted"))));
         foreach (var b in body) s.Children.Add(b);
-        return Ui.Card(s);
+        var card = Ui.Card(s);
+        card.Tag = $"{title} {sub}";
+        return card;
     }
 
     private static Button InfoButton(string label, string tip)
@@ -125,6 +174,7 @@ public sealed class SettingsPage : UserControl
         if (f is not null) right.Children.Add(f.ErrorText);
         Grid.SetColumn(right, 1);
         g.Children.Add(right);
+        g.Tag = $"{label} {tip}";
         return g;
     }
 
@@ -175,7 +225,7 @@ public sealed class SettingsPage : UserControl
                 Ui.Btn("Forensics (Velociraptor)", "", () => _ = _c.OpenForensics(), icon: "", tip: "Starts Velociraptor (needs administrator approval) and opens its page in your browser. If it already runs, its page opens again. Close its window to stop it."))));
         items.Add(Section("", "Help", "How FreeEDR works.",
             Ui.Wrap(
-                Ui.Btn("User guide", "", _c.OpenUserGuide, icon: ""),
+                Ui.Btn("User guide", "", _c.OpenUserGuide, icon: "", tip: "Opens the FreeEDR user documentation guide."),
                 Ui.Btn("Show the welcome tour", "", () => App.Instance?.ShowWelcome(), icon: "", tip: "The three first-run steps again: what FreeEDR does, which apps to trust, how much to be told."))));
         items.Add(DangerZone());
         var st = _c.State.Status;
@@ -193,6 +243,7 @@ public sealed class SettingsPage : UserControl
         if (!_restoreScroll) Dispatcher.UIThread.Post(() => _scroll.Offset = offset, DispatcherPriority.Background);
         FinishRefresh();
         OnEdited();
+        if (!string.IsNullOrWhiteSpace(_search.Text)) FilterSettings(_search.Text);
     }
 
     private void FinishRefresh()
@@ -216,57 +267,259 @@ public sealed class SettingsPage : UserControl
 
     private Control YouSection()
     {
-        _level.SelectionChanged += (_, _) =>
+        void BindTheme(ToggleButton b, string t)
         {
-            var level = _level.SelectedIndex switch { 0 => "critical", 2 => "all", _ => "important" };
-            if (level == _c.Prefs.NotifyLevel) return;
-            _c.Prefs.NotifyLevel = level;
-            _c.Say(_c.Prefs.SaveError.Length > 0 ? $"Not saved: {_c.Prefs.SaveError}" : "Notifications: saved for your account.", _c.Prefs.SaveError.Length > 0);
-        };
-        _theme.SelectionChanged += (_, _) =>
+            b.IsCheckedChanged += (_, _) =>
+            {
+                if (b.IsChecked != true || _c.Prefs.Theme == t) return;
+                _themeSystem.IsChecked = t == "system";
+                _themeDark.IsChecked = t == "dark";
+                _themeLight.IsChecked = t == "light";
+                _c.Prefs.Theme = t;
+                App.Instance?.ApplyTheme(t);
+            };
+        }
+        BindTheme(_themeSystem, "system");
+        BindTheme(_themeDark, "dark");
+        BindTheme(_themeLight, "light");
+
+        void BindNotify(ToggleButton b, string lvl)
         {
-            var t = _theme.SelectedIndex switch { 1 => "dark", 2 => "light", _ => "system" };
-            if (t == _c.Prefs.Theme) return;
-            _c.Prefs.Theme = t;
-            App.Instance?.ApplyTheme(t);
-        };
-        _quiet.TextChanged += (_, _) =>
-        {
-            _quietField.Update();
-            var list = QuietList(_quiet.Text);
-            if (_quietField.Error().Length > 0 || list.SequenceEqual(_c.QuietList, StringComparer.Ordinal)) return;
-            _c.Prefs.QuietProcesses = list;
-            if (_c.Prefs.SaveError.Length > 0) _c.Say($"Quiet mode not saved: {_c.Prefs.SaveError}", true);
-        };
+            b.IsCheckedChanged += (_, _) =>
+            {
+                if (b.IsChecked != true || _c.Prefs.NotifyLevel == lvl) return;
+                _notifyCrit.IsChecked = lvl == "critical";
+                _notifyImp.IsChecked = lvl == "important";
+                _notifyAll.IsChecked = lvl == "all";
+                _c.Prefs.NotifyLevel = lvl;
+                _c.Say(_c.Prefs.SaveError.Length > 0 ? $"Not saved: {_c.Prefs.SaveError}" : "Notifications: saved for your account.", _c.Prefs.SaveError.Length > 0);
+            };
+        }
+        BindNotify(_notifyCrit, "critical");
+        BindNotify(_notifyImp, "important");
+        BindNotify(_notifyAll, "all");
+
+        ToolTip.SetTip(_themeSystem, "Matches your Windows theme color preference");
+        ToolTip.SetTip(_themeDark, "Enforces dark mode for this dashboard");
+        ToolTip.SetTip(_themeLight, "Enforces light mode for this dashboard");
+
+        ToolTip.SetTip(_notifyCrit, "Only show popups for high/critical threats and security alerts");
+        ToolTip.SetTip(_notifyImp, "Recommended: High/critical alerts, Wail2Ban blocks, and scan failures");
+        ToolTip.SetTip(_notifyAll, "Every alert including medium detections and routine scan results");
+
+        var themePills = Ui.Row(6, _themeSystem, _themeDark, _themeLight);
+        var notifyPills = Ui.Row(6, _notifyCrit, _notifyImp, _notifyAll);
+
+        var quietBox = BuildQuietControls();
+
+        var resetPrefs = Ui.Btn("Reset preferences to defaults...", "ghost small", () => _ = RestorePersonalDefaults(), icon: "", tip: "Resets notification frequency, theme, and quiet applications for this user account.");
+
         SyncYou();
         return Section("", "Just for you", "Your account only. Changes apply at once, no approval needed.",
-            Row("Notify me about", _level, "Which alerts pop up as Windows notifications. \"Important\" shows high and critical alerts. \"Everything\" adds medium alerts and scan results. Critical alerts, \"Was this you?\" questions and sensor problems always notify. Everything is still listed in Activity.",
+            Row("Notify me about", notifyPills, "Which alerts pop up as Windows notifications. \"Important\" shows high and critical alerts. \"Everything\" adds medium alerts and scan results. Critical alerts, \"Was this you?\" questions and sensor problems always notify. Everything is still listed in Activity.",
                 below: _learning),
-            Row("Quiet while these run", _quiet, "While one of these programs runs - a game, a presentation, a video call - FreeEDR holds back its pop-ups and shows one summary when the program closes. Detection keeps running the whole time: nothing is missed, only the pop-ups wait. Type program names separated by commas. * stands for \"anything\", so obs64* covers every OBS version. Names may contain spaces. This list is only for your account.",
+            Row("Quiet while these run", quietBox, "While one of these programs runs - a game, a presentation, a video call - FreeEDR holds back its pop-ups and shows one summary when the program closes. Detection keeps running the whole time: nothing is missed, only the pop-ups wait. Pick a running app or enter program names. This list is only for your account.",
                 f: _quietField),
-            Row("Theme", _theme, "Dark or light colors for this dashboard. \"Same as Windows\" follows Settings > Personalization > Colors > app mode, and changes with it."));
+            Row("Theme", themePills, "Dark or light colors for this dashboard. \"Same as Windows\" follows Settings > Personalization > Colors > app mode, and changes with it."),
+            Ui.Row(10, resetPrefs));
+    }
+
+    private Control BuildQuietControls()
+    {
+        BuildQuietChips();
+
+        _runningAppsCombo.SelectionChanged += (_, _) =>
+        {
+            if (_runningAppsCombo.SelectedItem is ProcessChoice choice)
+            {
+                AddQuiet(choice.Name);
+                Dispatcher.UIThread.Post(() => _runningAppsCombo.SelectedIndex = -1);
+            }
+        };
+
+        var addBtn = Ui.Btn("Add", "small", () =>
+        {
+            var clean = EdrConfig.CleanQuietName(_quietCustom.Text);
+            if (string.IsNullOrWhiteSpace(clean)) return;
+            if (clean == "*")
+            {
+                _quietErrorText.Text = "Please type a specific program name (e.g. obs64*), not * alone.";
+                _quietErrorText.IsVisible = true;
+                return;
+            }
+            if (!EdrConfig.IsQuietName(clean))
+            {
+                _quietErrorText.Text = "Use a valid process name without slashes.";
+                _quietErrorText.IsVisible = true;
+                return;
+            }
+            AddQuiet(clean);
+            _quietCustom.Text = "";
+            _quietErrorText.IsVisible = false;
+        }, icon: "", tip: "Add custom program name to quiet mode");
+
+        _quietCustom.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                addBtn.Focus();
+            }
+        };
+
+        var addRow = Ui.Row(8, _quietCustom, addBtn, _runningAppsCombo);
+        RefreshRunningApps();
+
+        return Ui.Stack(8, _quietChips, _gameSuggestions, addRow, _quietErrorText);
+    }
+
+    private readonly record struct ProcessChoice(int Pid, string Name, string Title, bool IsGame)
+    {
+        public override string ToString() => $"{(IsGame ? "🎮 " : "")}{Name} (PID {Pid}){(Title.Length > 0 ? " - " + Short(Title, 35) : "")}";
+        private static string Short(string s, int max) => s.Length > max ? s[..(max - 3)] + "..." : s;
+    }
+
+    private void RefreshRunningApps()
+    {
+        try
+        {
+            var apps = Win32.RunningApplications();
+            var choices = apps.Select(a => new ProcessChoice(a.Pid, a.Name, a.Title, a.IsGame)).ToList();
+            _runningAppsCombo.ItemsSource = choices;
+
+            var runningGames = apps.Where(a => a.IsGame && !_c.QuietList.Any(q => q.Equals(a.Name, StringComparison.OrdinalIgnoreCase))).Take(3).ToList();
+            _gameSuggestions.Children.Clear();
+            if (runningGames.Count > 0)
+            {
+                var row = Ui.Row(6, Ui.T("🎮 Running games detected:", "muted"));
+                foreach (var g in runningGames)
+                {
+                    var game = g;
+                    row.Children.Add(Ui.Btn($"+ Add {game.Name}", "small ok", () => AddQuiet(game.Name), tip: $"Add {game.Name} (PID {game.Pid}) to quiet mode"));
+                }
+                _gameSuggestions.Children.Add(row);
+                _gameSuggestions.IsVisible = true;
+            }
+            else
+            {
+                _gameSuggestions.IsVisible = false;
+            }
+        }
+        catch { }
+    }
+
+    private void BuildQuietChips()
+    {
+        _quietChips.Children.Clear();
+        var list = _c.QuietList;
+        if (list.Count == 0)
+        {
+            _quietChips.Children.Add(Ui.T("No quiet applications configured. Popups will appear for all alerts.", "muted"));
+            return;
+        }
+
+        foreach (var item in list)
+        {
+            var p = item;
+            var isGame = Win32.IsGameHeuristic(p, "");
+            var chip = Ui.Btn($"{(isGame ? "🎮 " : "")}{p}  ✕", "chip on", () => RemoveQuiet(p), tip: $"Click ✕ to remove {p} from quiet mode");
+            chip.Margin = new Thickness(0, 0, 6, 6);
+            _quietChips.Children.Add(chip);
+        }
+    }
+
+    private void AddQuiet(string name)
+    {
+        var clean = EdrConfig.CleanQuietName(name);
+        if (clean.Length == 0) return;
+        var list = _c.QuietList.ToList();
+        if (list.Any(x => x.Equals(clean, StringComparison.OrdinalIgnoreCase))) return;
+        list.Add(clean);
+        _c.Prefs.QuietProcesses = list;
+        BuildQuietChips();
+        RefreshRunningApps();
+        _quietField.Update();
+    }
+
+    private void RemoveQuiet(string name)
+    {
+        var list = _c.QuietList.Where(x => !x.Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
+        _c.Prefs.QuietProcesses = list;
+        BuildQuietChips();
+        RefreshRunningApps();
+        _quietField.Update();
+    }
+
+    private async Task RestorePersonalDefaults()
+    {
+        if (!await Dialogs.Confirm("Restore dashboard preferences", "Reset your account's notification level, theme, and quiet applications back to out-of-the-box defaults?", "Restore")) return;
+        _c.Prefs.NotifyLevel = "important";
+        _c.Prefs.Theme = "system";
+        _c.Prefs.UpdateCheck = true;
+        _c.Prefs.QuietProcesses = new EdrConfig().QuietProcesses;
+        App.Instance?.ApplyTheme("system");
+        SyncYou();
+        BuildQuietChips();
+        RefreshRunningApps();
+        _c.Say("Personal preferences restored to defaults.");
     }
 
     private void SyncYou()
     {
-        _level.SelectedIndex = _c.Prefs.NotifyLevel switch { "critical" => 0, "all" => 2, _ => 1 };
-        _theme.SelectedIndex = _c.Prefs.Theme switch { "dark" => 1, "light" => 2, _ => 0 };
-        if (!_quiet.IsKeyboardFocusWithin && !QuietList(_quiet.Text).SequenceEqual(_c.QuietList, StringComparer.Ordinal))
-            _quiet.Text = string.Join(", ", _c.QuietList);
+        var lvl = _c.Prefs.NotifyLevel;
+        _notifyCrit.IsChecked = lvl == "critical";
+        _notifyImp.IsChecked = lvl != "critical" && lvl != "all";
+        _notifyAll.IsChecked = lvl == "all";
+
+        var t = _c.Prefs.Theme;
+        _themeSystem.IsChecked = t != "dark" && t != "light";
+        _themeDark.IsChecked = t == "dark";
+        _themeLight.IsChecked = t == "light";
+
+        BuildQuietChips();
         _quietField.Update();
         var learning = _c.Notifier?.InLearningWeek == true;
         _learning.Text = learning ? "Learning week: for the first 7 days only critical alerts notify, while FreeEDR learns what is normal on this PC." : "";
         _learning.IsVisible = learning;
     }
 
-    private static List<string> QuietList(string? text) =>
-        (text ?? "").Split([',', ';', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-
-    private static string QuietError(List<string> names)
+    private void FilterSettings(string? query)
     {
-        var bad = names.FirstOrDefault(x => !EdrConfig.IsQuietName(x));
-        return bad is null ? "" : $"\"{(bad.Length > 40 ? bad[..40] + "..." : bad)}\": use a program name like obs64*, not a folder.";
+        var q = (query ?? "").Trim().ToLowerInvariant();
+        var empty = q.Length == 0;
+
+        foreach (var c in _root.Children.Concat(_dynamic.Children))
+        {
+            if (c is Border card)
+            {
+                if (empty)
+                {
+                    card.IsVisible = true;
+                    continue;
+                }
+
+                var text = (card.Tag as string ?? "").ToLowerInvariant();
+                var match = text.Contains(q);
+
+                foreach (var ex in FindExpanders(card))
+                {
+                    var exTag = (ex.Header is Control h && h.Tag is string ht ? ht : "").ToLowerInvariant();
+                    if (exTag.Contains(q) || match) ex.IsExpanded = true;
+                }
+
+                card.IsVisible = match || text.Length == 0;
+            }
+        }
+    }
+
+    private static IEnumerable<Expander> FindExpanders(Control parent)
+    {
+        if (parent is Expander e) yield return e;
+        if (parent is Panel p)
+            foreach (var child in p.Children)
+                foreach (var ex in FindExpanders(child)) yield return ex;
+        if (parent is ContentControl cc && cc.Content is Control c)
+            foreach (var ex in FindExpanders(c)) yield return ex;
     }
 
     private sealed class Form
@@ -290,7 +543,8 @@ public sealed class SettingsPage : UserControl
 
         private readonly ToggleSwitch _block, _ipv6;
         private readonly NumericUpDown _fails, _window;
-        private readonly ComboBox _defender, _lookback, _maxPub, _maxPriv;
+        private readonly ToggleSwitch _defender;
+        private readonly ComboBox _lookback, _maxPub, _maxPriv;
         private readonly List<int> _pubValues, _privValues;
         private readonly List<string> _lookbackValues = ["1d", "2d", "3d", "7d"];
         private readonly List<string> _times;
@@ -303,6 +557,8 @@ public sealed class SettingsPage : UserControl
         private readonly TextBlock _windowNote = Ui.T("", "muted").Also(t => t.TextWrapping = Avalonia.Media.TextWrapping.Wrap);
         private readonly int _windowExact, _windowShown;
 
+        private readonly Field _fPub, _fPriv, _fIpv6;
+
         public Form(SettingsPage page, EdrConfig cfg, Preferences prefs)
         {
             _page = page;
@@ -312,7 +568,7 @@ public sealed class SettingsPage : UserControl
             var w = cfg.Wail2Ban;
             var d = EdrConfig.FromJson(_defaults);
 
-            _block = new ToggleSwitch { IsChecked = w.Block, OnContent = "On - block in Windows Firewall", OffContent = "Off - only report" };
+            _block = new ToggleSwitch { IsChecked = w.Block, OnContent = "On", OffContent = "Off" };
             _fails = Number(w.FailCount, EdrConfig.Limits.FailCount.Min, EdrConfig.Limits.FailCount.Max);
             _windowExact = w.WindowSeconds;
             _windowShown = Math.Max(1, w.WindowSeconds / 60);
@@ -325,33 +581,41 @@ public sealed class SettingsPage : UserControl
             var fBlock = Add("", () => _block.IsChecked == d.Wail2Ban.Block, () => _block.IsChecked = d.Wail2Ban.Block);
             var fFails = Add("w2b", () => _fails.Value == d.Wail2Ban.FailCount, () => _fails.Value = d.Wail2Ban.FailCount, () => NumberError(_fails));
             var fWindow = Add("w2b", () => WindowSeconds() == d.Wail2Ban.WindowSeconds, () => _window.Value = d.Wail2Ban.WindowSeconds / 60, () => NumberError(_window));
-            var fPub = Add("w2b", () => Ban(_maxPub, _pubValues) == d.Wail2Ban.MaxBanPublicSec, () => SelectBan(_maxPub, _pubValues, d.Wail2Ban.MaxBanPublicSec));
-            var fPriv = Add("w2b", () => Ban(_maxPriv, _privValues) == d.Wail2Ban.MaxBanPrivateSec, () => SelectBan(_maxPriv, _privValues, d.Wail2Ban.MaxBanPrivateSec));
-            var fIpv6 = Add("w2b", () => _ipv6.IsChecked == d.Wail2Ban.BlockRdpIpv6, () => _ipv6.IsChecked = d.Wail2Ban.BlockRdpIpv6);
+            _fPub = Add("w2b", () => Ban(_maxPub, _pubValues) == d.Wail2Ban.MaxBanPublicSec, () => SelectBan(_maxPub, _pubValues, d.Wail2Ban.MaxBanPublicSec));
+            _fPriv = Add("w2b", () => Ban(_maxPriv, _privValues) == d.Wail2Ban.MaxBanPrivateSec, () => SelectBan(_maxPriv, _privValues, d.Wail2Ban.MaxBanPrivateSec));
+            _fIpv6 = Add("w2b", () => _ipv6.IsChecked == d.Wail2Ban.BlockRdpIpv6, () => _ipv6.IsChecked = d.Wail2Ban.BlockRdpIpv6);
             Sections.Add(Section("", "Wail2Ban - sign-in attacks", "The only part of FreeEDR that blocks: computers that keep guessing passwords over the network.",
                 Row("Block attackers", _block, "On: a computer that keeps typing wrong passwords to get into this PC (Remote Desktop, file sharing) is blocked in Windows Firewall - 5 minutes at first, then longer each time it comes back. Off: the same attacks are only reported in Network, nothing is blocked.", f: fBlock),
                 Advanced("w2b", "attack threshold, block lengths, IPv6",
-                    Row("Wrong passwords allowed", _fails, "How many wrong passwords from one computer are tolerated before FreeEDR treats it as an attack. Example: with 5, the 5th wrong password within the time window below triggers it. Lower catches attackers sooner; higher is kinder to people who often mistype.", f: fFails),
-                    Row("Within (minutes)", _window, "The time window in which wrong passwords are counted. Example: 5 wrong passwords within 30 minutes. Someone guessing more slowly than that is not counted as an attack.", f: fWindow, below: _windowNote),
-                    Row("Longest block, internet", _maxPub, "Each time the same internet computer comes back to guess again, its block gets longer: 5 minutes, 25 minutes, 2 hours, 10 hours, 2 days and so on - but never longer than this.", f: fPub),
-                    Row("Longest block, home network", _maxPriv, "The same, for computers inside your own network (other PCs, phones, a family member's laptop). Kept shorter so someone at home who mistyped is not locked out for long.", f: fPriv),
-                    Row("Remote Desktop over IPv6", _ipv6, "Wail2Ban cannot count wrong passwords that arrive over IPv6 (the newer kind of internet address). \"Blocked\" closes Remote Desktop to every IPv6 address instead. Leave it allowed if you connect to this PC over IPv6.", f: fIpv6, extra: _ipv6Note))));
+                    Row("Failed password threshold", _fails, "How many wrong passwords from one computer are tolerated before FreeEDR treats it as an attack. Lower catches attackers sooner; higher is kinder to people who often mistype.", f: fFails),
+                    Row("Attempt window (minutes)", _window, "The time window in which wrong passwords are counted. Example: 5 wrong passwords within 30 minutes. Someone guessing more slowly than that is not counted as an attack.", f: fWindow, below: _windowNote),
+                    Row("Maximum ban, internet", _maxPub, "Each time the same internet computer comes back to guess again, its block gets longer - but never longer than this maximum duration.", f: _fPub),
+                    Row("Maximum ban, home network", _maxPriv, "Maximum block length for computers inside your own local network. Kept shorter so someone at home who mistyped is not locked out for long.", f: _fPriv),
+                    Row("Remote Desktop over IPv6", _ipv6, "Wail2Ban cannot count wrong passwords arriving over IPv6. \"Blocked\" closes Remote Desktop to IPv6 addresses. Leave it allowed if you connect to this PC over IPv6.", f: _fIpv6, extra: _ipv6Note))));
 
-            _defender = new ComboBox { ItemsSource = new[] { "Watch & report (recommended)", "Leave Defender alone" }, Width = 300, SelectedIndex = cfg.DefenderMode == "untouched" ? 1 : 0 };
-            var fDef = Add("", () => _defender.SelectedIndex == (d.DefenderMode == "untouched" ? 1 : 0), () => _defender.SelectedIndex = d.DefenderMode == "untouched" ? 1 : 0);
+            _defender = new ToggleSwitch { IsChecked = cfg.DefenderMode != "untouched", OnContent = "On (watch & report in audit mode)", OffContent = "Off (leave Defender alone)" };
+            var fDef = Add("", () => (_defender.IsChecked == true) == (d.DefenderMode != "untouched"), () => _defender.IsChecked = d.DefenderMode != "untouched");
             Sections.Add(Section("", "Microsoft Defender", "FreeEDR never makes Defender block more than you had before.",
-                Row("Ransomware & attack rules", _defender, "Microsoft Defender has extra rules against ransomware and common attack tricks (\"attack surface reduction\" and \"Controlled folder access\"). \"Watch & report\" turns them on in audit mode: they watch and FreeEDR lists what they would have blocked, but nothing is blocked. A rule you had already set to block stays blocking. \"Leave Defender alone\" puts Defender's settings back as they were before FreeEDR. The change applies right away when you save.", f: fDef)));
+                Row("Ransomware & attack rules", _defender, "Microsoft Defender has extra rules against ransomware and attack tricks (attack surface reduction and Controlled folder access). \"On\" turns them on in audit mode: they watch and FreeEDR lists what they would have blocked. A rule you had already set to block stays blocking. \"Off\" puts Defender's settings back as they were before FreeEDR.", f: fDef)));
 
             _times = [.. cfg.ScanTimes];
             var addTime = Ui.Btn("Add", "small", () =>
             {
                 if (_timePick.SelectedTime is not { } t) return;
                 var s = $"{(int)t.TotalHours:00}:{t.Minutes:00}";
-                if (!_times.Contains(s)) { _times.Add(s); _times.Sort(StringComparer.Ordinal); }
+                if (_times.Contains(s))
+                {
+                    _page._c.Say($"Scan time {s} is already in your schedule.", false);
+                    return;
+                }
+                _times.Add(s);
+                _times.Sort(StringComparer.Ordinal);
                 Chips();
                 Edited();
-            }, icon: "");
+            }, icon: "", tip: "Add the selected time to your daily scan schedule");
+
             AutomationProperties.SetName(_timePick, "New scan time");
+            ToolTip.SetTip(_timePick, "Pick the hour and minute for the daily scheduled scan (24-hour format)");
             Chips();
             var fTimes = Add("", () => _times.SequenceEqual(d.ScanTimes), () => { _times.Clear(); _times.AddRange(d.ScanTimes); Chips(); }, () => _times.Count == 0 ? "Add at least one scan time." : "");
             var lb = cfg.SigmaLookback;
@@ -362,6 +626,7 @@ public sealed class SettingsPage : UserControl
             AutomationProperties.SetName(_feedEye, "Show the whole address");
             ToolTip.SetTip(_feedEye, "Show or hide the private part of the address");
             _feedEye.IsCheckedChanged += (_, _) => _feed.RevealPassword = _feedEye.IsChecked == true;
+            _feed.TextChanged += (_, _) => { Mask(); _feedResult.Text = ""; _feedResult.IsVisible = false; Edited(); };
             _feed.LostFocus += (_, _) => Mask();
             Mask();
             var test = Ui.Btn("Test", "small", () => _ = TestFeed(), icon: "", tip: "Downloads the list now and counts the malware fingerprints in it.");
@@ -370,22 +635,22 @@ public sealed class SettingsPage : UserControl
             Sections.Add(Section("", "Scans", "Malware list update, event-log check (Sigma), Python vulnerability check and tool versions.",
                 Row("Scan at", timesBox, "When the full scan runs each day (24-hour clock). Remove a time with its ×, add one with the clock and Add. A scan missed while the PC was off runs 5 minutes after it starts.", f: fTimes),
                 Advanced("scan", "how far back, malware list address",
-                    Row("Check logs from the last", _lookback, "How far back each scan reads the Windows event logs for signs of an attack. Longer finds older traces but makes each scan take more time.", f: fLook),
+                    Row("Log lookback window", _lookback, "How far back each scan reads the Windows event logs for signs of an attack. Longer finds older traces but makes each scan take more time.", f: fLook),
                     Row("Malware list address", _feed, "Where FreeEDR downloads its list of known malware fingerprints at each scan. Leave the default unless you have your own list in the same format (one SHA256 fingerprint per line). An address with a private key is hidden here and in the logs; the eye button shows it.", f: fFeed, extra: Ui.Row(8, _feedEye, test), below: _feedResult))));
 
-            var restore = Ui.Btn("Restore default settings...", "ghost", () => _ = RestoreDefaults(), icon: "",
+            var restore = Ui.Btn("Restore default PC settings...", "ghost", () => _ = RestoreDefaults(), icon: "",
                 tip: "Puts every PC setting on this page back to its out-of-the-box value in the form. Nothing changes until you Save. Your allows, flagged items and history are not touched.");
             Sections.Add(Ui.Card(Ui.Row(12, restore, Ui.T("Puts the PC settings above back to their out-of-the-box values. You review them, then Save.", "muted").Also(t => { t.VerticalAlignment = VerticalAlignment.Center; t.TextWrapping = Avalonia.Media.TextWrapping.Wrap; t.MaxWidth = 520; }))));
 
             _block.IsCheckedChanged += (_, _) => Edited();
             _ipv6.IsCheckedChanged += (_, _) => Edited();
+            _defender.IsCheckedChanged += (_, _) => Edited();
             foreach (var n in new[] { _fails, _window }) n.ValueChanged += (_, _) => Edited();
-            foreach (var cb in new[] { _defender, _lookback, _maxPub, _maxPriv }) cb.SelectionChanged += (_, _) => Edited();
-            _feed.TextChanged += (_, _) => { _feedResult.Text = ""; _feedResult.IsVisible = false; Edited(); };
+            foreach (var cb in new[] { _lookback, _maxPub, _maxPriv }) cb.SelectionChanged += (_, _) => Edited();
             foreach (var f in _fields) { var ff = f; f.DefaultLink.Click += (_, _) => { ff.Reset(); Edited(); }; }
 
-            _save = Ui.Btn("Save settings", "primary big", () => _ = _page.Save(), icon: "", tip: "Ctrl+S");
-            _discard = Ui.Btn("Discard changes", "ghost", () => _page.Discard(), tip: "Esc");
+            _save = Ui.Btn("Save settings", "primary big", () => _ = _page.Save(), icon: "", tip: "Ctrl+S: Saves all modified PC settings");
+            _discard = Ui.Btn("Discard changes", "ghost", () => _page.Discard(), tip: "Esc: Discards all uncommitted changes on this page");
             var bar = new DockPanel();
             var buttons = Ui.Row(10, _discard, _save);
             buttons.Margin = new Thickness(16, 0, 0, 0);
@@ -407,7 +672,7 @@ public sealed class SettingsPage : UserControl
             ["scanTimes"] = _times.ToJsonArray(),
             ["iocFeedUrl"] = (_feed.Text ?? "").Trim(),
             ["sigmaLookback"] = Lookback(),
-            ["defenderMode"] = _defender.SelectedIndex == 1 ? "untouched" : "audit",
+            ["defenderMode"] = _defender.IsChecked == true ? "audit" : "untouched",
             ["wail2ban"] = new JsonObject
             {
                 ["block"] = _block.IsChecked == true, ["blockRdpIpv6"] = _ipv6.IsChecked == true,
@@ -425,7 +690,7 @@ public sealed class SettingsPage : UserControl
                 if (!_lookbackValues.Contains(lb)) { _lookbackValues.Add(lb); _lookback.ItemsSource = _lookbackValues.Select(LookbackLabel).ToArray(); }
                 _lookback.SelectedIndex = _lookbackValues.IndexOf(lb);
             }
-            if (edits.Str("defenderMode") is "audit" or "untouched") _defender.SelectedIndex = edits.Str("defenderMode") == "untouched" ? 1 : 0;
+            if (edits.Str("defenderMode") is "audit" or "untouched") _defender.IsChecked = edits.Str("defenderMode") != "untouched";
             if (edits["wail2ban"] is JsonObject w)
             {
                 if (w.ContainsKey("block")) _block.IsChecked = w.Truthy("block");
@@ -449,6 +714,7 @@ public sealed class SettingsPage : UserControl
             foreach (var f in _fields) f.Update();
             var blocking = _block.IsChecked == true;
             _maxPub.IsEnabled = _maxPriv.IsEnabled = _ipv6.IsEnabled = blocking;
+            _fPub.DefaultLink.IsEnabled = _fPriv.DefaultLink.IsEnabled = _fIpv6.DefaultLink.IsEnabled = blocking;
             _ipv6Note.Text = blocking ? "" : "Needs \"Block attackers\" on.";
             _windowNote.IsVisible = _windowNote.Text?.Length > 0 && (int?)_window.Value == _windowShown;
             foreach (var (key, ex, count) in _groups)
@@ -497,6 +763,7 @@ public sealed class SettingsPage : UserControl
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 Content = Ui.Stack(14, rows).Also(s => s.Margin = new Thickness(0, 6, 0, 2)),
             };
+            ex.Header.Tag = summary;
             AutomationProperties.SetName(ex, $"Advanced: {summary}");
             ex.PropertyChanged += (_, e) => { if (e.Property == Expander.IsExpandedProperty) _prefs.SetAdvancedOpen(key, ex.IsExpanded); };
             _groups.Add((key, ex, count));
@@ -505,7 +772,7 @@ public sealed class SettingsPage : UserControl
 
         private async Task RestoreDefaults()
         {
-            if (!await Dialogs.Confirm("Restore default settings", "Put every PC setting on this page back to its out-of-the-box value? You can review them before you Save. Allows, flagged items, bans and history are not touched.", "Restore")) return;
+            if (!await Dialogs.Confirm("Restore default PC settings", "Put every PC setting on this page back to its out-of-the-box value? You can review them before you Save. Allows, flagged items, bans and history are not touched.", "Restore")) return;
             foreach (var f in _fields) f.Reset();
             Edited();
         }
@@ -533,7 +800,7 @@ public sealed class SettingsPage : UserControl
             _timeChips.Children.Clear();
             foreach (var t in _times.ToList())
             {
-                var chip = Ui.Btn($"{t}  ×", "small", () => { _times.Remove(t); Chips(); Edited(); }, tip: $"Remove {t}");
+                var chip = Ui.Btn($"{t}  ×", "small", () => { _times.Remove(t); Chips(); Edited(); }, tip: $"Remove {t} from scan schedule");
                 AutomationProperties.SetName(chip, $"Remove scan time {t}");
                 chip.Margin = new Thickness(0, 0, 6, 0);
                 _timeChips.Children.Add(chip);
@@ -587,19 +854,25 @@ public sealed class SettingsPage : UserControl
             n.Value is null ? $"Enter a number from {n.Minimum:0} to {n.Maximum:0}." : "";
     }
 
-    private Control BackupSection() => Section("", "Backup & import", "Your PC settings, your quiet-mode list and the allows in one file - for a new PC or a reinstall.",
+    private Control BackupSection() => Section("", "Backup & import", "Your PC settings, your quiet-mode list, dashboard preferences and the allows in one file.",
         Ui.Wrap(
-            Ui.Btn("Back up settings...", "", () => _ = Backup(), icon: "", tip: "Saves the PC settings on this page, your quiet-mode list and every allow (Allowed & trusted) to a file you choose. No passwords or alerts are in it; a private key in the malware list address is only included if you say so."),
+            Ui.Btn("Back up settings...", "", () => _ = Backup(), icon: "", tip: "Saves the PC settings on this page, dashboard preferences, your quiet-mode list and every allow (Allowed & trusted) to a file you choose. No passwords or alerts are in it; a private key in the malware list address is only included if you say so."),
             Ui.Btn("Import settings...", "", () => _ = Import(), icon: "", tip: "Reads a backup file, shows what it would change, then applies it with administrator approval. Allows that are already here are skipped.")));
 
     private Control TroubleshootSection()
     {
-        var logs = Ui.Btn("Open logs", "", () => { }, icon: "", tip: "The engine's log (what it did and any errors) and the scan log.");
+        var logs = Ui.Btn("Open logs", "", () => { }, icon: "", tip: "Menu to open the FreeEDR engine service log, scan log, or log folder in Explorer.");
         var menu = new MenuFlyout();
-        void Item(string text, Action a) { var mi = new MenuItem { Header = text }; mi.Click += (_, _) => a(); menu.Items.Add(mi); }
-        Item("Engine log", _c.OpenEngineLog);
-        Item("Scan log", _c.OpenScanLog);
-        Item("Show the logs folder", () => { if (!Shell.ShowInExplorer(_c.State.Paths.EngineLog)) _c.Say("The engine log does not exist yet.", true); });
+        void Item(string text, Action a, string tip)
+        {
+            var mi = new MenuItem { Header = text };
+            ToolTip.SetTip(mi, tip);
+            mi.Click += (_, _) => a();
+            menu.Items.Add(mi);
+        }
+        Item("Engine log", _c.OpenEngineLog, "Opens the main FreeEDR service log in Notepad.");
+        Item("Scan log", _c.OpenScanLog, "Opens the scheduled scanner output log in Notepad.");
+        Item("Show the logs folder", () => { if (!Shell.ShowInExplorer(_c.State.Paths.EngineLog)) _c.Say("The engine log does not exist yet.", true); }, "Opens the directory containing FreeEDR log files in File Explorer.");
         logs.Flyout = menu;
         return Section("", "Troubleshoot", "Check that FreeEDR works.",
             Ui.Wrap(
@@ -612,7 +885,7 @@ public sealed class SettingsPage : UserControl
     {
         var body = Ui.Stack(12,
             Ui.Row(10, Ui.Icon("", 18, Palette.Danger), Ui.Stack(2, Ui.T("Danger zone", "h2"), Ui.T("Cannot be undone.", "muted"))),
-            Ui.Row(12, Ui.Btn("Reset FreeEDR to defaults...", "danger", () => _ = _c.FactoryReset(), icon: ""),
+            Ui.Row(12, Ui.Btn("Reset FreeEDR to defaults...", "danger", () => _ = _c.FactoryReset(), icon: "", tip: "Resets all PC settings, rules, allows, and alert history back to factory defaults. Asks for confirmation first."),
                 Ui.T("Deletes every allow, flagged item and ban, the alert history and every account's reviewed marks, and puts the PC settings back to their defaults. Kept: the Microsoft Defender choice, each account's \"Just for you\" choices, logs, scan results and the event-log archive.", "muted").Also(t => { t.VerticalAlignment = VerticalAlignment.Center; t.MaxWidth = 560; t.TextWrapping = Avalonia.Media.TextWrapping.Wrap; })));
         return Ui.Card(body, "dangerzone");
     }
@@ -732,8 +1005,10 @@ public sealed class SettingsPage : UserControl
             return;
         }
         if (HasUnsaved && !await Dialogs.Confirm("Import settings", "You have unsaved changes on this page. Importing reloads the page and throws them away.", "Import anyway")) return;
-        await _c.ImportBackup(backup);
-        Discard();
+        if (await _c.ImportBackup(backup))
+        {
+            Discard();
+        }
     }
 
     private async Task ExportAudit()

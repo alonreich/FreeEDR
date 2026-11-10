@@ -88,6 +88,25 @@ public sealed class Notifier
         if (pinned) { buttons.Add(("Yes, it was me", $"me|{id}")); buttons.Add(("🤔 Explain for Dummies", $"explain|{id}")); buttons.Add(("Review", $"open|{id}")); }
         else if (e.S("blade") == "system") buttons.Add(("Open FreeEDR", "page|home"));
         else { buttons.Add(("Review", $"open|{id}")); buttons.Add(("🤔 Explain for Dummies", $"explain|{id}")); buttons.Add(("Mark reviewed", $"review|{id}")); }
+
+        try
+        {
+            var (_, fgName, _) = Edr.Core.Native.Win32.ForegroundProcess();
+            if (fgName.Length > 0 && !fgName.Equals("FreeEDR-Tray", StringComparison.OrdinalIgnoreCase)
+                && !fgName.Equals("explorer", StringComparison.OrdinalIgnoreCase)
+                && !fgName.Equals("SearchHost", StringComparison.OrdinalIgnoreCase)
+                && !fgName.Equals("TextInputHost", StringComparison.OrdinalIgnoreCase)
+                && !fgName.Equals("LockApp", StringComparison.OrdinalIgnoreCase))
+            {
+                var quietList = _prefs.QuietProcesses ?? _state.Config.QuietProcesses;
+                if (!quietList.Any(q => q.Equals(fgName, StringComparison.OrdinalIgnoreCase) || q.Equals(fgName + "*", StringComparison.OrdinalIgnoreCase)))
+                {
+                    buttons.Add(($"Quiet while {fgName} runs", $"quiet|{fgName}"));
+                }
+            }
+        }
+        catch { }
+
         var scenario = rank >= 4 ? "reminder" : "";
         Show((rank >= 4 ? "Critical: " : "") + e.S("title"), body, $"open|{id}", buttons, scenario);
     }
@@ -135,7 +154,7 @@ public sealed class Notifier
             if (buttons.Count > 0)
             {
                 sb.Append("<actions>");
-                foreach (var (label, args) in buttons.Take(3)) sb.Append($"<action content=\"{Esc(label)}\" arguments=\"{Esc(args)}\" activationType=\"foreground\"/>");
+                foreach (var (label, args) in buttons.Take(5)) sb.Append($"<action content=\"{Esc(label)}\" arguments=\"{Esc(args)}\" activationType=\"foreground\"/>");
                 if (scenario == "reminder") sb.Append("<action content=\"Dismiss\" arguments=\"dismiss\" activationType=\"system\"/>");
                 sb.Append("</actions>");
             }
@@ -154,13 +173,21 @@ public sealed class Notifier
 
     private bool QuietAppRunning()
     {
+        if (Edr.Core.Native.Win32.IsFullScreenGameRunning()) return true;
         IReadOnlyList<string> patterns = _prefs.QuietProcesses ?? _state.Config.QuietProcesses;
         if (patterns.Count == 0) return false;
         try
         {
             foreach (var p in Process.GetProcesses())
                 using (p)
-                    if (patterns.Any(pat => Ps.Like(p.ProcessName, pat))) return true;
+                {
+                    var name = p.ProcessName;
+                    if (patterns.Any(pat =>
+                    {
+                        var clean = EdrConfig.CleanQuietName(pat);
+                        return Ps.Like(name, clean) || Ps.Like(name, pat);
+                    })) return true;
+                }
         }
         catch (InvalidOperationException) { }
         return false;

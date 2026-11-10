@@ -64,15 +64,15 @@ public class AuditFixTests
     public void A_hard_link_is_never_read_and_its_target_survives()
     {
         var d = DevFolder("drop");
-        var target = Path.Combine(d, "secret.txt");
-        File.WriteAllText(target, """{"action":"scan-now","secret":"do not read"}""");
+        var target = Path.Combine(d, "protected.txt");
+        File.WriteAllText(target, """{"action":"scan-now","payload":"fixture-data-01"}""");
         var link = Path.Combine(d, "inbox-link.json");
         Assert.SkipUnless(CreateHardLinkW(link, target, 0), "cannot create a hard link here");
         var r = DropFile.Take(link, PatternRules.MaxPayload);
         Assert.Equal(DropFile.Outcome.Rejected, r.Outcome);
         Assert.Null(r.Command);
         Assert.False(File.Exists(link));
-        Assert.Contains("do not read", File.ReadAllText(target));
+        Assert.Contains("fixture-data-01", File.ReadAllText(target));
         Directory.Delete(d, true);
     }
 

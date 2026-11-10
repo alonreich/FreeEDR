@@ -68,7 +68,11 @@ internal sealed class EventArchive(Context ctx) : IDisposable
 
     private void Subscribe(Source s)
     {
-        void OnEvent(string xml, string? bm) => Enqueue(new Item(s.Key, xml, bm, DateTime.Now));
+        void OnEvent(string xml, string? bm)
+        {
+            if (_error.StartsWith($"{s.Key}:", StringComparison.OrdinalIgnoreCase)) _error = "";
+            Enqueue(new Item(s.Key, xml, bm, DateTime.Now));
+        }
         void OnError(int code) => _error = $"{s.Key}: subscription error {code}";
         try
         {
@@ -79,6 +83,7 @@ internal sealed class EventArchive(Context ctx) : IDisposable
                 _bookmarks.TryRemove(s.Key, out _);
                 _subs[s.Key] = EventSubscription.Start(s.Channel, s.XPath, null, OnEvent, OnError);
             }
+            if (_subs.ContainsKey(s.Key) && _error.StartsWith($"{s.Key}:", StringComparison.OrdinalIgnoreCase)) _error = "";
         }
         catch (IOException) { }
     }
@@ -189,7 +194,7 @@ internal sealed class EventArchive(Context ctx) : IDisposable
     {
         ["logs"] = _subs.Count, ["of"] = Sources.Length, ["written"] = Interlocked.Read(ref _written), ["dropped"] = Interlocked.Read(ref _dropped),
         ["queued"] = _queue.Count, ["mb"] = Math.Round(_bytes / 1024.0 / 1024.0, 1),
-        ["lastWrite"] = _lastWrite == default ? null : _lastWrite.ToString("s", CultureInfo.InvariantCulture), ["error"] = _error.Length > 0 ? _error : null,
+        ["lastWrite"] = _lastWrite == default ? null : _lastWrite.ToString("s", CultureInfo.InvariantCulture), ["error"] = _subs.Count == Sources.Length ? null : _error.Length > 0 ? _error : null,
     };
 
     public static IEnumerable<string> ReadFile(string file)

@@ -20,6 +20,7 @@ tag and "Unreleased" is empty):
 ### Technical
 - Added `ExplainPrompt` builder (`src\Edr.Core\ExplainPrompt.cs`), `ActionKind.ExplainForDummies` in `src\Edr.Core\Actions.cs`, and handling in `src\Edr.Tray\Controller.cs`, `DetailView.cs`, and `Notifier.cs`.
 - Added `teams`, `slack`, `webex`, `vscode`, `git`, `docker`, `chrome`, and `dropbox` default profiles to `src\Edr.Core\Profiles.cs`, `src\Edr.Core\Catalog.cs`, and `src\Edr.Setup\Installer.cs`.
+- `src\Edr.Engine\Archive.cs`: clear transient subscription errors once source subscription succeeds or receives events so temporary startup delays do not latch permanent errors in `status.json`.
 - Added `edge` and `zoom` default profiles to `src\Edr.Core\Profiles.cs`, `src\Edr.Core\Catalog.cs`, and `src\Edr.Setup\Installer.cs`.
 - `Fixtures\live-2026-11-01`: normalized synthetic event fixture telemetry (paths and IPs) in `events.jsonl` and `model.json`.
 - `release.yml`: the changelog commit is titled `Release <version>: changelog` again (`${env:VERSION}`; `$env:VERSION:` made PowerShell read the colon as part of the name, so 2026.11.8's commit is titled "Release  changelog").

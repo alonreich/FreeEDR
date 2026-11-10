@@ -234,14 +234,13 @@ public class SettingsTests
 
     [Theory]
     [InlineData("https://example.org/hashes.txt", false, "https://example.org/hashes.txt")]
-    [InlineData("https://example.org/list.txt?key=dummy_token", true, "https://example.org/list.txt?(hidden)")]
-    [InlineData("https://dummy_token@example.org:8443/l.txt", true, "https://(hidden)@example.org:8443/l.txt")]
+    [InlineData("https://example.org/list.txt?key=param_val_123", true, "https://example.org/list.txt?(hidden)")]
+    [InlineData("https://param_val_123@example.org:8443/l.txt", true, "https://(hidden)@example.org:8443/l.txt")]
     public void A_private_feed_address_is_masked_and_redacted(string url, bool secret, string shown)
     {
         Assert.Equal(secret, EdrConfig.FeedHasSecret(url));
         Assert.Equal(shown, EdrConfig.RedactUrl(url));
-        Assert.DoesNotContain("dummy_token", EdrConfig.RedactUrl(url));
-        Assert.DoesNotContain("dummy_token", EdrConfig.RedactUrl(url));
+        Assert.DoesNotContain("param_val_123", EdrConfig.RedactUrl(url));
         var req = new JsonObject { ["iocFeedUrl"] = url, ["sigmaLookback"] = "2d" };
         Assert.Equal(shown, EdrConfig.Redacted(req).Str("iocFeedUrl"));
         Assert.Equal(url, req.Str("iocFeedUrl"));
