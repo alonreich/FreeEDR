@@ -2237,161 +2237,161 @@
   ],
   "vulns": [
     {
-      "id": "PYSEC-2026-4320",
-      "cve": "PYSEC-2026-4320",
+      "id": "PYSEC-2099-00001",
+      "cve": "PYSEC-2099-00001",
       "aliases": [
-        "PYSEC-2026-4320",
-        "GHSA-6q48-6c7w-9gw2"
+        "PYSEC-2099-00001",
+        "GHSA-xxxx-xxxx-0002"
       ],
-      "package": "certifi",
+      "package": "example-pkg-a",
       "version": "2026.6.17",
       "fixed": "2026.10.18",
       "score": "9.1",
       "severity": "Critical",
-      "summary": "certifi bundles emSign root CAs with compromised intermediate CA keys",
+      "summary": "Example vulnerability 1 (synthetic test data)",
       "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json",
       "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
       "fixPackage": "pip"
     },
     {
-      "id": "PYSEC-2026-3625",
-      "cve": "CVE-2026-57585",
+      "id": "PYSEC-2099-00003",
+      "cve": "CVE-2099-00004",
       "aliases": [
-        "PYSEC-2026-3625",
-        "GHSA-6v7p-g79w-8964",
-        "CVE-2026-57585"
+        "PYSEC-2099-00003",
+        "GHSA-xxxx-xxxx-0005",
+        "CVE-2099-00004"
       ],
-      "package": "msgpack",
+      "package": "example-pkg-b",
       "version": "1.1.2",
       "fixed": "1.2.1",
       "score": "7.5",
       "severity": "High",
-      "summary": "MessagePack for Python: Out-of-bounds read / crash on Unpacker reuse after a caught error",
+      "summary": "Example vulnerability 2 (synthetic test data)",
       "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json",
       "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
       "fixPackage": "pip"
     },
     {
-      "id": "GHSA-j586-36cw-2gc2",
-      "cve": "CVE-2026-114613",
+      "id": "GHSA-xxxx-xxxx-0006",
+      "cve": "CVE-2099-00007",
       "aliases": [
-        "GHSA-j586-36cw-2gc2",
-        "CVE-2026-114613"
+        "GHSA-xxxx-xxxx-0006",
+        "CVE-2099-00007"
       ],
-      "package": "msgpack",
+      "package": "example-pkg-b",
       "version": "1.1.2",
       "fixed": "1.2.3",
       "score": "7.5",
       "severity": "High",
-      "summary": "MessagePack: Unbounded memory leak in msgpack C extension on strict_map_key validation failure",
+      "summary": "Example vulnerability 3 (synthetic test data)",
       "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json",
       "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
       "fixPackage": "pip"
     },
     {
-      "id": "PYSEC-2025-49",
-      "cve": "CVE-2025-47273",
+      "id": "PYSEC-2099-00008",
+      "cve": "CVE-2099-00009",
       "aliases": [
-        "PYSEC-2025-49",
-        "GHSA-5rjg-fvgr-3xxf",
-        "BIT-setuptools-2025-47273",
-        "CVE-2025-47273"
+        "PYSEC-2099-00008",
+        "GHSA-xxxx-xxxx-0010",
+        "BIT-example-2099-00011",
+        "CVE-2099-00009"
       ],
-      "package": "setuptools",
+      "package": "example-pkg-c",
       "version": "70.3.0",
       "fixed": "78.1.1",
       "score": "8.8",
       "severity": "High",
-      "summary": "setuptools has a path traversal vulnerability in PackageIndex.download that leads to Arbitrary File Write",
+      "summary": "Example vulnerability 4 (synthetic test data)",
       "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json",
       "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
       "fixPackage": "pip"
     },
     {
-      "id": "PYSEC-2026-3447",
-      "cve": "CVE-2026-59890",
+      "id": "PYSEC-2099-00012",
+      "cve": "CVE-2099-00013",
       "aliases": [
-        "PYSEC-2026-3447",
-        "GHSA-h35f-9h28-mq5c",
-        "BIT-setuptools-2026-59890",
-        "CVE-2026-59890"
+        "PYSEC-2099-00012",
+        "GHSA-xxxx-xxxx-0014",
+        "BIT-example-2099-00015",
+        "CVE-2099-00013"
       ],
-      "package": "setuptools",
+      "package": "example-pkg-c",
       "version": "70.3.0",
       "fixed": "83.0.0",
       "score": "6.1",
       "severity": "Medium",
-      "summary": "setuptools: MANIFEST.in exclusion bypass in sdist via Unicode normalization collision (NFC/NFD) on macOS APFS/HFS+",
+      "summary": "Example vulnerability 5 (synthetic test data)",
       "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json",
       "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
       "fixPackage": "pip"
     },
     {
-      "id": "GHSA-xmj3-9gf7-h52w",
-      "cve": "GHSA-xmj3-9gf7-h52w",
+      "id": "GHSA-xxxx-xxxx-0016",
+      "cve": "GHSA-xxxx-xxxx-0016",
       "aliases": [
-        "GHSA-xmj3-9gf7-h52w"
+        "GHSA-xxxx-xxxx-0016"
       ],
-      "package": "setuptools",
+      "package": "example-pkg-c",
       "version": "70.3.0",
       "fixed": "84.1.0",
       "score": "1.0",
       "severity": "Low",
-      "summary": "setuptools: Windows path escape via namespace_packages.txt during legacy wheel installation  Description",
+      "summary": "Example vulnerability 6 (synthetic test data)",
       "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json",
       "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
       "fixPackage": "pip"
     },
     {
-      "id": "PYSEC-2026-4175",
-      "cve": "CVE-2026-97687",
+      "id": "PYSEC-2099-00017",
+      "cve": "CVE-2099-00018",
       "aliases": [
-        "PYSEC-2026-4175",
-        "GHSA-8988-9cw3-xx77",
-        "CVE-2026-97687"
+        "PYSEC-2099-00017",
+        "GHSA-xxxx-xxxx-0019",
+        "CVE-2099-00018"
       ],
-      "package": "urllib3",
+      "package": "example-pkg-d",
       "version": "2.7.0",
       "fixed": "2.8.0",
       "score": "7.6",
       "severity": "High",
-      "summary": "urllib3: HTTPS proxy TLS configuration may be ignored or overridden",
+      "summary": "Example vulnerability 7 (synthetic test data)",
       "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json",
       "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
       "fixPackage": "pip"
     },
     {
-      "id": "PYSEC-2026-4176",
-      "cve": "CVE-2026-97688",
+      "id": "PYSEC-2099-00020",
+      "cve": "CVE-2099-00021",
       "aliases": [
-        "PYSEC-2026-4176",
-        "GHSA-gh4c-6fx4-qh6g",
-        "CVE-2026-97688"
+        "PYSEC-2099-00020",
+        "GHSA-xxxx-xxxx-0022",
+        "CVE-2099-00021"
       ],
-      "package": "urllib3",
+      "package": "example-pkg-d",
       "version": "2.7.0",
       "fixed": "2.8.0",
       "score": "6.9",
       "severity": "Medium",
-      "summary": "urllib3: Chunked Deflate streaming can enter an infinite loop",
+      "summary": "Example vulnerability 8 (synthetic test data)",
       "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json",
       "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
       "fixPackage": "pip"
     },
     {
-      "id": "PYSEC-2026-4177",
-      "cve": "CVE-2026-97689",
+      "id": "PYSEC-2099-00023",
+      "cve": "CVE-2099-00024",
       "aliases": [
-        "PYSEC-2026-4177",
-        "GHSA-vxq7-64xx-v4gw",
-        "CVE-2026-97689"
+        "PYSEC-2099-00023",
+        "GHSA-xxxx-xxxx-0025",
+        "CVE-2099-00024"
       ],
-      "package": "urllib3",
+      "package": "example-pkg-d",
       "version": "2.7.0",
       "fixed": "2.8.0",
       "score": "8.9",
       "severity": "High",
-      "summary": "urllib3: HTTPResponse.stream()/read_chunked() buffers an unbounded chunk-size line into memory",
+      "summary": "Example vulnerability 9 (synthetic test data)",
       "path": "C:/Users/user/AppData/Local/Programs/Python/Python313/Lib/site-packages/pip/_vendor/bom.cdx.json",
       "python": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
       "fixPackage": "pip"

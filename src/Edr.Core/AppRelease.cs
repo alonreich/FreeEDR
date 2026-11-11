@@ -415,7 +415,7 @@ public sealed partial class AppRelease(EdrPaths paths, Func<string, string?>? si
         if (!subject.Contains('=')) return subject.Trim();
         var keep = new[] { "CN", "O", "L", "S", "ST", "C" };
         var parts = new SortedDictionary<string, string>(StringComparer.Ordinal);
-        foreach (var raw in subject.Replace("\r\n", "\n").Split('\n'))
+        foreach (var raw in SplitDn(subject))
         {
             var i = raw.IndexOf('=');
             if (i <= 0) continue;
@@ -426,6 +426,35 @@ public sealed partial class AppRelease(EdrPaths paths, Func<string, string?>? si
             if (value.Length > 0) parts[key] = value;
         }
         return parts.Count == 0 ? subject.Trim() : string.Join(", ", parts.Select(p => $"{p.Key}={p.Value}"));
+    }
+
+    private static IEnumerable<string> SplitDn(string subject)
+    {
+        var cur = new StringBuilder();
+        var inQuotes = false;
+        for (var i = 0; i < subject.Length; i++)
+        {
+            var ch = subject[i];
+            if (ch == '"')
+            {
+                inQuotes = !inQuotes;
+                cur.Append(ch);
+            }
+            else if (!inQuotes && (ch == '\n' || ch == '\r' || ch == ',' || ch == ';'))
+            {
+                if (cur.Length > 0)
+                {
+                    yield return cur.ToString();
+                    cur.Clear();
+                }
+            }
+            else
+            {
+                cur.Append(ch);
+            }
+        }
+        if (cur.Length > 0)
+            yield return cur.ToString();
     }
 
     public static string DisplayName(string? subject)

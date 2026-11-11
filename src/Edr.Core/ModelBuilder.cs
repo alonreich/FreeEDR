@@ -570,6 +570,7 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
             return new("attention", $"Please confirm {model.Pinned} item{(model.Pinned != 1 ? "s" : "")}: was this you?",
                        "Logins from the internet, cleared logs or account changes. Answer \"Yes, it was me\" or \"No, it wasn't me\" for each one.");
         var cve = model?.Sec["cve"].Count ?? 0;
+        var apps = model?.Sec["apps"].Count ?? 0;
         var paused = new List<string>();
         if (edr is not null && Ps.Eq(edr.S("state"), "paused")) paused.Add($"EDR is paused {FormatUntil(edr)}");
         else
@@ -589,7 +590,13 @@ public sealed class ModelBuilder(EdrInputs inputs, ISignerLookup signers)
         var scan = st.Child("scan");
         if (scan?["ok"] is JsonValue ok && ok.TryGetValue(out bool okb) && !okb) return new("attention", "Last scan had problems", scan.S("summary"));
         var subOk = $"Nothing needs your attention. Last update: {FormatWhen(scan?.S("lastEnd"), "ddd HH:mm")}. Next: {FormatWhen(scan?.S("nextDue"), "ddd HH:mm")}.";
-        if (cve > 0) subOk += $"  {cve} security update{(cve != 1 ? "s" : "")} waiting in Updates.";
+        var totalUpdates = cve + apps;
+        if (totalUpdates > 0)
+        {
+            if (cve > 0 && apps > 0) subOk += $"  {cve} security and {apps} app update{(totalUpdates != 1 ? "s" : "")} waiting in Updates.";
+            else if (cve > 0) subOk += $"  {cve} security update{(cve != 1 ? "s" : "")} waiting in Updates.";
+            else subOk += $"  {apps} app update{(apps != 1 ? "s" : "")} waiting in Updates.";
+        }
         return new("ok", "You're protected", subOk);
     }
 }

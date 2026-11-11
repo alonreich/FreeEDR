@@ -269,6 +269,74 @@ public static partial class Win32
     public static partial nint GetForegroundWindow();
 
     [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool OpenClipboard(nint hWndNewOwner);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CloseClipboard();
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool EmptyClipboard();
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    private static partial nint SetClipboardData(uint uFormat, nint hMem);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial nint GlobalAlloc(uint uFlags, nuint dwBytes);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial nint GlobalLock(nint hMem);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GlobalUnlock(nint hMem);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial nint GlobalFree(nint hMem);
+
+    public static bool SetClipboardText(string text)
+    {
+        if (text is null) return false;
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            if (OpenClipboard(0))
+            {
+                try
+                {
+                    if (!EmptyClipboard()) return false;
+                    var bytes = (text.Length + 1) * sizeof(char);
+                    var hGlobal = GlobalAlloc(0x0002 /* GMEM_MOVEABLE */, (nuint)bytes);
+                    if (hGlobal == 0) return false;
+                    var target = GlobalLock(hGlobal);
+                    if (target == 0) { GlobalFree(hGlobal); return false; }
+                    try
+                    {
+                        unsafe
+                        {
+                            fixed (char* src = text)
+                            {
+                                Buffer.MemoryCopy(src, (void*)target, bytes, bytes);
+                            }
+                        }
+                    }
+                    finally { GlobalUnlock(hGlobal); }
+                    if (SetClipboardData(13 /* CF_UNICODETEXT */, hGlobal) == 0)
+                    {
+                        GlobalFree(hGlobal);
+                        return false;
+                    }
+                    return true;
+                }
+                finally { CloseClipboard(); }
+            }
+            Thread.Sleep(50);
+        }
+        return false;
+    }
+
+    [LibraryImport("user32.dll", SetLastError = true)]
     public static partial uint GetWindowThreadProcessId(nint hWnd, out uint processId);
 
     [LibraryImport("shell32.dll")]

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Avalonia.Input.Platform;
 using Edr.Core;
+using Edr.Core.Native;
 using Edr.Tray.Services;
 using Edr.Tray.Views;
 
@@ -385,37 +386,54 @@ public sealed class Controller
         Refresh();
     }
 
+    public async Task<bool> CopyToClipboard(string text)
+    {
+        try
+        {
+            if (Clipboard?.Invoke() is { } cb)
+            {
+                await cb.SetTextAsync(text);
+                return true;
+            }
+        }
+        catch { }
+        return Win32.SetClipboardText(text);
+    }
+
     private async Task CopyDetails(Row r)
     {
         var o = r.Ev is not null && r.Kind is not ("block" or "excl" or "cve" or "hist") ? r.Ev.Obj : r.Entry?.Obj ?? r.Ev?.Obj;
         if (o is null) return;
         var text = string.Join("\r\n", o.Where(kv => Ps.Truthy(kv.Value) && !kv.Key.StartsWith('_')).Select(kv => $"{kv.Key}: {Ps.Str(kv.Value)}"));
-        try
-        {
-            if (Clipboard?.Invoke() is { } cb) { await cb.SetTextAsync(text); Say("Details copied."); }
-        }
-        catch (Exception) { Say("Could not copy to the clipboard (another program holds it). Try again.", true); }
+        if (await CopyToClipboard(text)) Say("Details copied.");
+        else Say("Could not copy to the clipboard (another program holds it). Try again.", true);
     }
 
     public async Task ExplainForDummies(Row r)
     {
         var e = r.Ev ?? r.Entry;
         if (e is null) return;
+        var eProc = e.S("process");
+        var eBlade = e.S("blade");
+        var eIp = e.S("ip");
+        var eId = e.S("id");
+
+        bool IsRelated(Rec x)
+        {
+            if (eId.Length > 0 && x.S("id") == eId) return false;
+            if (x == e) return false;
+            if (eProc.Length > 0 && (Ps.Eq(x.S("process"), eProc) || Ps.Eq(ActionBuilder.ParentOf(x), eProc))) return true;
+            if (eIp.Length > 0 && Ps.Eq(x.S("ip"), eIp)) return true;
+            if (eBlade.Length > 0 && Ps.Eq(x.S("blade"), eBlade)) return true;
+            return false;
+        }
+
         var related = State.Inputs.Events
-            .Where(x => x != e && (x.S("process") == e.S("process") || x.S("blade") == e.S("blade")))
-            .Take(10)
+            .Where(IsRelated)
+            .TakeLast(10)
             .ToList();
         var prompt = ExplainPrompt.Build(e, DateTimeOffset.Now, related);
-        var copied = false;
-        try
-        {
-            if (Clipboard?.Invoke() is { } cb)
-            {
-                await cb.SetTextAsync(prompt);
-                copied = true;
-            }
-        }
-        catch (Exception) { }
+        var copied = await CopyToClipboard(prompt);
 
         Shell.OpenUrl("https://gemini.google.com/app");
         Say(copied
@@ -557,17 +575,34 @@ public sealed class Controller
         if (plan.AlreadyThere > 0) notes.Add($"{plan.AlreadyThere} allows are already here.");
         if (plan.Refused > 0) notes.Add($"{plan.Refused} allows in the file are too broad for FreeEDR's rules and are skipped.");
         var quiet = SettingsBackup.QuietOf(backup) is { } q && !q.SequenceEqual(QuietList, StringComparer.Ordinal) ? q : null;
-        if (plan.Empty && quiet is null) { await Dialogs.Info("Import settings", "Nothing to change: this PC already has these settings and allows. " + string.Join(" ", notes)); return false; }
+        var userPrefs = SettingsBackup.PrefsOf(backup);
+        var prefChanges = new List<string>();
+        if (userPrefs is not null)
+        {
+            var nl = userPrefs.Str("notifyLevel");
+            if (nl is "critical" or "important" or "all" && !Ps.Eq(nl, Prefs.NotifyLevel))
+                prefChanges.Add($"notifications ({nl})");
+
+            var th = userPrefs.Str("theme");
+            if (th is "dark" or "light" or "system" && !Ps.Eq(th, Prefs.Theme))
+                prefChanges.Add($"theme ({th})");
+
+            if (userPrefs["updateCheck"] is JsonValue uv && uv.TryGetValue<bool>(out var uc) && uc != Prefs.UpdateCheck)
+                prefChanges.Add($"update checks ({(uc ? "on" : "off")})");
+        }
+        var hasPrefChanges = prefChanges.Count > 0;
+        if (plan.Empty && quiet is null && !hasPrefChanges) { await Dialogs.Info("Import settings", "Nothing to change: this PC already has these settings and allows. " + string.Join(" ", notes)); return false; }
         var batches = SettingsBackup.Batches(plan.Ops);
         var approvals = batches.Count + (plan.ConfigChanges.Count > 0 ? 1 : 0);
         var what = new List<string>();
         if (plan.ConfigChanges.Count > 0) what.Add($"{CountLeaves(plan.ConfigChanges)} PC settings");
         if (plan.Ops.Count > 0) what.Add($"{plan.Ops.Count} allows");
         if (quiet is not null) what.Add("your quiet-mode list");
+        if (hasPrefChanges) what.Add($"your preferences ({string.Join(", ", prefChanges)})");
         if (!await Dialogs.Confirm("Import settings", $"This backup changes {string.Join(" and ", what)}. {string.Join(" ", notes)}\n\nEach step shows exactly what it changes before you approve it.",
                                    "Import", note: approvals == 0 ? null : approvals == 1 ? "Windows asks for administrator approval." : $"Windows asks for administrator approval {approvals} times (at most {RequestSummary.MaxLines} changes each).")) return false;
         if (quiet is not null) Prefs.QuietProcesses = quiet;
-        if (SettingsBackup.PrefsOf(backup) is { } userPrefs)
+        if (userPrefs is not null)
         {
             if (userPrefs.Str("notifyLevel") is "critical" or "important" or "all" && userPrefs.Str("notifyLevel") is { Length: > 0 } nl)
                 Prefs.NotifyLevel = nl;
@@ -633,8 +668,9 @@ public sealed class Controller
         var ev = State.Inputs.Events.LastOrDefault(e => e.S("id") == arg);
         switch (verb)
         {
-            case "explain" when ev is not null:
-                await ExplainForDummies(new Row { Kind = "event", Cols = [], Ev = ev });
+            case "explain":
+                if (ev is not null) await ExplainForDummies(new Row { Kind = "event", Cols = [], Ev = ev });
+                else Say("The alert could not be found to explain (it may have expired).", true);
                 break;
             case "review" when ev is not null:
                 Insights.CountReview(ev);

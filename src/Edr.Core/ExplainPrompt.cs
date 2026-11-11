@@ -51,7 +51,9 @@ public static class ExplainPrompt
             foreach (var r in related)
             {
                 var rprog = Ps.Eq(r.S("blade"), "sigma") ? SigmaProcess.Of(r).Image : r.S("process");
-                sb.AppendLine($"[{r.S("time")}] [{r.S("blade")}] {r.S("title")} | Process: {rprog} | Detail: {ModelBuilder.Short(r.S("detail"), 160)}");
+                var detail = r.S("detail");
+                if (detail.Length == 0 && r.T("ip")) detail = $"IP: {r.S("ip")}";
+                sb.AppendLine($"[{r.S("time")}] [{r.S("blade")}] {r.S("title")}{(rprog.Length > 0 ? $" | Process: {rprog}" : "")}{(detail.Length > 0 ? $" | Detail: {ModelBuilder.Short(detail, 160)}" : "")}");
             }
             sb.AppendLine();
         }

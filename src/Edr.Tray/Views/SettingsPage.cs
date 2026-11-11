@@ -502,25 +502,60 @@ public sealed class SettingsPage : UserControl
 
         foreach (var c in _root.Children.Concat(_dynamic.Children))
         {
-            if (c is Border card)
+            if (c == _root.Children[0] || c == _dynamic || c == _barHost) continue;
+
+            if (empty)
             {
-                if (empty)
-                {
-                    card.IsVisible = true;
-                    continue;
-                }
-
-                var text = (card.Tag as string ?? "").ToLowerInvariant();
-                var match = text.Contains(q);
-
-                foreach (var ex in FindExpanders(card))
-                {
-                    var exTag = (ex.Header is Control h && h.Tag is string ht ? ht : "").ToLowerInvariant();
-                    if (exTag.Contains(q) || match) ex.IsExpanded = true;
-                }
-
-                card.IsVisible = match || text.Length == 0;
+                c.IsVisible = true;
+                continue;
             }
+
+            var sb = new System.Text.StringBuilder();
+            CollectSearchableText(c, sb);
+            var text = sb.ToString().ToLowerInvariant();
+            var match = text.Contains(q);
+
+            if (match)
+            {
+                foreach (var ex in FindExpanders(c))
+                {
+                    var exSb = new System.Text.StringBuilder();
+                    CollectSearchableText(ex, exSb);
+                    if (exSb.ToString().ToLowerInvariant().Contains(q)) ex.IsExpanded = true;
+                }
+            }
+
+            c.IsVisible = match;
+        }
+    }
+
+    private static void CollectSearchableText(Control c, System.Text.StringBuilder sb)
+    {
+        if (c.Tag is string s && s.Length > 0) sb.Append(' ').Append(s);
+        if (c is TextBlock tb && !string.IsNullOrWhiteSpace(tb.Text)) sb.Append(' ').Append(tb.Text);
+        else if (c is ContentControl cc && cc.Content is string cs) sb.Append(' ').Append(cs);
+        else if (c is TextBox txt && !string.IsNullOrWhiteSpace(txt.PlaceholderText)) sb.Append(' ').Append(txt.PlaceholderText);
+
+        var name = AutomationProperties.GetName(c);
+        if (!string.IsNullOrWhiteSpace(name)) sb.Append(' ').Append(name);
+        var help = AutomationProperties.GetHelpText(c);
+        if (!string.IsNullOrWhiteSpace(help)) sb.Append(' ').Append(help);
+
+        if (c is Panel p)
+        {
+            foreach (var child in p.Children) CollectSearchableText(child, sb);
+        }
+        else if (c is ContentControl cc2 && cc2.Content is Control childControl)
+        {
+            CollectSearchableText(childControl, sb);
+        }
+        else if (c is Border b && b.Child is Control bc)
+        {
+            CollectSearchableText(bc, sb);
+        }
+        else if (c is UserControl uc && uc.Content is Control ucc)
+        {
+            CollectSearchableText(ucc, sb);
         }
     }
 
@@ -532,6 +567,10 @@ public sealed class SettingsPage : UserControl
                 foreach (var ex in FindExpanders(child)) yield return ex;
         if (parent is ContentControl cc && cc.Content is Control c)
             foreach (var ex in FindExpanders(c)) yield return ex;
+        if (parent is Border b && b.Child is Control bc)
+            foreach (var ex in FindExpanders(bc)) yield return ex;
+        if (parent is UserControl uc && uc.Content is Control ucc)
+            foreach (var ex in FindExpanders(ucc)) yield return ex;
     }
 
     private sealed class Form

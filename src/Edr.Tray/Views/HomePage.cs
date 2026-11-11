@@ -152,7 +152,7 @@ public sealed class HomePage : UserControl
         var st = _c.State.PauseState(blade == "cve" ? "cve" : blade);
         var engine = _c.State.EngineAlive;
         var attention = (sec?.Attention ?? 0) + (sec2?.Attention ?? 0);
-        var open = sec?.Count ?? 0;
+        var open = (sec?.Count ?? 0) + (sec2?.Count ?? 0);
         IBrush color; string status;
         if (!engine || st == "error") { color = Palette.Danger; status = st == "error" ? "Not working" : "Engine stopped"; }
         else if (st == "paused") { color = Palette.Paused; status = "Paused " + Until(blade); }

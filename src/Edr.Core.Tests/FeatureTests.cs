@@ -33,6 +33,23 @@ public class ProfileTests
         Assert.Equal("vcpkg", p?.Id);
         Assert.Null(Profiles.FindFor(ev, id => id == "vcpkg", NoSigners.Instance));
     }
+
+    [Fact]
+    public void Profiles_appdata_updates_and_zoom_enforce_signatures_and_detection()
+    {
+        var zoom = Profiles.Get("zoom")!;
+        Assert.NotEmpty(zoom.Detect);
+        Assert.All(zoom.Entries, e => Assert.Equal("Zoom Video Communications, Inc.", e.Signer));
+
+        var teams = Profiles.Get("teams")!;
+        Assert.Contains(teams.Entries, e => e.Image.EndsWith("Update.exe") && e.Signer == "Microsoft Corporation");
+
+        var slack = Profiles.Get("slack")!;
+        Assert.Contains(slack.Entries, e => e.Image.EndsWith("Update.exe") && e.Signer == "Slack Technologies, LLC");
+
+        var dropbox = Profiles.Get("dropbox")!;
+        Assert.Contains(dropbox.Entries, e => e.Image.EndsWith("DropboxUpdate.exe") && e.Signer == "Dropbox, Inc.");
+    }
 }
 
 public class ActionTests
@@ -120,6 +137,23 @@ public class ActionTests
         Assert.Contains("Process Created", prompt);
         Assert.Contains("=== USER QUESTION & INSTRUCTIONS ===", prompt);
         Assert.Contains(ExplainPrompt.UserInstruction, prompt);
+    }
+
+    [Fact]
+    public void ExplainPrompt_with_wail2ban_includes_ip_when_detail_empty()
+    {
+        var ev = R("""{"id":"test-w2b","blade":"wail2ban","title":"Failed logon","severity":"Low","ip":"198.51.100.22","time":"2026-11-10 10:00:00"}""");
+        var now = DateTimeOffset.Now;
+        var related = new[] { R("""{"blade":"wail2ban","title":"Failed logon","ip":"198.51.100.22","time":"2026-11-10 09:59:00"}""") };
+        var prompt = ExplainPrompt.Build(ev, now, related);
+        Assert.Contains("IP: 198.51.100.22", prompt);
+        Assert.DoesNotContain("Process:", prompt);
+    }
+
+    [Fact]
+    public void Win32_SetClipboardText_succeeds_for_non_empty_text()
+    {
+        Assert.True(Edr.Core.Native.Win32.SetClipboardText("FreeEDR QA test clipboard text"));
     }
 }
 

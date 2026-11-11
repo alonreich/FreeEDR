@@ -5,7 +5,7 @@
     "text": "Protection is OFF - EDR engine is not running",
     "sub": "Open FreeEDR and click Restart engine, or restart the PC."
   },
-  "attention": 8,
+  "attention": 12,
   "pinned": 0,
   "claude": "C:\\Users\\user\\AppData\\Local\\Claude-Data\\anthropicpbc.claude_fnn82j28hfe8t\\claude-code\\2.1.309\\9078b9c1d466\\claude.exe",
   "sections": {
@@ -16,6 +16,54 @@
       "lists": [
         [],
         [
+          {
+            "kind": "defender",
+            "key": "be1af5b8793547cfb1a90f6302d32689",
+            "time": "2026-10-31 22:32:58",
+            "sev": "Medium",
+            "cols": [
+              "2026-10-31 22:32:58",
+              "Controlled folder access blocked a write",
+              "explorer.exe",
+              "Blocked by Microsoft Defender",
+              "%userprofile%\\Pictures"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "defender",
+            "key": "4a1df6d0b60a4c2e87cbc901eca15cb5",
+            "time": "2026-10-31 22:16:34",
+            "sev": "Medium",
+            "cols": [
+              "2026-10-31 22:16:34",
+              "Controlled folder access blocked a write",
+              "dllhost.exe",
+              "Blocked by Microsoft Defender",
+              "%userprofile%\\Videos\\ExampleGame\\"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "defender",
+            "key": "3fe922747c3e4cccbcf76ea39000bc72",
+            "time": "2026-10-31 22:16:34",
+            "sev": "Medium",
+            "cols": [
+              "2026-10-31 22:16:34",
+              "Controlled folder access blocked a write",
+              "ProjectB.exe",
+              "Blocked by Microsoft Defender",
+              "%userprofile%\\Videos\\ExampleGame\\"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          },
           {
             "kind": "defender",
             "key": "f6459343b93c40a496817733cafb5a62",
@@ -73,12 +121,12 @@
             "sev": "",
             "cols": [
               "2026-11-01 22:51",
-              "C:\\Windows\\explorer.exe",
+              "C:\\Program Files\\ExampleApp1\\example-writer1.exe",
               "Defender: Controlled folder access"
             ],
             "muted": false,
             "pinned": false,
-            "group": 1
+            "group": 0
           },
           {
             "kind": "excl",
@@ -87,12 +135,12 @@
             "sev": "",
             "cols": [
               "2026-11-01 22:51",
-              "C:\\ProjectB\\.dev-run\\app\\ProjectB.exe",
+              "C:\\Program Files\\ExampleApp2\\example-writer2.exe",
               "Defender: Controlled folder access"
             ],
             "muted": false,
             "pinned": false,
-            "group": 1
+            "group": 0
           },
           {
             "kind": "excl",
@@ -101,20 +149,20 @@
             "sev": "",
             "cols": [
               "2026-11-01 22:51",
-              "C:\\Windows\\System32\\dllhost.exe",
+              "C:\\Program Files\\ExampleApp3\\example-writer3.exe",
               "Defender: Controlled folder access"
             ],
             "muted": false,
             "pinned": false,
-            "group": 1
+            "group": 0
           }
         ]
       ]
     },
     "edr": {
-      "count": 8,
+      "count": 12,
       "alert": true,
-      "attention": 8,
+      "attention": 12,
       "lists": [
         [
           {
@@ -221,6 +269,108 @@
           },
           {
             "kind": "event",
+            "key": "eb504221195647668225c843d9ee3841",
+            "time": "2026-11-01 22:26:12",
+            "sev": "High",
+            "cols": [
+              "● High",
+              "2026-11-01 22:26:12",
+              "Encoded PowerShell command",
+              "pwsh.exe",
+              "codex.exe",
+              "\"C:\\Users\\user\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe\" -Command \"try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {} @' CONTINUATION CHECKPOINT 2026-11-..."
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "event",
+            "key": "6089da224f974f869903c57a89a600db",
+            "time": "2026-11-01 22:13:26",
+            "sev": "High",
+            "cols": [
+              "● High",
+              "2026-11-01 22:13:26",
+              "Encoded PowerShell command",
+              "powershell.exe",
+              "ChatGPT.exe",
+              "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand WwBTAHkAcwB0AGUAbQAuAE0AZQBkAGkAYQAuAFMAbwB1AG4AZABQAGwAYQB5AGUAcgBdADoAOgBuAGUAdwAoACcAQwA6AFwAUAByAG8AZwByAGEAbQAgAEYAaQBsAGUAcwBcAFcAaQBuAGQAbwB3AHM..."
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "event",
+            "key": "a2d984b0020244ea828d3350b2501c01",
+            "time": "2026-11-01 21:52:29",
+            "sev": "High",
+            "cols": [
+              "● High",
+              "2026-11-01 21:52:29",
+              "Encoded PowerShell command",
+              "powershell.exe",
+              "pwsh.exe",
+              "\"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -encodedCommand CgAgACAAZgBvAHIAZQBhAGMAaAAgACgAJABmACAAaQBuACAARwBlAHQALQBDAGgAaQBsAGQASQB0AGUAbQAgAEMAOgBcAFUAcwBlAHIAcwBcAHUAcwBlAHIAXABFAEQAUg..."
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "event",
+            "key": "f08043956db74491bef54ebb28d7a600",
+            "time": "2026-11-01 21:43:01",
+            "sev": "High",
+            "cols": [
+              "● High",
+              "2026-11-01 21:43:01",
+              "PowerShell download or in-memory execution",
+              "pwsh.exe",
+              "cmd.exe",
+              "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"$__claudeCodeScript = $env:CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT; $env:CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT = $null; Invok..."
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "event",
+            "key": "11f998435a884ca7a4c15b63337005cd",
+            "time": "2026-11-01 21:43:00",
+            "sev": "High",
+            "cols": [
+              "● High",
+              "2026-11-01 21:43:00",
+              "Encoded PowerShell command",
+              "pwsh.exe",
+              "claude.exe",
+              "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoProfile -NonInteractive -NoLogo -EncodedCommand CgBmAHUAbgBjAHQAaQBvAG4AIABXAHIAaQB0AGUALQBSAGUAcwB1AGwAdAAoACQASgBzAG8AbgApACAAewAKACAAIAAgACAAWwBTAHkAcwB0AGUAbQAuAEMAbwBuA..."
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 1
+          },
+          {
+            "kind": "event",
+            "key": "07929b04b63a4a2cad5321725f82bfe2",
+            "time": "2026-11-01 21:36:01",
+            "sev": "Medium",
+            "cols": [
+              "● Medium",
+              "2026-11-01 21:36:01",
+              "Startup entry added or changed (Run key)   (x2)",
+              "OneDrive.Sync.Service.exe",
+              "",
+              "HKU\\S-1-5-21-1000000000-1000000000-1000000000-1001\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\Microsoft.Lists = C:\\Program Files\\Microsoft OneDrive\\26.195.1006.0007_1\\OneDrive.Sync.Service.exe"
+            ],
+            "muted": false,
+            "pinned": false,
+            "group": 2
+          },
+          {
+            "kind": "event",
             "key": "007f674041924aad8eff24a4404cfca6",
             "time": "2026-11-01 21:35:48",
             "sev": "Medium",
@@ -265,6 +415,57 @@
               "cmd.exe",
               "claude.exe",
               "C:\\WINDOWS\\System32\\cmd.exe /d /s /c \"\"C:\\WINDOWS\\System32\\chcp.com\" 65001 >nul & \"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"$__claudeCodeScript = $env:CLAUDE..."
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 49
+          },
+          {
+            "kind": "event",
+            "key": "6d80ebfd8bbf4b7ba57c197a85971628",
+            "time": "2026-11-01 21:33:10",
+            "sev": "Medium",
+            "cols": [
+              "● Medium",
+              "2026-11-01 21:33:10",
+              "Suspicious Encoded/Download Execution   (x54)",
+              "pwsh.exe",
+              "cmd.exe",
+              "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"$__claudeCodeScript = $env:CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT; $env:CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT = $null; Invok..."
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 54
+          },
+          {
+            "kind": "event",
+            "key": "77014670793e4cbe96c2b53722adf59c",
+            "time": "2026-11-01 21:33:10",
+            "sev": "Medium",
+            "cols": [
+              "● Medium",
+              "2026-11-01 21:33:10",
+              "Suspicious Encoded/Download Execution   (x4)",
+              "powershell.exe",
+              "pwsh.exe",
+              "\"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -encodedCommand CgAgACAALgAgAEMAOgBcAFUAcwBlAHIAcwBcAHUAcwBlAHIAXABFAEQAUgAtAHUAcABnAHIAYQBkAGUAXABFAEQAUgAtAEMAbwBtAG0AbwBuAC4AcABzADEACgAgACAAJA..."
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 4
+          },
+          {
+            "kind": "event",
+            "key": "3c88b040c1bb47ecb20bb4b4db093104",
+            "time": "2026-11-01 21:33:09",
+            "sev": "Medium",
+            "cols": [
+              "● Medium",
+              "2026-11-01 21:33:09",
+              "Suspicious Encoded/Download Execution   (x49)",
+              "pwsh.exe",
+              "claude.exe",
+              "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoProfile -NonInteractive -NoLogo -EncodedCommand CgBmAHUAbgBjAHQAaQBvAG4AIABXAHIAaQB0AGUALQBSAGUAcwB1AGwAdAAoACQASgBzAG8AbgApACAAewAKACAAIAAgACAAWwBTAHkAcwB0AGUAbQAuAEMAbwBuA..."
             ],
             "muted": true,
             "pinned": false,
@@ -357,6 +558,40 @@
           },
           {
             "kind": "event",
+            "key": "8f4567172305495d943f368e1d3b64e7",
+            "time": "2026-11-01 21:10:39",
+            "sev": "Medium",
+            "cols": [
+              "● Medium",
+              "2026-11-01 21:10:39",
+              "Startup Persistence Modified   (x2)",
+              "sihost.exe",
+              "",
+              "HKU\\S-1-5-21-1000000000-1000000000-1000000000-1001\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 2
+          },
+          {
+            "kind": "event",
+            "key": "4c44e9c0c6b64678be513965003f6acb",
+            "time": "2026-11-01 21:10:29",
+            "sev": "Medium",
+            "cols": [
+              "● Medium",
+              "2026-11-01 21:10:29",
+              "Startup Persistence Modified   (x2)",
+              "powershell.exe",
+              "",
+              "HKU\\S-1-5-21-1000000000-1000000000-1000000000-1001\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\EDR Tray = powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File \"C:\\EDR\\EDR-Tray.ps1\""
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 2
+          },
+          {
+            "kind": "event",
             "key": "4acbb78b2ec546f3bff85cf9b1f62baf",
             "time": "2026-11-01 17:27:31",
             "sev": "Medium",
@@ -425,6 +660,23 @@
           },
           {
             "kind": "event",
+            "key": "dfbc60222ae249bc91b4722a01f8984d",
+            "time": "2026-11-01 16:56:45",
+            "sev": "Medium",
+            "cols": [
+              "● Medium",
+              "2026-11-01 16:56:45",
+              "Suspicious Encoded/Download Execution   (x5)",
+              "pwsh.exe",
+              "-",
+              "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoProfile -NonInteractive -NoLogo -EncodedCommand CgBmAHUAbgBjAHQAaQBvAG4AIABXAHIAaQB0AGUALQBSAGUAcwB1AGwAdAAoACQASgBzAG8AbgApACAAewAKACAAIAAgACAAWwBTAHkAcwB0AGUAbQAuAEMAbwBuA..."
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 5
+          },
+          {
+            "kind": "event",
             "key": "0bcea2106836426eb12b65843dc84d20",
             "time": "2026-11-01 16:56:45",
             "sev": "Medium",
@@ -490,6 +742,23 @@
             "muted": true,
             "pinned": false,
             "group": 31
+          },
+          {
+            "kind": "event",
+            "key": "6db29109a38c47f3af252fbde36d6210",
+            "time": "2026-11-01 16:35:27",
+            "sev": "Medium",
+            "cols": [
+              "● Medium",
+              "2026-11-01 16:35:27",
+              "Suspicious Encoded/Download Execution",
+              "powershell.exe",
+              "ChatGPT.exe",
+              "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand WwBTAHkAcwB0AGUAbQAuAE0AZQBkAGkAYQAuAFMAbwB1AG4AZABQAGwAYQB5AGUAcgBdADoAOgBuAGUAdwAoACcAQwA6AFwAUAByAG8AZwByAGEAbQAgAEYAaQBsAGUAcwBcAFcAaQBuAGQAbwB3AHM..."
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 1
           },
           {
             "kind": "event",
@@ -643,6 +912,23 @@
             "muted": true,
             "pinned": false,
             "group": 7
+          },
+          {
+            "kind": "event",
+            "key": "cafc1186ab9340239e62dca31533c6b7",
+            "time": "2026-10-31 21:00:24",
+            "sev": "Medium",
+            "cols": [
+              "● Medium",
+              "2026-10-31 21:00:24",
+              "Suspicious Encoded/Download Execution   (x3)",
+              "powershell.exe",
+              "cmd.exe",
+              "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Dev\\ProjectA\\developer_tools\\UploadAsset.ps1\" -Repo \"example-owner/ProjectA\" -Tag \"v2026.10.31\" -FilePath \".\\compiled\\ProjectAVault.apk\""
+            ],
+            "muted": true,
+            "pinned": false,
+            "group": 3
           },
           {
             "kind": "event",
@@ -909,12 +1195,12 @@
             "sev": "",
             "cols": [
               "2026-11-01 23:02",
-              "program C:\\WINDOWS\\system32\\sihost.exe  -  all rules",
+              "program C:\\Program Files\\ExampleApp5\\example5.exe  -  all rules",
               "Program, all rules"
             ],
             "muted": false,
             "pinned": false,
-            "group": 2
+            "group": 0
           },
           {
             "kind": "excl",
@@ -923,12 +1209,12 @@
             "sev": "",
             "cols": [
               "2026-11-01 22:51",
-              "program C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe  -  all rules",
+              "program C:\\Program Files\\ExampleApp4\\example4.exe  -  all rules",
               "Program, all rules"
             ],
             "muted": false,
             "pinned": false,
-            "group": 12
+            "group": 0
           },
           {
             "kind": "excl",
@@ -937,12 +1223,12 @@
             "sev": "",
             "cols": [
               "2026-11-01 22:50",
-              "program C:\\Users\\user\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe  -  all rules",
+              "program C:\\Program Files\\ExampleApp3\\example3.exe  -  all rules",
               "Program, all rules"
             ],
             "muted": false,
             "pinned": false,
-            "group": 1
+            "group": 0
           },
           {
             "kind": "excl",
@@ -951,12 +1237,12 @@
             "sev": "",
             "cols": [
               "2026-11-01 21:43",
-              "program C:\\Program Files\\PowerShell\\7\\pwsh.exe  -  all rules",
+              "program C:\\Program Files\\ExampleApp2\\example2.exe  -  all rules",
               "Program, all rules"
             ],
             "muted": false,
             "pinned": false,
-            "group": 110
+            "group": 0
           },
           {
             "kind": "excl",
@@ -965,12 +1251,12 @@
             "sev": "",
             "cols": [
               "2026-11-01 21:38",
-              "program C:\\Program Files\\Microsoft OneDrive\\26.195.1006.0007_1\\OneDrive.Sync.Service.exe  -  all rules",
+              "program C:\\Program Files\\ExampleApp1\\example1.exe  -  all rules",
               "Program, all rules"
             ],
             "muted": false,
             "pinned": false,
-            "group": 2
+            "group": 0
           },
           {
             "kind": "builtin",
@@ -1330,8 +1616,8 @@
             "sev": "",
             "cols": [
               "2026-11-01 21:18:52",
-              "GHSA-xmj3-9gf7-h52w",
-              "setuptools",
+              "GHSA-xxxx-xxxx-0016",
+              "example-pkg-c",
               "70.3.0",
               "84.1.0"
             ],
@@ -1346,8 +1632,8 @@
             "sev": "",
             "cols": [
               "2026-11-01 21:18:47",
-              "CVE-2026-97688",
-              "urllib3",
+              "CVE-2099-00021",
+              "example-pkg-d",
               "2.7.0",
               "2.8.0"
             ],
@@ -1362,8 +1648,8 @@
             "sev": "",
             "cols": [
               "2026-11-01 21:18:39",
-              "CVE-2026-59890",
-              "setuptools",
+              "CVE-2099-00013",
+              "example-pkg-c",
               "70.3.0",
               "83.0.0"
             ],
@@ -1378,8 +1664,8 @@
             "sev": "",
             "cols": [
               "2026-11-01 21:18:32",
-              "CVE-2026-97687",
-              "urllib3",
+              "CVE-2099-00018",
+              "example-pkg-d",
               "2.7.0",
               "2.8.0"
             ],
@@ -1394,8 +1680,8 @@
             "sev": "",
             "cols": [
               "2026-11-01 21:18:24",
-              "CVE-2026-97689",
-              "urllib3",
+              "CVE-2099-00024",
+              "example-pkg-d",
               "2.7.0",
               "2.8.0"
             ],
@@ -1410,8 +1696,8 @@
             "sev": "",
             "cols": [
               "2026-11-01 21:18:18",
-              "CVE-2025-47273",
-              "setuptools",
+              "CVE-2099-00009",
+              "example-pkg-c",
               "70.3.0",
               "78.1.1"
             ],
@@ -1426,8 +1712,8 @@
             "sev": "",
             "cols": [
               "2026-11-01 21:18:11",
-              "CVE-2026-57585",
-              "msgpack",
+              "CVE-2099-00004",
+              "example-pkg-b",
               "1.1.2",
               "1.2.1"
             ],
@@ -1442,8 +1728,8 @@
             "sev": "",
             "cols": [
               "2026-11-01 21:18:04",
-              "CVE-2026-114613",
-              "msgpack",
+              "CVE-2099-00007",
+              "example-pkg-b",
               "1.1.2",
               "1.2.3"
             ],
@@ -1458,8 +1744,8 @@
             "sev": "",
             "cols": [
               "2026-11-01 21:17:50",
-              "PYSEC-2026-4320",
-              "certifi",
+              "PYSEC-2099-00001",
+              "example-pkg-a",
               "2026.6.17",
               "2026.10.18"
             ],
@@ -1485,7 +1771,7 @@
             "sev": "",
             "cols": [
               "2026-11-01 23:02:52",
-              "pgAdmin 4 version 9.8",
+              "Example App 14",
               "9.8",
               "9.19"
             ],
@@ -1500,7 +1786,7 @@
             "sev": "",
             "cols": [
               "2026-11-01 23:00:28",
-              "Windows Subsystem for Linux",
+              "Example App 13",
               "2.6.3.0",
               "2.7.14"
             ],
@@ -1515,7 +1801,7 @@
             "sev": "",
             "cols": [
               "2026-11-01 23:00:21",
-              "Microsoft .NET Runtime - 6.0.16 (x64)",
+              "Example App 12",
               "6.0.16",
               "6.0.36"
             ],
@@ -1530,7 +1816,7 @@
             "sev": "",
             "cols": [
               "2026-11-01 23:00:13",
-              "Microsoft Visual C++ 2013 Redistributable (x86) - 12.0.30501",
+              "Example App 11",
               "12.0.30501.0",
               "12.0.40664.0"
             ],
@@ -1545,7 +1831,7 @@
             "sev": "",
             "cols": [
               "2026-11-01 22:57:07",
-              "Python 3.13.7 (64-bit)",
+              "Example App 10",
               "3.13.7",
               "3.13.16"
             ],
@@ -1560,7 +1846,7 @@
             "sev": "",
             "cols": [
               "2026-11-01 22:57:00",
-              "Python Launcher",
+              "Example App 9",
               "< 3.14.7",
               "3.14.7"
             ],
@@ -1575,7 +1861,7 @@
             "sev": "",
             "cols": [
               "2026-11-01 22:56:07",
-              "Microsoft Visual C++ v14 Redistributable (x64) - 14.50.35719",
+              "Example App 8",
               "14.50.35719.0",
               "14.51.36247.0"
             ],
@@ -1590,7 +1876,7 @@
             "sev": "",
             "cols": [
               "2026-11-01 22:55:30",
-              "Microsoft Visual Studio 2010 Tools for Office Runtime (x64)",
+              "Example App 7",
               "10.0.50903",
               "10.0.60917"
             ],
@@ -1605,7 +1891,7 @@
             "sev": "",
             "cols": [
               "2026-11-01 22:55:16",
-              "Ditto 3.24.246.0",
+              "Example App 6",
               "3.24.246.0",
               "3.25.113.0"
             ],
@@ -1620,7 +1906,7 @@
             "sev": "",
             "cols": [
               "2026-11-01 22:54:50",
-              "Node.js",
+              "Example App 5",
               "24.11.0",
               "26.13.0"
             ],
@@ -1635,7 +1921,7 @@
             "sev": "",
             "cols": [
               "2026-11-01 22:53:31",
-              "Git",
+              "Example App 4",
               "2.51.0",
               "2.56.0.4"
             ],
@@ -1650,7 +1936,7 @@
             "sev": "",
             "cols": [
               "2026-11-01 22:53:22",
-              "Epic Online Services",
+              "Example App 3",
               "3.0.1",
               "4.3.1"
             ],
@@ -1665,7 +1951,7 @@
             "sev": "",
             "cols": [
               "2026-11-01 21:14:45",
-              "Epic Games Launcher",
+              "Example App 2",
               "1.3.142.0",
               "1.3.210.0"
             ],
@@ -1680,7 +1966,7 @@
             "sev": "",
             "cols": [
               "2026-11-01 21:14:28",
-              "GitHub CLI",
+              "Example App 1",
               "2.94.0",
               "2.103.3"
             ],

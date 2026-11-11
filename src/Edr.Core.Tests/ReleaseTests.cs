@@ -136,12 +136,17 @@ public class ReleaseTests
     {
         const string ours = "CN=FreeEDR Project\nO=FreeEDR Project\nL=Tel Aviv\nS=Tel Aviv\nC=IL";
         const string sameCnElsewhere = "CN=FreeEDR Project\nO=FreeEDR Project\nL=Elsewhere\nC=XX";
+        const string commaSeparated = "CN=FreeEDR Project, O=FreeEDR Project, L=Tel Aviv, S=Tel Aviv, C=IL";
         Assert.Equal("C=IL, CN=FreeEDR Project, L=Tel Aviv, O=FreeEDR Project, S=Tel Aviv", AppRelease.NormalizeSubject(ours));
         Assert.Equal(AppRelease.NormalizeSubject(ours), AppRelease.NormalizeSubject("C=IL\nST=Tel Aviv\nO=FreeEDR Project\nOU=Signing 2027\nCN=FreeEDR Project\nL=Tel Aviv"));
+        Assert.Equal(AppRelease.NormalizeSubject(ours), AppRelease.NormalizeSubject(commaSeparated));
+        Assert.Equal(AppRelease.NormalizeSubject(ours), AppRelease.NormalizeSubject(AppRelease.NormalizeSubject(ours)));
+        Assert.Equal("C=US, CN=FreeEDR, Inc., O=FreeEDR Project", AppRelease.NormalizeSubject("CN=\"FreeEDR, Inc.\", O=FreeEDR Project, C=US"));
         Assert.Equal("FreeEDR Project", AppRelease.DisplayName(ours));
         Assert.True(AppRelease.SignerVerdict(AppRelease.NormalizeSubject(ours), AppRelease.NormalizeSubject(ours)).Ok);
         Assert.False(AppRelease.SignerVerdict(AppRelease.NormalizeSubject(ours), AppRelease.NormalizeSubject(sameCnElsewhere)).Ok);
         Assert.True(AppRelease.SignerVerdict(ours, sameCnElsewhere, [sameCnElsewhere]).Ok);
+        Assert.True(AppRelease.SignerVerdict(ours, sameCnElsewhere, ["CN=FreeEDR Project, O=FreeEDR Project, L=Elsewhere, C=XX"]).Ok);
         Assert.False(AppRelease.SignerVerdict(ours, null, [sameCnElsewhere]).Ok);
         Assert.Empty(AppRelease.TrustedSuccessorSubjects);
     }

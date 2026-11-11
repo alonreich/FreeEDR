@@ -13,18 +13,37 @@ tag and "Unreleased" is empty):
 ## Unreleased
 
 ### What's new for you
+- "Explain for Dummies" on popup notifications now reliably copies the incident explanation prompt to your clipboard even if the dashboard window is closed, and provides the most recent incident timeline logs.
+- Settings search now accurately finds and highlights all settings cards (including quiet mode, themes, and IPv6) and hides unrelated cards.
+- Restoring a settings backup now reliably restores your personal theme, notification preferences, and update check choices.
+- Trusted app profiles for Zoom, Teams, Slack, and Dropbox now require genuine publisher digital signatures on update binaries and Downloads execution, and Zoom only activates when Zoom is installed.
+- Network ban history in the details panel no longer displays duplicate IP address lines.
 - Settings has been completely upgraded: an instant search bar finds any setting across the dashboard, quiet mode features one-click game auto-detection and removable chips, popup notifications now offer a direct button to silence notifications for whichever game or app is in focus, and themes and notifications switch with clean segmented controls.
 - FreeEDR now includes an "🤔 Explain for Dummies" button on every alert, detail view, context menu, and toast notification that automatically prepares an oversimplified AI prompt with full incident context, timeline, and surrounding logs and opens Gemini in your browser.
 - FreeEDR now includes smart trusted app profiles out of the box for common enterprise and developer apps (Microsoft Teams, Slack, Cisco Webex, Visual Studio Code, Git for Windows, Docker Desktop, Google Chrome, and Dropbox), preventing false-positive alerts on standard tools.
 - FreeEDR now includes trusted app profiles for Microsoft Edge updates and Zoom web launchers out of the box, preventing false-positive alerts when Edge cleans up update tasks or Zoom launches meetings from Downloads.
+- Exporting the audit log over an existing file now replaces it cleanly without leaving stale data at the end.
+- Theme and notification choice buttons in Settings stay selected if you click them again.
+- The Home dashboard Updates card now counts both app updates and security updates.
+- "Show the logs folder" in Settings opens the folder even if the engine log has not been created yet.
 
 ### Technical
+- Added native Win32 clipboard fallback in Win32.cs and Controller.cs to support clipboard copy when the Avalonia window is closed; updated ExplainPrompt.cs to select recent surrounding events via TakeLast and include IP context when detail is empty.
+- Enhanced SettingsPage.cs FilterSettings with recursive text inspection across controls and expanders, correctly matching row options and filtering out non-matching cards.
+- Fixed Controller.cs ImportBackup to detect and restore personal user preferences (theme, notification level, update check) when PC settings match baseline.
+- Hardened Profiles.cs with Authenticode digital signature requirements for Teams, Slack, Dropbox update binaries and Zoom Downloads execution; added Zoom installation detection paths.
+- Fixed DetailView.cs ban history facts handler to prevent duplicate Address and Network rows.
 - Enhanced Settings UI (`SettingsPage.cs`): added instant search filtering, segmented theme/notification pill controls, responsive quiet mode chips with `Win32.RunningApplications` auto-detection and D3D full-screen game detection (`SHQueryUserNotificationState`), foreground process detection in `Notifier.cs` with toast quiet action button, sanitized exception messages in `Controller.TestFeed`, and updated `SettingsBackup.cs` with user preferences.
+- Fixed audit log export stream truncation (`SettingsPage.cs`), toggle button uncheck prevention (`SettingsPage.cs`), and logs folder fallback handling.
+- `Commands.cs`: `ShowInExplorer` now opens folders directly and formats `/select` argument without leading space.
+- `HomePage.cs` and `ModelBuilder.cs`: included both CVE and winget app update counts in dashboard tile and overall protection status text.
+- `AppRelease.cs`: `NormalizeSubject` now parses comma-delimited and quoted certificate subjects; added unit test assertions in `ReleaseTests.cs`.
 - Added `ExplainPrompt` builder (`src\Edr.Core\ExplainPrompt.cs`), `ActionKind.ExplainForDummies` in `src\Edr.Core\Actions.cs`, and handling in `src\Edr.Tray\Controller.cs`, `DetailView.cs`, and `Notifier.cs`.
 - Added `teams`, `slack`, `webex`, `vscode`, `git`, `docker`, `chrome`, and `dropbox` default profiles to `src\Edr.Core\Profiles.cs`, `src\Edr.Core\Catalog.cs`, and `src\Edr.Setup\Installer.cs`.
 - `src\Edr.Engine\Archive.cs`: clear transient subscription errors once source subscription succeeds or receives events so temporary startup delays do not latch permanent errors in `status.json`.
 - Added `edge` and `zoom` default profiles to `src\Edr.Core\Profiles.cs`, `src\Edr.Core\Catalog.cs`, and `src\Edr.Setup\Installer.cs`.
 - `Fixtures\live-2026-11-01`: normalized synthetic event fixture telemetry (paths and IPs) in `events.jsonl` and `model.json`.
+- `Fixtures\live-2026-11-01`: replaced the real exclusion list, app inventory, vulnerable package names and advisory IDs with dummy values (`ExampleAppN`, `example-pkg-x`, `CVE-2099-*`) so the fixture no longer documents the source PC's security posture; golden `model.json` refreshed.
 - `release.yml`: the changelog commit is titled `Release <version>: changelog` again (`${env:VERSION}`; `$env:VERSION:` made PowerShell read the colon as part of the name, so 2026.11.8's commit is titled "Release  changelog").
 
 ## 2026.11.8 - 2026-11-08

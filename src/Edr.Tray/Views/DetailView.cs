@@ -179,7 +179,7 @@ public sealed class DetailView : Border
             case "ban" or "banhist":
                 Add("Address", r.Cols.ElementAtOrDefault(1)); Add("Network", r.Cols.ElementAtOrDefault(4)); Add("Blocked until", r.Cols.ElementAtOrDefault(2));
                 Add("Strikes", r.Cols.ElementAtOrDefault(3)); Add("How", r.Cols.ElementAtOrDefault(5));
-                break;
+                return l;
         }
         if (e is null) return l;
         var sigma = Ps.Eq(e.S("blade"), "sigma");
